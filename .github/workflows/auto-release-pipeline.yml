@@ -99,48 +99,29 @@ jobs:
       if: steps.check.outputs.needs_bump == 'true'
       id: get_version
       run: |
-        # 获取最新的tag版本
+        # 直接使用 VERSION 文件中的版本号（与上游保持一致）
+        FILE_VERSION=$(cat VERSION | tr -d '[:space:]')
+        echo "VERSION file: $FILE_VERSION"
+
+        # 获取最新的tag版本（用于检查是否需要创建新tag）
         LATEST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0")
         echo "Latest tag: $LATEST_TAG"
         TAG_VERSION=${LATEST_TAG#v}
-        
-        # 获取VERSION文件中的版本
-        FILE_VERSION=$(cat VERSION | tr -d '[:space:]')
-        echo "VERSION file: $FILE_VERSION"
-        
-        # 比较tag版本和文件版本，取较大值
-        function version_gt() { test "$(printf '%s\n' "$@" | sort -V | head -n 1)" != "$1"; }
-        
-        if version_gt "$FILE_VERSION" "$TAG_VERSION"; then
-          VERSION="$FILE_VERSION"
-          echo "Using VERSION file: $VERSION (newer than tag)"
-        else
-          VERSION="$TAG_VERSION"
-          echo "Using tag version: $VERSION (newer or equal to file)"
-        fi
-        
-        echo "Current version: $VERSION"
-        echo "current_version=$VERSION" >> $GITHUB_OUTPUT
+
+        echo "Using VERSION file: $FILE_VERSION (保持与上游一致)"
+        echo "current_version=$FILE_VERSION" >> $GITHUB_OUTPUT
+        echo "latest_tag_version=$TAG_VERSION" >> $GITHUB_OUTPUT
 
     - name: Calculate next version
       if: steps.check.outputs.needs_bump == 'true'
       id: next_version
       run: |
+        # 使用 VERSION 文件中的版本号，不自动递增
         VERSION="${{ steps.get_version.outputs.current_version }}"
-        
-        # 分割版本号
-        IFS='.' read -r -a version_parts <<< "$VERSION"
-        MAJOR="${version_parts[0]:-0}"
-        MINOR="${version_parts[1]:-0}"
-        PATCH="${version_parts[2]:-0}"
-        
-        # 默认递增patch版本
-        NEW_PATCH=$((PATCH + 1))
-        NEW_VERSION="${MAJOR}.${MINOR}.${NEW_PATCH}"
-        
-        echo "New version: $NEW_VERSION"
-        echo "new_version=$NEW_VERSION" >> $GITHUB_OUTPUT
-        echo "new_tag=v$NEW_VERSION" >> $GITHUB_OUTPUT
+
+        echo "Release version: $VERSION (与上游保持一致)"
+        echo "new_version=$VERSION" >> $GITHUB_OUTPUT
+        echo "new_tag=v$VERSION" >> $GITHUB_OUTPUT
 
     # 已禁用自动更新 VERSION 文件 - 保持与上游一致以便追踪更新
     # - name: Update VERSION file
