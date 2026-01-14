@@ -539,6 +539,7 @@ export const useDashboardStore = defineStore('dashboard', () => {
       if (response.success) {
         apiKeysTrendData.value = {
           data: response.data || [],
+          apiKeyStats: response.apiKeyStats || [], // 新增：保存统计列表
           topApiKeys: response.topApiKeys || [],
           totalApiKeys: response.totalApiKeys || 0
         }

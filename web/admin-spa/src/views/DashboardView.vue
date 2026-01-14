@@ -674,12 +674,12 @@
       </div>
     </div>
 
-    <!-- API Keys 使用趋势图 -->
+    <!-- API Keys 使用趋势图与排行 -->
     <div class="mb-4 sm:mb-6 md:mb-8">
       <div class="card p-4 sm:p-6">
         <div class="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <h3 class="text-base font-semibold text-gray-900 dark:text-gray-100 sm:text-lg">
-            API Keys 使用趋势
+            API Keys 使用排行
           </h3>
           <!-- 维度切换按钮 -->
           <div class="flex gap-1 rounded-lg bg-gray-100 p-1 dark:bg-gray-700">
@@ -710,13 +710,132 @@
           </div>
         </div>
         <div class="mb-4 text-xs text-gray-600 dark:text-gray-400 sm:text-sm">
-          <span v-if="apiKeysTrendData.totalApiKeys > 10">
-            共 {{ apiKeysTrendData.totalApiKeys }} 个 API Key，显示使用量前 10 个
+          <span v-if="(apiKeysTrendData.apiKeyStats?.length || 0) > 20">
+            共 {{ apiKeysTrendData.apiKeyStats?.length }} 个 API Key，图表显示 Top 20
           </span>
-          <span v-else> 共 {{ apiKeysTrendData.totalApiKeys }} 个 API Key </span>
+          <span v-else> 共 {{ apiKeysTrendData.apiKeyStats?.length || 0 }} 个 API Key </span>
+          <span class="ml-2 text-gray-400">(点击柱状图查看详情)</span>
         </div>
-        <div class="sm:h-[350px]" style="height: 300px">
+
+        <!-- 柱状图区域 -->
+        <div class="sm:h-[400px]" style="height: 350px">
           <canvas ref="apiKeysUsageTrendChart" />
+        </div>
+
+        <!-- 详细数据表格 -->
+        <div class="mt-8 border-t border-gray-100 pt-6 dark:border-gray-700">
+          <h4 class="mb-4 text-sm font-semibold text-gray-800 dark:text-gray-200">使用量明细表</h4>
+          <div class="overflow-x-auto">
+            <table class="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+              <thead class="bg-gray-50 dark:bg-gray-800">
+                <tr>
+                  <th
+                    class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400"
+                    scope="col"
+                  >
+                    排名
+                  </th>
+                  <th
+                    class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400"
+                    scope="col"
+                  >
+                    API Key 名称
+                  </th>
+                  <th
+                    class="px-6 py-3 text-right text-xs font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400"
+                    scope="col"
+                  >
+                    请求数
+                  </th>
+                  <th
+                    class="px-6 py-3 text-right text-xs font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400"
+                    scope="col"
+                  >
+                    Token 总量
+                  </th>
+                  <th
+                    class="px-6 py-3 text-right text-xs font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400"
+                    scope="col"
+                  >
+                    预估费用
+                  </th>
+                  <th
+                    class="px-6 py-3 text-center text-xs font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400"
+                    scope="col"
+                  >
+                    操作
+                  </th>
+                </tr>
+              </thead>
+              <tbody
+                class="divide-y divide-gray-200 bg-white dark:divide-gray-700 dark:bg-gray-900"
+              >
+                <tr
+                  v-for="(stat, index) in paginatedApiKeyStats"
+                  :key="stat.id"
+                  class="hover:bg-gray-50 dark:hover:bg-gray-800"
+                >
+                  <td class="whitespace-nowrap px-6 py-4 text-sm text-gray-500 dark:text-gray-400">
+                    {{ (apiKeyStatsPage - 1) * apiKeyStatsPageSize + index + 1 }}
+                  </td>
+                  <td
+                    class="whitespace-nowrap px-6 py-4 text-sm font-medium text-gray-900 dark:text-gray-100"
+                  >
+                    <button
+                      class="text-blue-600 hover:text-blue-800 hover:underline dark:text-blue-400 dark:hover:text-blue-300"
+                      @click="showApiKeyDetail(stat)"
+                    >
+                      {{ stat.name || stat.id }}
+                    </button>
+                    <div class="text-xs text-gray-400">{{ stat.id.substring(0, 8) }}...</div>
+                  </td>
+                  <td
+                    class="whitespace-nowrap px-6 py-4 text-right text-sm text-gray-500 dark:text-gray-400"
+                  >
+                    {{ stat.requests.toLocaleString() }}
+                  </td>
+                  <td
+                    class="whitespace-nowrap px-6 py-4 text-right text-sm text-gray-500 dark:text-gray-400"
+                  >
+                    {{ formatNumber(stat.tokens) }}
+                  </td>
+                  <td
+                    class="whitespace-nowrap px-6 py-4 text-right text-sm text-green-600 dark:text-green-400"
+                  >
+                    {{ stat.formattedCost }}
+                  </td>
+                  <td class="whitespace-nowrap px-6 py-4 text-center text-sm font-medium">
+                    <button
+                      class="text-indigo-600 hover:text-indigo-900 dark:text-indigo-400 dark:hover:text-indigo-300"
+                      @click="showApiKeyDetail(stat)"
+                    >
+                      查看详情
+                    </button>
+                  </td>
+                </tr>
+                <tr v-if="paginatedApiKeyStats.length === 0">
+                  <td class="px-6 py-4 text-center text-sm text-gray-500" colspan="6">暂无数据</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <!-- 分页控件 -->
+          <div
+            v-if="(apiKeysTrendData.apiKeyStats?.length || 0) > apiKeyStatsPageSize"
+            class="mt-4 flex justify-end"
+          >
+            <el-pagination
+              v-model:current-page="apiKeyStatsPage"
+              v-model:page-size="apiKeyStatsPageSize"
+              background
+              layout="total, sizes, prev, pager, next"
+              :page-sizes="[5, 10, 20, 50]"
+              small
+              :total="apiKeysTrendData.apiKeyStats?.length || 0"
+              @current-change="handleApiKeyPageChange"
+              @size-change="handleApiKeyPageChange(1)"
+            />
+          </div>
         </div>
       </div>
     </div>
@@ -772,6 +891,235 @@
         </div>
       </div>
     </div>
+
+    <!-- API Key 详情弹窗 -->
+    <el-dialog
+      v-model="showApiKeyDetailDialog"
+      append-to-body
+      destroy-on-close
+      style="width: 90%; max-width: 1200px"
+      :title="
+        selectedApiKey
+          ? `API Key 详情: ${selectedApiKey.name || selectedApiKey.id}`
+          : 'API Key 详情'
+      "
+    >
+      <div v-if="loadingApiKeyDetail" class="py-12 text-center">
+        <i class="fas fa-spinner fa-spin text-2xl text-blue-500"></i>
+        <p class="mt-2 text-gray-500">加载中...</p>
+      </div>
+      <div v-else>
+        <!-- 基础信息 -->
+        <div class="mb-6 grid grid-cols-3 gap-4 rounded-lg bg-gray-50 p-4 dark:bg-gray-800">
+          <div class="text-center">
+            <p class="text-xs text-gray-500 dark:text-gray-400">总请求数</p>
+            <p class="text-xl font-bold text-gray-900 dark:text-gray-100">
+              {{ selectedApiKey?.requests.toLocaleString() }}
+            </p>
+          </div>
+          <div class="text-center">
+            <p class="text-xs text-gray-500 dark:text-gray-400">Token 总量</p>
+            <p class="text-xl font-bold text-blue-600 dark:text-blue-400">
+              {{ formatNumber(selectedApiKey?.tokens || 0) }}
+            </p>
+          </div>
+          <div class="text-center">
+            <p class="text-xs text-gray-500 dark:text-gray-400">预估费用</p>
+            <p class="text-xl font-bold text-green-600 dark:text-green-400">
+              {{ selectedApiKey?.formattedCost }}
+            </p>
+          </div>
+        </div>
+
+        <!-- 趋势图 -->
+        <div class="mb-6">
+          <h4 class="mb-3 text-sm font-semibold text-gray-800 dark:text-gray-200">
+            使用趋势 (当前时间段)
+          </h4>
+          <div class="h-[300px] w-full">
+            <canvas ref="apiKeyDetailChart" />
+          </div>
+        </div>
+
+        <!-- 模型使用统计表格 -->
+        <div v-if="selectedApiKeyModels && selectedApiKeyModels.length > 0" class="mt-6">
+          <h4 class="mb-3 text-sm font-semibold text-gray-800 dark:text-gray-200">模型使用明细</h4>
+          <div class="overflow-x-auto rounded-lg border border-gray-200 dark:border-gray-700">
+            <table class="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+              <thead class="bg-gray-50 dark:bg-gray-800">
+                <tr>
+                  <th
+                    class="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400"
+                    scope="col"
+                  >
+                    模型
+                  </th>
+                  <th
+                    class="px-4 py-3 text-right text-xs font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400"
+                    scope="col"
+                  >
+                    请求数
+                  </th>
+                  <th
+                    class="px-4 py-3 text-right text-xs font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400"
+                    scope="col"
+                  >
+                    输入 Token
+                  </th>
+                  <th
+                    class="px-4 py-3 text-right text-xs font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400"
+                    scope="col"
+                  >
+                    输出 Token
+                  </th>
+                  <th
+                    class="px-4 py-3 text-right text-xs font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400"
+                    scope="col"
+                  >
+                    缓存创建
+                  </th>
+                  <th
+                    class="px-4 py-3 text-right text-xs font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400"
+                    scope="col"
+                  >
+                    缓存读取
+                  </th>
+                  <th
+                    class="px-4 py-3 text-right text-xs font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400"
+                    scope="col"
+                  >
+                    总计
+                  </th>
+                  <th
+                    class="px-4 py-3 text-right text-xs font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400"
+                    scope="col"
+                  >
+                    费用
+                  </th>
+                </tr>
+              </thead>
+              <tbody
+                class="divide-y divide-gray-200 bg-white dark:divide-gray-700 dark:bg-gray-900"
+              >
+                <tr
+                  v-for="model in selectedApiKeyModels"
+                  :key="model.model"
+                  class="hover:bg-gray-50 dark:hover:bg-gray-800"
+                >
+                  <td
+                    class="whitespace-nowrap px-4 py-3 text-sm font-medium text-gray-900 dark:text-gray-100"
+                  >
+                    {{ model.model }}
+                  </td>
+                  <td
+                    class="whitespace-nowrap px-4 py-3 text-right text-sm text-gray-500 dark:text-gray-400"
+                  >
+                    {{ model.requests.toLocaleString() }}
+                  </td>
+                  <td
+                    class="whitespace-nowrap px-4 py-3 text-right text-sm text-gray-500 dark:text-gray-400"
+                  >
+                    {{ formatNumber(model.inputTokens) }}
+                  </td>
+                  <td
+                    class="whitespace-nowrap px-4 py-3 text-right text-sm text-gray-500 dark:text-gray-400"
+                  >
+                    {{ formatNumber(model.outputTokens) }}
+                  </td>
+                  <td
+                    class="whitespace-nowrap px-4 py-3 text-right text-sm text-gray-500 dark:text-gray-400"
+                  >
+                    {{ formatNumber(model.cacheCreateTokens) }}
+                  </td>
+                  <td
+                    class="whitespace-nowrap px-4 py-3 text-right text-sm text-gray-500 dark:text-gray-400"
+                  >
+                    {{ formatNumber(model.cacheReadTokens) }}
+                  </td>
+                  <td
+                    class="whitespace-nowrap px-4 py-3 text-right text-sm font-medium text-blue-600 dark:text-blue-400"
+                  >
+                    {{ formatNumber(model.allTokens) }}
+                  </td>
+                  <td
+                    class="whitespace-nowrap px-4 py-3 text-right text-sm font-medium text-green-600 dark:text-green-400"
+                  >
+                    {{ model.formatted?.totalCost || '$0.00' }}
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- 按天用量统计表格 -->
+        <div v-if="selectedApiKeyDailyUsage && selectedApiKeyDailyUsage.length > 0" class="mt-6">
+          <h4 class="mb-3 text-sm font-semibold text-gray-800 dark:text-gray-200">按天用量明细</h4>
+          <div class="overflow-x-auto rounded-lg border border-gray-200 dark:border-gray-700">
+            <table class="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+              <thead class="bg-gray-50 dark:bg-gray-800">
+                <tr>
+                  <th
+                    class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400"
+                    scope="col"
+                  >
+                    日期
+                  </th>
+                  <th
+                    class="px-6 py-3 text-right text-xs font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400"
+                    scope="col"
+                  >
+                    请求次数
+                  </th>
+                  <th
+                    class="px-6 py-3 text-right text-xs font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400"
+                    scope="col"
+                  >
+                    总 Token
+                  </th>
+                  <th
+                    class="px-6 py-3 text-right text-xs font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400"
+                    scope="col"
+                  >
+                    费用
+                  </th>
+                </tr>
+              </thead>
+              <tbody
+                class="divide-y divide-gray-200 bg-white dark:divide-gray-700 dark:bg-gray-900"
+              >
+                <tr
+                  v-for="day in selectedApiKeyDailyUsage"
+                  :key="day.date"
+                  class="hover:bg-gray-50 dark:hover:bg-gray-800"
+                >
+                  <td
+                    class="whitespace-nowrap px-6 py-3 text-sm font-medium text-gray-900 dark:text-gray-100"
+                  >
+                    {{ day.date }}
+                  </td>
+                  <td
+                    class="whitespace-nowrap px-6 py-3 text-right text-sm text-gray-500 dark:text-gray-400"
+                  >
+                    {{ day.requests?.toLocaleString() || 0 }}
+                  </td>
+                  <td
+                    class="whitespace-nowrap px-6 py-3 text-right text-sm font-medium text-blue-600 dark:text-blue-400"
+                  >
+                    {{ formatTokenWithUnit(day.allTokens) }}
+                  </td>
+                  <td
+                    class="whitespace-nowrap px-6 py-3 text-right text-sm font-medium text-green-600 dark:text-green-400"
+                  >
+                    {{ day.formatted?.totalCost || '$0.00' }}
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </el-dialog>
   </div>
 </template>
 
@@ -947,12 +1295,36 @@ const chartColors = computed(() => ({
 
 // 格式化数字
 function formatNumber(num) {
-  if (num >= 1000000) {
-    return (num / 1000000).toFixed(2) + 'M'
-  } else if (num >= 1000) {
-    return (num / 1000).toFixed(2) + 'K'
+  if (num == null || num === undefined) {
+    return '0'
   }
-  return num.toString()
+  const n = Number(num)
+  if (!Number.isFinite(n)) {
+    return '0'
+  }
+  if (n >= 1000000) {
+    return (n / 1000000).toFixed(2) + 'M'
+  } else if (n >= 1000) {
+    return (n / 1000).toFixed(2) + 'K'
+  }
+  return n.toString()
+}
+
+// 格式化 Token 数量（带单位 k/M）
+function formatTokenWithUnit(num) {
+  if (num == null || num === undefined) {
+    return '0'
+  }
+  const n = Number(num)
+  if (!Number.isFinite(n)) {
+    return '0'
+  }
+  if (n >= 1000000) {
+    return (n / 1000000).toFixed(2) + 'M'
+  } else if (n >= 1000) {
+    return (n / 1000).toFixed(1) + 'k'
+  }
+  return n.toLocaleString()
 }
 
 function formatCostValue(cost) {
@@ -1275,7 +1647,31 @@ function createUsageTrendChart() {
   })
 }
 
-// 创建API Keys使用趋势图
+// 详细信息弹窗相关
+const showApiKeyDetailDialog = ref(false)
+const selectedApiKey = ref(null)
+const selectedApiKeyTrend = ref([])
+const selectedApiKeyModels = ref([])
+const selectedApiKeyDailyUsage = ref([])
+const loadingApiKeyDetail = ref(false)
+const apiKeyDetailChart = ref(null)
+let apiKeyDetailChartInstance = null
+
+// 表格分页相关
+const apiKeyStatsPage = ref(1)
+const apiKeyStatsPageSize = ref(5)
+const paginatedApiKeyStats = computed(() => {
+  const stats = apiKeysTrendData.value.apiKeyStats || []
+  const start = (apiKeyStatsPage.value - 1) * apiKeyStatsPageSize.value
+  const end = start + apiKeyStatsPageSize.value
+  return stats.slice(start, end)
+})
+
+const handleApiKeyPageChange = (page) => {
+  apiKeyStatsPage.value = page
+}
+
+// 创建API Keys使用总量柱状图
 function createApiKeysUsageTrendChart() {
   if (!apiKeysUsageTrendChart.value) return
 
@@ -1283,190 +1679,336 @@ function createApiKeysUsageTrendChart() {
     apiKeysUsageTrendChartInstance.destroy()
   }
 
-  const data = apiKeysTrendData.value.data || []
+  // 使用统计列表数据，取前20个用于图表展示
+  const stats = (apiKeysTrendData.value.apiKeyStats || []).slice(0, 20)
   const metric = apiKeysTrendMetric.value
 
-  // 颜色数组
-  const colors = [
-    '#3B82F6',
-    '#10B981',
-    '#F59E0B',
-    '#EF4444',
-    '#8B5CF6',
-    '#EC4899',
-    '#14B8A6',
-    '#F97316',
-    '#6366F1',
-    '#84CC16'
-  ]
+  const labels = stats.map((s) => s.name || s.id)
+  const data = stats.map((s) => (metric === 'tokens' ? s.tokens : s.requests))
 
-  // 准备数据集
-  const datasets =
-    apiKeysTrendData.value.topApiKeys?.map((apiKeyId, index) => {
-      const data = apiKeysTrendData.value.data.map((item) => {
-        if (!item.apiKeys || !item.apiKeys[apiKeyId]) return 0
-        return metric === 'tokens'
-          ? item.apiKeys[apiKeyId].tokens
-          : item.apiKeys[apiKeyId].requests || 0
-      })
+  // 颜色生成
+  const bgColors = stats.map((_, i) => {
+    const colors = [
+      'rgba(59, 130, 246, 0.7)', // Blue
+      'rgba(16, 185, 129, 0.7)', // Green
+      'rgba(245, 158, 11, 0.7)', // Amber
+      'rgba(239, 68, 68, 0.7)', // Red
+      'rgba(139, 92, 246, 0.7)', // Violet
+      'rgba(236, 72, 153, 0.7)', // Pink
+      'rgba(20, 184, 166, 0.7)', // Teal
+      'rgba(249, 115, 22, 0.7)', // Orange
+      'rgba(99, 102, 241, 0.7)', // Indigo
+      'rgba(132, 204, 22, 0.7)' // Lime
+    ]
+    return colors[i % colors.length]
+  })
 
-      // 获取API Key名称
-      const apiKeyName =
-        apiKeysTrendData.value.data.find((item) => item.apiKeys && item.apiKeys[apiKeyId])?.apiKeys[
-          apiKeyId
-        ]?.name || `API Key ${apiKeyId}`
-
-      return {
-        label: apiKeyName,
-        data: data,
-        borderColor: colors[index % colors.length],
-        backgroundColor: colors[index % colors.length] + '20',
-        tension: 0.4,
-        fill: false
-      }
-    }) || []
-
-  // 根据数据类型确定标签字段
-  const labelField = data[0]?.date ? 'date' : 'hour'
+  const borderColors = bgColors.map((c) => c.replace('0.7', '1'))
 
   const chartData = {
-    labels: data.map((d) => {
-      // 优先使用后端提供的label字段
-      if (d.label) {
-        return d.label
+    labels: labels,
+    datasets: [
+      {
+        label: metric === 'tokens' ? 'Token 数量' : '请求次数',
+        data: data,
+        backgroundColor: bgColors,
+        borderColor: borderColors,
+        borderWidth: 1,
+        borderRadius: 4
       }
-
-      if (labelField === 'hour') {
-        // 格式化小时显示
-        const date = new Date(d.hour)
-        const month = String(date.getMonth() + 1).padStart(2, '0')
-        const day = String(date.getDate()).padStart(2, '0')
-        const hour = String(date.getHours()).padStart(2, '0')
-        return `${month}/${day} ${hour}:00`
-      }
-      // 按天显示时，只显示月/日，不显示年份
-      const dateStr = d.date
-      if (dateStr && dateStr.includes('-')) {
-        const parts = dateStr.split('-')
-        if (parts.length >= 3) {
-          return `${parts[1]}/${parts[2]}`
-        }
-      }
-      return d.date
-    }),
-    datasets: datasets
+    ]
   }
 
   apiKeysUsageTrendChartInstance = new Chart(apiKeysUsageTrendChart.value, {
-    type: 'line',
+    type: 'bar',
     data: chartData,
     options: {
+      indexAxis: 'x', // 垂直柱状图
       responsive: true,
       maintainAspectRatio: false,
       plugins: {
-        legend: {
-          position: 'bottom',
-          labels: {
-            padding: 20,
-            usePointStyle: true,
-            font: {
-              size: 12
-            },
-            color: chartColors.value.legend
-          }
-        },
+        legend: { display: false },
         tooltip: {
-          mode: 'index',
-          intersect: false,
-          itemSort: function (a, b) {
-            // 按值倒序排列
-            return b.parsed.y - a.parsed.y
-          },
           callbacks: {
             label: function (context) {
-              const label = context.dataset.label || ''
               const value = context.parsed.y
-              const dataIndex = context.dataIndex
-              const dataPoint = apiKeysTrendData.value.data[dataIndex]
+              const index = context.dataIndex
+              const stat = stats[index]
 
-              // 获取所有数据集在这个时间点的值，用于排名
-              const allValues = context.chart.data.datasets
-                .map((dataset, idx) => ({
-                  value: dataset.data[dataIndex] || 0,
-                  index: idx
-                }))
-                .sort((a, b) => b.value - a.value)
-
-              // 找出当前数据集的排名
-              const rank = allValues.findIndex((item) => item.index === context.datasetIndex) + 1
-
-              // 准备排名标识
-              let rankIcon = ''
-              if (rank === 1) rankIcon = '🥇 '
-              else if (rank === 2) rankIcon = '🥈 '
-              else if (rank === 3) rankIcon = '🥉 '
-
-              if (apiKeysTrendMetric.value === 'tokens') {
-                // 格式化token显示
-                let formattedValue = ''
-                if (value >= 1000000) {
-                  formattedValue = (value / 1000000).toFixed(2) + 'M'
-                } else if (value >= 1000) {
-                  formattedValue = (value / 1000).toFixed(2) + 'K'
-                } else {
-                  formattedValue = value.toLocaleString()
-                }
-
-                // 获取对应API Key的费用信息
-                const apiKeyId = apiKeysTrendData.value.topApiKeys[context.datasetIndex]
-                const apiKeyData = dataPoint?.apiKeys?.[apiKeyId]
-                const cost = apiKeyData?.formattedCost || '$0.00'
-
-                return `${rankIcon}${label}: ${formattedValue} tokens (${cost})`
+              let label = ''
+              if (metric === 'tokens') {
+                label = `${formatNumber(value)} tokens`
               } else {
-                return `${rankIcon}${label}: ${value.toLocaleString()} 次`
+                label = `${value.toLocaleString()} 次`
               }
+              return `${label} (${stat.formattedCost})`
             }
           }
         }
       },
       scales: {
         x: {
-          type: 'category',
-          display: true,
-          title: {
-            display: true,
-            text: trendGranularity === 'hour' ? '时间' : '日期',
-            color: chartColors.value.text
-          },
+          grid: { display: false },
           ticks: {
-            color: chartColors.value.text
-          },
-          grid: {
-            color: chartColors.value.grid
+            color: chartColors.value.text,
+            maxRotation: 45,
+            minRotation: 45,
+            autoSkip: false
           }
         },
         y: {
-          beginAtZero: true,
-          min: 0,
-          title: {
-            display: true,
-            text: apiKeysTrendMetric.value === 'tokens' ? 'Token 数量' : '请求次数',
-            color: chartColors.value.text
-          },
+          grid: { color: chartColors.value.grid },
           ticks: {
-            callback: function (value) {
-              return formatNumber(value)
-            },
-            color: chartColors.value.text
-          },
-          grid: {
-            color: chartColors.value.grid
+            color: chartColors.value.text,
+            callback: (value) => formatNumber(value)
           }
+        }
+      },
+      onClick: (event, elements) => {
+        if (elements.length > 0) {
+          const index = elements[0].index
+          const stat = stats[index]
+          showApiKeyDetail(stat)
         }
       }
     }
   })
+}
+
+// 显示API Key详情
+const showApiKeyDetail = async (stat) => {
+  selectedApiKey.value = stat
+  showApiKeyDetailDialog.value = true
+  loadingApiKeyDetail.value = true
+
+  try {
+    // 提取该Key的趋势数据
+    const fullTrend = apiKeysTrendData.value.data || []
+    selectedApiKeyTrend.value = fullTrend.map((point) => {
+      const keyData = point.apiKeys?.[stat.id] || { requests: 0, tokens: 0, cost: 0 }
+      return {
+        date: point.label || point.date || point.hour,
+        ...keyData
+      }
+    })
+
+    // 加载模型统计数据
+    try {
+      // 根据当前时间范围构建查询参数
+      let period = 'monthly'
+      let queryParams = `period=${period}`
+
+      if (dateFilter.value.type === 'custom' && dateFilter.value.customRange) {
+        period = 'custom'
+        queryParams = `period=custom&startDate=${encodeURIComponent(dateFilter.value.customRange[0])}&endDate=${encodeURIComponent(dateFilter.value.customRange[1])}`
+      } else if (dateFilter.value.type === 'preset') {
+        if (dateFilter.value.preset === 'today') {
+          period = 'daily'
+          queryParams = `period=daily`
+        }
+      }
+
+      const response = await apiClient.get(`/admin/api-keys/${stat.id}/model-stats?${queryParams}`)
+      if (response.success && response.data) {
+        selectedApiKeyModels.value = response.data
+      } else {
+        selectedApiKeyModels.value = []
+      }
+    } catch (error) {
+      console.error('加载模型统计失败:', error)
+      selectedApiKeyModels.value = []
+    }
+
+    // 加载按天用量统计数据
+    try {
+      // 从趋势数据中提取该 API Key 的每日用量，并按日期倒序排列
+      const dailyUsageMap = new Map()
+      const fullTrend = apiKeysTrendData.value.data || []
+
+      console.log('Loading daily usage for API Key:', stat.id)
+      console.log('Full trend data points:', fullTrend.length)
+
+      fullTrend.forEach((point) => {
+        const keyData = point.apiKeys?.[stat.id]
+        if (keyData && keyData.requests > 0) {
+          // 提取日期（去掉时间部分）
+          let dateStr = point.date || point.label || point.hour
+          if (dateStr && dateStr.includes('T')) {
+            dateStr = dateStr.split('T')[0]
+          } else if (dateStr && dateStr.includes(' ')) {
+            dateStr = dateStr.split(' ')[0]
+          }
+
+          if (!dailyUsageMap.has(dateStr)) {
+            dailyUsageMap.set(dateStr, {
+              date: dateStr,
+              requests: 0,
+              tokens: 0,
+              inputTokens: 0,
+              outputTokens: 0,
+              cacheCreateTokens: 0,
+              cacheReadTokens: 0,
+              cost: 0
+            })
+          }
+
+          const dayData = dailyUsageMap.get(dateStr)
+          dayData.requests += keyData.requests || 0
+          // 如果有详细的 token 字段，使用它们；否则使用总的 tokens 字段
+          dayData.inputTokens += keyData.inputTokens || 0
+          dayData.outputTokens += keyData.outputTokens || 0
+          dayData.cacheCreateTokens += keyData.cacheCreateTokens || 0
+          dayData.cacheReadTokens += keyData.cacheReadTokens || 0
+          dayData.tokens += keyData.tokens || 0
+          dayData.cost += keyData.cost || 0
+        }
+      })
+
+      console.log('Daily usage map:', Array.from(dailyUsageMap.entries()))
+
+      // 转换为数组并按日期倒序排列，添加计算字段
+      selectedApiKeyDailyUsage.value = Array.from(dailyUsageMap.values())
+        .map((day) => {
+          // 优先使用 tokens 字段，如果没有则计算各个字段的总和
+          const allTokens =
+            day.tokens > 0
+              ? day.tokens
+              : day.inputTokens + day.outputTokens + day.cacheCreateTokens + day.cacheReadTokens
+          console.log(
+            `Date: ${day.date}, tokens: ${day.tokens}, calculated: ${day.inputTokens + day.outputTokens + day.cacheCreateTokens + day.cacheReadTokens}, final: ${allTokens}`
+          )
+          return {
+            ...day,
+            allTokens,
+            formatted: {
+              totalCost: day.cost >= 0.01 ? `$${day.cost.toFixed(2)}` : '<$0.01'
+            }
+          }
+        })
+        .sort((a, b) => {
+          return b.date.localeCompare(a.date) // 倒序：最新的日期在前
+        })
+    } catch (error) {
+      console.error('加载按天用量统计失败:', error)
+      selectedApiKeyDailyUsage.value = []
+    }
+
+    // 等待 DOM 完全渲染后再创建图表
+    loadingApiKeyDetail.value = false
+    await nextTick()
+    // 使用 setTimeout 确保 el-dialog 的 DOM 已经完全渲染
+    setTimeout(() => {
+      createApiKeyDetailChart()
+    }, 100)
+  } catch (chartError) {
+    console.error('创建图表失败:', chartError)
+    loadingApiKeyDetail.value = false
+  }
+}
+
+// 创建详情趋势图
+function createApiKeyDetailChart() {
+  if (!apiKeyDetailChart.value) {
+    console.warn('Canvas ref not available for API Key detail chart')
+    return
+  }
+
+  try {
+    if (apiKeyDetailChartInstance) {
+      apiKeyDetailChartInstance.destroy()
+    }
+
+    const data = selectedApiKeyTrend.value
+    if (!data || data.length === 0) {
+      console.warn('No trend data available for chart')
+      return
+    }
+
+    const labels = data.map((d) => {
+      // 简单的日期格式化
+      if (d.date && d.date.includes('T')) {
+        const date = new Date(d.date)
+        return `${date.getHours()}:00`
+      }
+      return d.date
+    })
+
+    console.log('Creating API Key detail chart with', data.length, 'data points')
+
+    apiKeyDetailChartInstance = new Chart(apiKeyDetailChart.value, {
+      type: 'line',
+      data: {
+        labels: labels,
+        datasets: [
+          {
+            label: 'Token 消耗',
+            data: data.map((d) => d.tokens),
+            borderColor: '#3B82F6',
+            backgroundColor: 'rgba(59, 130, 246, 0.1)',
+            yAxisID: 'y',
+            tension: 0.3,
+            fill: true
+          },
+          {
+            label: '请求次数',
+            data: data.map((d) => d.requests),
+            borderColor: '#10B981',
+            backgroundColor: 'rgba(16, 185, 129, 0.1)',
+            yAxisID: 'y1',
+            tension: 0.3,
+            fill: true
+          }
+        ]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        interaction: { mode: 'index', intersect: false },
+        plugins: {
+          legend: { position: 'top', labels: { color: chartColors.value.legend } },
+          tooltip: {
+            callbacks: {
+              label: function (context) {
+                const label = context.dataset.label || ''
+                const value = context.parsed.y
+                if (context.dataset.yAxisID === 'y') {
+                  // Token 消耗使用单位格式化
+                  return `${label}: ${formatTokenWithUnit(value)}`
+                } else {
+                  // 请求次数使用普通格式
+                  return `${label}: ${value.toLocaleString()}`
+                }
+              }
+            }
+          }
+        },
+        scales: {
+          x: {
+            ticks: { color: chartColors.value.text },
+            grid: { color: chartColors.value.grid }
+          },
+          y: {
+            type: 'linear',
+            display: true,
+            position: 'left',
+            title: { display: true, text: 'Tokens', color: chartColors.value.text },
+            ticks: { color: chartColors.value.text, callback: (v) => formatTokenWithUnit(v) },
+            grid: { color: chartColors.value.grid }
+          },
+          y1: {
+            type: 'linear',
+            display: true,
+            position: 'right',
+            title: { display: true, text: '请求数', color: chartColors.value.text },
+            ticks: { color: chartColors.value.text },
+            grid: { display: false }
+          }
+        }
+      }
+    })
+  } catch (error) {
+    console.error('Failed to create API Key detail chart:', error)
+  }
 }
 
 // 更新API Keys使用趋势图

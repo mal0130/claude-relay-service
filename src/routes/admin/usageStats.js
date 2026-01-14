@@ -1533,25 +1533,44 @@ router.get('/api-keys-usage-trend', authenticateAdmin, async (req, res) => {
     }
 
     // 计算每个API Key的总token数，用于排序
-    const apiKeyTotals = new Map()
+    const apiKeyStatsMap = new Map()
+
     for (const point of trendData) {
       for (const [apiKeyId, data] of Object.entries(point.apiKeys)) {
-        apiKeyTotals.set(apiKeyId, (apiKeyTotals.get(apiKeyId) || 0) + data.tokens)
+        if (!apiKeyStatsMap.has(apiKeyId)) {
+          apiKeyStatsMap.set(apiKeyId, {
+            id: apiKeyId,
+            name: data.name,
+            requests: 0,
+            tokens: 0,
+            cost: 0
+          })
+        }
+        const stats = apiKeyStatsMap.get(apiKeyId)
+        stats.requests += data.requests || 0
+        stats.tokens += data.tokens || 0
+        stats.cost += data.cost || 0
       }
     }
 
-    // 获取前10个使用量最多的API Key
-    const topApiKeys = Array.from(apiKeyTotals.entries())
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 10)
-      .map(([apiKeyId]) => apiKeyId)
+    // 转换为数组并排序
+    const apiKeyStats = Array.from(apiKeyStatsMap.values())
+      .sort((a, b) => b.tokens - a.tokens)
+      .map(stat => ({
+        ...stat,
+        formattedCost: CostCalculator.formatCost(stat.cost)
+      }))
+
+    // 获取前10个使用量最多的API Key (用于可能的图表高亮或旧逻辑兼容)
+    const topApiKeys = apiKeyStats.slice(0, 10).map(k => k.id)
 
     return res.json({
       success: true,
       data: trendData,
+      apiKeyStats, // 新增：完整的统计列表
       granularity,
       topApiKeys,
-      totalApiKeys: apiKeyTotals.size
+      totalApiKeys: apiKeyStatsMap.size
     })
   } catch (error) {
     logger.error('❌ Failed to get API keys usage trend:', error)
