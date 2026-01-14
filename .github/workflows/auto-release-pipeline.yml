@@ -142,18 +142,19 @@ jobs:
         echo "new_version=$NEW_VERSION" >> $GITHUB_OUTPUT
         echo "new_tag=v$NEW_VERSION" >> $GITHUB_OUTPUT
 
-    - name: Update VERSION file
-      if: steps.check.outputs.needs_bump == 'true'
-      run: |
-        echo "${{ steps.next_version.outputs.new_version }}" > VERSION
-        
-        # 配置git
-        git config user.name "github-actions[bot]"
-        git config user.email "github-actions[bot]@users.noreply.github.com"
-        
-        # 提交VERSION文件 - 添加 [skip ci] 以避免再次触发
-        git add VERSION
-        git commit -m "chore: sync VERSION file with release ${{ steps.next_version.outputs.new_tag }} [skip ci]"
+    # 已禁用自动更新 VERSION 文件 - 保持与上游一致以便追踪更新
+    # - name: Update VERSION file
+    #   if: steps.check.outputs.needs_bump == 'true'
+    #   run: |
+    #     echo "${{ steps.next_version.outputs.new_version }}" > VERSION
+    #
+    #     # 配置git
+    #     git config user.name "github-actions[bot]"
+    #     git config user.email "github-actions[bot]@users.noreply.github.com"
+    #
+    #     # 提交VERSION文件 - 添加 [skip ci] 以避免再次触发
+    #     git add VERSION
+    #     git commit -m "chore: sync VERSION file with release ${{ steps.next_version.outputs.new_tag }} [skip ci]"
 
     # 构建前端并推送到 web-dist 分支
     - name: Setup Node.js
@@ -265,22 +266,23 @@ jobs:
         git tag -a "$NEW_TAG" -m "Release $NEW_TAG"
         git push origin HEAD:main "$NEW_TAG"
 
-    - name: Prepare image names
-      id: image_names
-      if: steps.check.outputs.needs_bump == 'true'
-      run: |
-        DOCKER_USERNAME="${{ secrets.DOCKERHUB_USERNAME }}"
-        if [ -z "$DOCKER_USERNAME" ]; then
-          DOCKER_USERNAME="weishaw"
-        fi
-
-        DOCKER_IMAGE=$(echo "${DOCKER_USERNAME}/claude-relay-service" | tr '[:upper:]' '[:lower:]')
-        GHCR_IMAGE=$(echo "ghcr.io/${{ github.repository_owner }}/claude-relay-service" | tr '[:upper:]' '[:lower:]')
-
-        {
-          echo "docker_image=${DOCKER_IMAGE}"
-          echo "ghcr_image=${GHCR_IMAGE}"
-        } >> "$GITHUB_OUTPUT"
+    # Docker 构建已禁用 - 如需启用请取消注释以下步骤
+    # - name: Prepare image names
+    #   id: image_names
+    #   if: steps.check.outputs.needs_bump == 'true'
+    #   run: |
+    #     DOCKER_USERNAME="${{ secrets.DOCKERHUB_USERNAME }}"
+    #     if [ -z "$DOCKER_USERNAME" ]; then
+    #       DOCKER_USERNAME="weishaw"
+    #     fi
+    #
+    #     DOCKER_IMAGE=$(echo "${DOCKER_USERNAME}/claude-relay-service" | tr '[:upper:]' '[:lower:]')
+    #     GHCR_IMAGE=$(echo "ghcr.io/${{ github.repository_owner }}/claude-relay-service" | tr '[:upper:]' '[:lower:]')
+    #
+    #     {
+    #       echo "docker_image=${DOCKER_IMAGE}"
+    #       echo "ghcr_image=${GHCR_IMAGE}"
+    #     } >> "$GITHUB_OUTPUT"
 
     - name: Create GitHub Release
       if: steps.check.outputs.needs_bump == 'true'
@@ -289,21 +291,12 @@ jobs:
         tag_name: ${{ steps.next_version.outputs.new_tag }}
         name: Release ${{ steps.next_version.outputs.new_version }}
         body: |
-          ## 🐳 Docker 镜像
-          
-          ```bash
-          docker pull ${{ steps.image_names.outputs.docker_image }}:${{ steps.next_version.outputs.new_tag }}
-          docker pull ${{ steps.image_names.outputs.docker_image }}:latest
-          docker pull ${{ steps.image_names.outputs.ghcr_image }}:${{ steps.next_version.outputs.new_tag }}
-          docker pull ${{ steps.image_names.outputs.ghcr_image }}:latest
-          ```
-          
           ## 📦 主要更新
-          
+
           ${{ steps.changelog.outputs.content }}
-          
+
           ## 📋 完整更新日志
-          
+
           查看 [所有版本](https://github.com/${{ github.repository }}/releases)
         draft: false
         prerelease: false
@@ -409,89 +402,78 @@ jobs:
           echo "✅ 当前tag数量（$TOTAL_COUNT）未超过限制（$TAGS_TO_KEEP），无需清理"
         fi
 
-    # Docker构建步骤
-    - name: Set up QEMU
-      if: steps.check.outputs.needs_bump == 'true'
-      uses: docker/setup-qemu-action@v3
-
-    - name: Set up Docker Buildx
-      if: steps.check.outputs.needs_bump == 'true'
-      uses: docker/setup-buildx-action@v3
-
-    - name: Log in to Docker Hub
-      if: steps.check.outputs.needs_bump == 'true'
-      uses: docker/login-action@v3
-      with:
-        registry: docker.io
-        username: ${{ secrets.DOCKERHUB_USERNAME }}
-        password: ${{ secrets.DOCKERHUB_TOKEN }}
-
-    - name: Log in to GitHub Container Registry
-      if: steps.check.outputs.needs_bump == 'true'
-      uses: docker/login-action@v3
-      with:
-        registry: ghcr.io
-        username: ${{ github.repository_owner }}
-        password: ${{ secrets.GITHUB_TOKEN }}
-
-    - name: Build and push Docker image
-      if: steps.check.outputs.needs_bump == 'true'
-      uses: docker/build-push-action@v6
-      with:
-        context: .
-        platforms: linux/amd64,linux/arm64
-        push: true
-        tags: |
-          ${{ steps.image_names.outputs.docker_image }}:${{ steps.next_version.outputs.new_tag }}
-          ${{ steps.image_names.outputs.docker_image }}:latest
-          ${{ steps.image_names.outputs.docker_image }}:${{ steps.next_version.outputs.new_version }}
-          ${{ steps.image_names.outputs.ghcr_image }}:${{ steps.next_version.outputs.new_tag }}
-          ${{ steps.image_names.outputs.ghcr_image }}:latest
-          ${{ steps.image_names.outputs.ghcr_image }}:${{ steps.next_version.outputs.new_version }}
-        labels: |
-          org.opencontainers.image.version=${{ steps.next_version.outputs.new_version }}
-          org.opencontainers.image.revision=${{ github.sha }}
-          org.opencontainers.image.source=https://github.com/${{ github.repository }}
-        cache-from: type=gha
-        cache-to: type=gha,mode=max
+    # Docker构建步骤已禁用
+    # - name: Set up QEMU
+    #   if: steps.check.outputs.needs_bump == 'true'
+    #   uses: docker/setup-qemu-action@v3
+    #
+    # - name: Set up Docker Buildx
+    #   if: steps.check.outputs.needs_bump == 'true'
+    #   uses: docker/setup-buildx-action@v3
+    #
+    # - name: Log in to Docker Hub
+    #   if: steps.check.outputs.needs_bump == 'true'
+    #   uses: docker/login-action@v3
+    #   with:
+    #     registry: docker.io
+    #     username: ${{ secrets.DOCKERHUB_USERNAME }}
+    #     password: ${{ secrets.DOCKERHUB_TOKEN }}
+    #
+    # - name: Log in to GitHub Container Registry
+    #   if: steps.check.outputs.needs_bump == 'true'
+    #   uses: docker/login-action@v3
+    #   with:
+    #     registry: ghcr.io
+    #     username: ${{ github.repository_owner }}
+    #     password: ${{ secrets.GITHUB_TOKEN }}
+    #
+    # - name: Build and push Docker image
+    #   if: steps.check.outputs.needs_bump == 'true'
+    #   uses: docker/build-push-action@v6
+    #   with:
+    #     context: .
+    #     platforms: linux/amd64,linux/arm64
+    #     push: true
+    #     tags: |
+    #       ${{ steps.image_names.outputs.docker_image }}:${{ steps.next_version.outputs.new_tag }}
+    #       ${{ steps.image_names.outputs.docker_image }}:latest
+    #       ${{ steps.image_names.outputs.docker_image }}:${{ steps.next_version.outputs.new_version }}
+    #       ${{ steps.image_names.outputs.ghcr_image }}:${{ steps.next_version.outputs.new_tag }}
+    #       ${{ steps.image_names.outputs.ghcr_image }}:latest
+    #       ${{ steps.image_names.outputs.ghcr_image }}:${{ steps.next_version.outputs.new_version }}
+    #     labels: |
+    #       org.opencontainers.image.version=${{ steps.next_version.outputs.new_version }}
+    #       org.opencontainers.image.revision=${{ github.sha }}
+    #       org.opencontainers.image.source=https://github.com/${{ github.repository }}
+    #     cache-from: type=gha
+    #     cache-to: type=gha,mode=max
 
     - name: Send Telegram Notification
       if: steps.check.outputs.needs_bump == 'true' && env.TELEGRAM_BOT_TOKEN != '' && env.TELEGRAM_CHAT_ID != ''
       env:
         TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
         TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-        DOCKER_IMAGE: ${{ steps.image_names.outputs.docker_image }}
-        GHCR_IMAGE: ${{ steps.image_names.outputs.ghcr_image }}
       continue-on-error: true
       run: |
         VERSION="${{ steps.next_version.outputs.new_version }}"
         TAG="${{ steps.next_version.outputs.new_tag }}"
         REPO="${{ github.repository }}"
-        
+
         # 获取更新内容并限制长度
         CHANGELOG="${{ steps.changelog.outputs.content }}"
         CHANGELOG_TRUNCATED=$(echo "$CHANGELOG" | head -c 1000)
         if [ ${#CHANGELOG} -gt 1000 ]; then
           CHANGELOG_TRUNCATED="${CHANGELOG_TRUNCATED}..."
         fi
-        
+
         # 构建消息内容
         MESSAGE="🚀 *Claude Relay Service 新版本发布！*"$'\n'$'\n'
         MESSAGE+="📦 版本号: \`${VERSION}\`"$'\n'$'\n'
         MESSAGE+="📝 *更新内容:*"$'\n'
         MESSAGE+="${CHANGELOG_TRUNCATED}"$'\n'$'\n'
-        MESSAGE+="🐳 *Docker 部署:*"$'\n'
-        MESSAGE+="\`\`\`bash"$'\n'
-        MESSAGE+="docker pull ${DOCKER_IMAGE}:${TAG}"$'\n'
-        MESSAGE+="docker pull ${DOCKER_IMAGE}:latest"$'\n'
-        MESSAGE+="docker pull ${GHCR_IMAGE}:${TAG}"$'\n'
-        MESSAGE+="docker pull ${GHCR_IMAGE}:latest"$'\n'
-        MESSAGE+="\`\`\`"$'\n'$'\n'
         MESSAGE+="🔗 *相关链接:*"$'\n'
         MESSAGE+="• [GitHub Release](https://github.com/${REPO}/releases/tag/${TAG})"$'\n'
-        MESSAGE+="• [完整更新日志](https://github.com/${REPO}/releases)"$'\n'
-        MESSAGE+="• [Docker Hub](https://hub.docker.com/r/${DOCKER_IMAGE%/*}/claude-relay-service)"$'\n'
-        MESSAGE+="• [GHCR](https://ghcr.io/${GHCR_IMAGE#ghcr.io/})"$'\n'$'\n'
+        MESSAGE+="• [完整更新日志](https://github.com/${REPO}/releases)"$'\n'$'\n'
         MESSAGE+="#ClaudeRelay #Update #v${VERSION//./_}"
         
         # 使用 jq 构建 JSON 并发送
