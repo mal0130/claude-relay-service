@@ -4,6 +4,9 @@ FROM node:18-alpine AS backend-deps
 # 📁 设置工作目录
 WORKDIR /app
 
+# 🔧 安装编译工具 (用于原生模块如 heapdump)
+RUN apk add --no-cache python3 make g++
+
 # 📦 复制 package 文件
 COPY package*.json ./
 
