@@ -2192,8 +2192,30 @@ const timeRangeDropdownOptions = computed(() => [
 const activeTab = ref('active')
 const deletedApiKeys = ref([])
 const deletedApiKeysLoading = ref(false)
-const apiKeysSortBy = ref('createdAt') // 默认排序为创建时间
-const apiKeysSortOrder = ref('desc')
+
+// 从 localStorage 恢复排序规则，如果没有则使用默认值
+const getSavedSortBy = () => {
+  try {
+    const saved = localStorage.getItem('apiKeysSortBy')
+    return saved || 'createdAt'
+  } catch (error) {
+    console.error('读取排序规则失败:', error)
+    return 'createdAt'
+  }
+}
+
+const getSavedSortOrder = () => {
+  try {
+    const saved = localStorage.getItem('apiKeysSortOrder')
+    return saved || 'desc'
+  } catch (error) {
+    console.error('读取排序顺序失败:', error)
+    return 'desc'
+  }
+}
+
+const apiKeysSortBy = ref(getSavedSortBy()) // 从 localStorage 恢复或使用默认值
+const apiKeysSortOrder = ref(getSavedSortOrder()) // 从 localStorage 恢复或使用默认值
 const expandedApiKeys = ref({})
 
 // 费用排序相关状态
@@ -2797,8 +2819,16 @@ const sortApiKeys = (field) => {
     apiKeysSortOrder.value = apiKeysSortOrder.value === 'asc' ? 'desc' : 'asc'
   } else {
     apiKeysSortBy.value = field
-    // 费用排序默认降序（高费用在前）
+    // 费用排序默认降序（高值在前）
     apiKeysSortOrder.value = field === 'cost' ? 'desc' : 'asc'
+  }
+
+  // 保存排序规则到 localStorage
+  try {
+    localStorage.setItem('apiKeysSortBy', apiKeysSortBy.value)
+    localStorage.setItem('apiKeysSortOrder', apiKeysSortOrder.value)
+  } catch (error) {
+    console.error('保存排序规则失败:', error)
   }
 }
 
