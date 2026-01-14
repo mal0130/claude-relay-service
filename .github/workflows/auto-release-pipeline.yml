@@ -222,6 +222,10 @@ jobs:
         .env
         EOF
         
+        # 配置git用户信息
+        git config user.name "github-actions[bot]"
+        git config user.email "github-actions[bot]@users.noreply.github.com"
+
         # 只添加必要的文件，排除 node_modules
         git add --all -- ':!node_modules'
         git commit -m "chore: update frontend build for v${{ steps.next_version.outputs.new_version }} [skip ci]"
