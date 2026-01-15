@@ -710,8 +710,8 @@
           </div>
         </div>
         <div class="mb-4 text-xs text-gray-600 dark:text-gray-400 sm:text-sm">
-          <span v-if="(apiKeysTrendData.apiKeyStats?.length || 0) > 20">
-            共 {{ apiKeysTrendData.apiKeyStats?.length }} 个 API Key，图表显示 Top 20
+          <span v-if="(apiKeysTrendData.apiKeyStats?.length || 0) > 50">
+            共 {{ apiKeysTrendData.apiKeyStats?.length }} 个 API Key，图表显示 Top 50
           </span>
           <span v-else> 共 {{ apiKeysTrendData.apiKeyStats?.length || 0 }} 个 API Key </span>
           <span class="ml-2 text-gray-400">(点击柱状图查看详情)</span>
@@ -742,22 +742,55 @@
                     API Key 名称
                   </th>
                   <th
-                    class="px-6 py-3 text-right text-xs font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400"
+                    class="cursor-pointer select-none px-6 py-3 text-right text-xs font-medium uppercase tracking-wider text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
                     scope="col"
+                    @click="handleApiKeyStatsSort('requests')"
                   >
-                    请求数
+                    <div class="flex items-center justify-end gap-1">
+                      <span>请求数</span>
+                      <i
+                        v-if="apiKeyStatsSortColumn === 'requests'"
+                        :class="[
+                          'fas ml-1',
+                          apiKeyStatsSortDirection === 'asc' ? 'fa-sort-up' : 'fa-sort-down'
+                        ]"
+                      />
+                      <i v-else class="fas fa-sort ml-1 text-gray-400" />
+                    </div>
                   </th>
                   <th
-                    class="px-6 py-3 text-right text-xs font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400"
+                    class="cursor-pointer select-none px-6 py-3 text-right text-xs font-medium uppercase tracking-wider text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
                     scope="col"
+                    @click="handleApiKeyStatsSort('tokens')"
                   >
-                    Token 总量
+                    <div class="flex items-center justify-end gap-1">
+                      <span>Token 总量</span>
+                      <i
+                        v-if="apiKeyStatsSortColumn === 'tokens'"
+                        :class="[
+                          'fas ml-1',
+                          apiKeyStatsSortDirection === 'asc' ? 'fa-sort-up' : 'fa-sort-down'
+                        ]"
+                      />
+                      <i v-else class="fas fa-sort ml-1 text-gray-400" />
+                    </div>
                   </th>
                   <th
-                    class="px-6 py-3 text-right text-xs font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400"
+                    class="cursor-pointer select-none px-6 py-3 text-right text-xs font-medium uppercase tracking-wider text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
                     scope="col"
+                    @click="handleApiKeyStatsSort('cost')"
                   >
-                    预估费用
+                    <div class="flex items-center justify-end gap-1">
+                      <span>预估费用</span>
+                      <i
+                        v-if="apiKeyStatsSortColumn === 'cost'"
+                        :class="[
+                          'fas ml-1',
+                          apiKeyStatsSortDirection === 'asc' ? 'fa-sort-up' : 'fa-sort-down'
+                        ]"
+                      />
+                      <i v-else class="fas fa-sort ml-1 text-gray-400" />
+                    </div>
                   </th>
                   <th
                     class="px-6 py-3 text-center text-xs font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400"
@@ -1660,12 +1693,65 @@ let apiKeyDetailChartInstance = null
 // 表格分页相关
 const apiKeyStatsPage = ref(1)
 const apiKeyStatsPageSize = ref(5)
+const apiKeyStatsSortColumn = ref('requests') // 默认按请求数排序
+const apiKeyStatsSortDirection = ref('desc') // 'asc' 或 'desc'
+
+// 排序后的API Key统计数据
+const sortedApiKeyStats = computed(() => {
+  const stats = [...(apiKeysTrendData.value.apiKeyStats || [])]
+  const column = apiKeyStatsSortColumn.value
+  const direction = apiKeyStatsSortDirection.value
+
+  stats.sort((a, b) => {
+    let aValue, bValue
+
+    switch (column) {
+      case 'requests':
+        aValue = a.requests || 0
+        bValue = b.requests || 0
+        break
+      case 'tokens':
+        aValue = a.tokens || 0
+        bValue = b.tokens || 0
+        break
+      case 'cost':
+        aValue = a.cost || 0
+        bValue = b.cost || 0
+        break
+      default:
+        return 0
+    }
+
+    if (direction === 'asc') {
+      return aValue - bValue
+    } else {
+      return bValue - aValue
+    }
+  })
+
+  return stats
+})
+
 const paginatedApiKeyStats = computed(() => {
-  const stats = apiKeysTrendData.value.apiKeyStats || []
+  const stats = sortedApiKeyStats.value
   const start = (apiKeyStatsPage.value - 1) * apiKeyStatsPageSize.value
   const end = start + apiKeyStatsPageSize.value
   return stats.slice(start, end)
 })
+
+// 处理表格列排序
+const handleApiKeyStatsSort = (column) => {
+  if (apiKeyStatsSortColumn.value === column) {
+    // 切换排序方向
+    apiKeyStatsSortDirection.value = apiKeyStatsSortDirection.value === 'asc' ? 'desc' : 'asc'
+  } else {
+    // 切换到新列，默认降序
+    apiKeyStatsSortColumn.value = column
+    apiKeyStatsSortDirection.value = 'desc'
+  }
+  // 重置到第一页
+  apiKeyStatsPage.value = 1
+}
 
 const handleApiKeyPageChange = (page) => {
   apiKeyStatsPage.value = page
@@ -1679,8 +1765,8 @@ function createApiKeysUsageTrendChart() {
     apiKeysUsageTrendChartInstance.destroy()
   }
 
-  // 使用统计列表数据，取前20个用于图表展示
-  const stats = (apiKeysTrendData.value.apiKeyStats || []).slice(0, 20)
+  // 使用统计列表数据，取前50个用于图表展示
+  const stats = (apiKeysTrendData.value.apiKeyStats || []).slice(0, 50)
   const metric = apiKeysTrendMetric.value
 
   const labels = stats.map((s) => s.name || s.id)

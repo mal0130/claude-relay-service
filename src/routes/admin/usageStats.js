@@ -1270,9 +1270,11 @@ router.get('/account-usage-trend', authenticateAdmin, async (req, res) => {
 // 获取按API Key分组的使用趋势
 router.get('/api-keys-usage-trend', authenticateAdmin, async (req, res) => {
   try {
-    const { granularity = 'day', days = 7, startDate, endDate } = req.query
+    const { granularity = 'day', days = 7, startDate, endDate, metric = 'tokens' } = req.query
 
-    logger.info(`📊 Getting API keys usage trend, granularity: ${granularity}, days: ${days}`)
+    logger.info(
+      `📊 Getting API keys usage trend, granularity: ${granularity}, days: ${days}, metric: ${metric}`
+    )
 
     const client = redis.getClientSafe()
     const trendData = []
@@ -1553,16 +1555,23 @@ router.get('/api-keys-usage-trend', authenticateAdmin, async (req, res) => {
       }
     }
 
-    // 转换为数组并排序
+    // 转换为数组并根据metric参数排序
     const apiKeyStats = Array.from(apiKeyStatsMap.values())
-      .sort((a, b) => b.tokens - a.tokens)
-      .map(stat => ({
+      .sort((a, b) => {
+        // 根据metric参数选择排序字段
+        if (metric === 'requests') {
+          return b.requests - a.requests
+        } else {
+          return b.tokens - a.tokens
+        }
+      })
+      .map((stat) => ({
         ...stat,
         formattedCost: CostCalculator.formatCost(stat.cost)
       }))
 
     // 获取前10个使用量最多的API Key (用于可能的图表高亮或旧逻辑兼容)
-    const topApiKeys = apiKeyStats.slice(0, 10).map(k => k.id)
+    const topApiKeys = apiKeyStats.slice(0, 10).map((k) => k.id)
 
     return res.json({
       success: true,
