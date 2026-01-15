@@ -25,15 +25,20 @@ class LdapService {
         errors.push('LDAP server URL is not configured or invalid')
       }
 
-      if (!this.config.server.bindDN || typeof this.config.server.bindDN !== 'string') {
-        errors.push('LDAP bind DN is not configured or invalid')
-      }
+      // 验证绑定配置：必须配置 bindDN/bindCredentials (管理员模式) 或 bindDNPattern (直接绑定模式)
+      const hasAdminBind =
+        this.config.server.bindDN &&
+        typeof this.config.server.bindDN === 'string' &&
+        this.config.server.bindCredentials &&
+        typeof this.config.server.bindCredentials === 'string'
 
-      if (
-        !this.config.server.bindCredentials ||
-        typeof this.config.server.bindCredentials !== 'string'
-      ) {
-        errors.push('LDAP bind credentials are not configured or invalid')
+      const hasDirectBind =
+        this.config.server.bindDNPattern && typeof this.config.server.bindDNPattern === 'string'
+
+      if (!hasAdminBind && !hasDirectBind) {
+        errors.push(
+          'LDAP configuration error: Either (bindDN & bindCredentials) OR bindDNPattern must be configured'
+        )
       }
 
       if (!this.config.server.searchBase || typeof this.config.server.searchBase !== 'string') {
@@ -130,13 +135,14 @@ class LdapService {
   }
 
   // 🔗 创建LDAP客户端连接
-  createClient() {
+  createClient(options = {}) {
     try {
       const clientOptions = {
         url: this.config.server.url,
         timeout: this.config.server.timeout,
         connectTimeout: this.config.server.connectTimeout,
-        reconnect: true
+        reconnect: false, // 默认为 false，避免在 API 请求中无限重连
+        ...options // 允许覆盖默认选项
       }
 
       // 如果使用 LDAPS (SSL/TLS)，添加 TLS 选项
@@ -447,21 +453,64 @@ class LdapService {
       const attributes = ldapEntry.attributes || []
       const userInfo = { username }
 
-      // 创建属性映射
+      // 创建属性映射 (转换所有键为小写以进行不区分大小写的匹配)
       const attrMap = {}
       attributes.forEach((attr) => {
-        const name = attr.type || attr.name
+        const name = (attr.type || attr.name).toLowerCase()
         const values = Array.isArray(attr.values) ? attr.values : [attr.values]
-        attrMap[name] = values.length === 1 ? values[0] : values
+        // 有些 LDAP 实现可能返回 Buffer，尝试转换为字符串
+        const processedValues = values.map((val) => {
+          if (Buffer.isBuffer(val)) {
+            return val.toString('utf8')
+          }
+          return val
+        })
+
+        attrMap[name] = processedValues.length === 1 ? processedValues[0] : processedValues
       })
 
-      // 根据配置映射用户属性
-      const mapping = this.config.userMapping
+      // Log available attributes for debugging
+      // 临时开启 INFO 级别日志以调试属性获取问题
+      logger.info('📋 LDAP Attributes extracted:', {
+        keys: Object.keys(attrMap),
+        sn: attrMap['sn'],
+        cn: attrMap['cn'],
+        uid: attrMap['uid'],
+        mail: attrMap['mail']
+      })
 
-      userInfo.displayName = attrMap[mapping.displayName] || username
-      userInfo.email = attrMap[mapping.email] || ''
-      userInfo.firstName = attrMap[mapping.firstName] || ''
-      userInfo.lastName = attrMap[mapping.lastName] || ''
+      // 根据配置映射用户属性 (配置的键也转换为小写)
+      const mapping = this.config.userMapping
+      const getMappedValue = (configKey) => {
+        if (!configKey) {
+          return undefined
+        }
+        const val = attrMap[configKey.toLowerCase()]
+        // 处理空数组或空值
+        if (Array.isArray(val) && val.length === 0) {
+          return undefined
+        }
+        if (val === '') {
+          return undefined
+        }
+        return val
+      }
+
+      // 特殊处理：如果配置了 username 映射，且能获取到对应属性值，则覆盖默认的登录用户名
+      // 这允许用户用 'maliang' 登录，但系统账号关联到 '马亮' (如果 sn=马亮)
+      const mappedUsername = getMappedValue(mapping.username)
+      if (mappedUsername && typeof mappedUsername === 'string' && mappedUsername.trim() !== '') {
+        const oldUsername = userInfo.username
+        userInfo.username = mappedUsername.trim()
+        logger.info(
+          `🔄 User identity mapped: ${oldUsername} -> ${userInfo.username} (via ${mapping.username})`
+        )
+      }
+
+      userInfo.displayName = getMappedValue(mapping.displayName) || userInfo.username // Fallback to mapped username
+      userInfo.email = getMappedValue(mapping.email) || ''
+      userInfo.firstName = getMappedValue(mapping.firstName) || ''
+      userInfo.lastName = getMappedValue(mapping.lastName) || ''
 
       // 如果没有displayName，尝试组合firstName和lastName
       if (!userInfo.displayName || userInfo.displayName === username) {
@@ -528,65 +577,58 @@ class LdapService {
       throw new Error('LDAP server URL is not configured')
     }
 
-    if (!this.config.server.bindDN || typeof this.config.server.bindDN !== 'string') {
-      throw new Error('LDAP bind DN is not configured')
-    }
+    const hasAdminBind = this.config.server.bindDN && this.config.server.bindCredentials
+    const hasDirectBind = this.config.server.bindDNPattern
 
-    if (
-      !this.config.server.bindCredentials ||
-      typeof this.config.server.bindCredentials !== 'string'
-    ) {
-      throw new Error('LDAP bind credentials are not configured')
+    if (!hasAdminBind && !hasDirectBind) {
+      throw new Error(
+        'LDAP configuration error: Either (bindDN & bindCredentials) OR bindDNPattern must be configured'
+      )
     }
 
     if (!this.config.server.searchBase || typeof this.config.server.searchBase !== 'string') {
       throw new Error('LDAP search base is not configured')
     }
 
-    const client = this.createClient()
+    let mainClient = null // 用于在最后阶段获取用户信息的 client
 
     try {
-      // 1. 使用管理员凭据绑定
-      await this.bindClient(client)
+      let ldapEntry = null
+      let userDN = null
 
-      // 2. 搜索用户 (使用已验证的用户名)
-      const ldapEntry = await this.searchUser(client, sanitizedUsername)
-      if (!ldapEntry) {
-        logger.info(`🚫 User not found in LDAP: ${sanitizedUsername}`)
-        return { success: false, message: 'Invalid username or password' }
+      // 1. 获取用户 DN
+      // 优先使用直接绑定模式 (bindDNPattern)，因为它通常是用户显式配置的特定认证方式
+      if (hasDirectBind) {
+        // 模式 B: 直接使用模式构建 DN (无需管理员权限)
+        userDN = this.config.server.bindDNPattern.replace(/{{username}}/g, sanitizedUsername)
+        logger.debug(`🔧 Constructed user DN from pattern: ${userDN}`)
+      } else if (hasAdminBind) {
+        // 模式 A: 管理员绑定 -> 搜索用户 -> 获取 DN
+        mainClient = this.createClient()
+        await this.bindClient(mainClient)
+        ldapEntry = await this.searchUser(mainClient, sanitizedUsername)
+
+        if (!ldapEntry) {
+          logger.info(`🚫 User not found in LDAP: ${sanitizedUsername}`)
+          if (mainClient) {
+            mainClient.unbind(() => {})
+          }
+          return { success: false, message: 'Invalid username or password' }
+        }
+
+        userDN = this.extractDN(ldapEntry)
       }
 
-      // 3. 获取用户DN
-      logger.debug('🔍 LDAP entry details for DN extraction:', {
-        hasEntry: !!ldapEntry,
-        entryType: typeof ldapEntry,
-        entryKeys: Object.keys(ldapEntry || {}),
-        dn: ldapEntry.dn,
-        objectName: ldapEntry.objectName,
-        dnType: typeof ldapEntry.dn,
-        objectNameType: typeof ldapEntry.objectName
-      })
-
-      // Use the helper method to extract DN
-      const userDN = this.extractDN(ldapEntry)
-
-      logger.debug(`👤 Extracted user DN: ${userDN} (type: ${typeof userDN})`)
-
-      // 验证用户DN
+      // 2. 验证用户 DN
       if (!userDN) {
-        logger.error(`❌ Invalid or missing DN for user: ${sanitizedUsername}`, {
-          ldapEntryDn: ldapEntry.dn,
-          ldapEntryObjectName: ldapEntry.objectName,
-          ldapEntryType: typeof ldapEntry,
-          extractedDN: userDN
-        })
+        logger.error(`❌ Invalid or missing DN for user: ${sanitizedUsername}`)
         return { success: false, message: 'Authentication service error' }
       }
 
-      // 4. 验证用户密码 - 支持传统LDAP和Windows AD
+      // 3. 验证用户密码
       let isPasswordValid = false
 
-      // 首先尝试传统的DN认证（保持原有LDAP逻辑）
+      // 尝试使用提取的/构建的 DN 进行绑定认证
       try {
         isPasswordValid = await this.authenticateUser(userDN, password)
         if (isPasswordValid) {
@@ -598,7 +640,8 @@ class LdapService {
         )
       }
 
-      // 如果DN认证失败，尝试Windows AD多格式认证
+      // 如果 DN 认证失败，尝试 Windows AD 多格式认证 (仅在配置了 admin bind 时，或者明确需要 fallback 时)
+      // 注意：如果��直接绑定模式，通常 DN 模式就是准确的，但也可以尝试 AD 格式
       if (!isPasswordValid) {
         logger.debug(`🔄 Trying Windows AD authentication formats for user: ${sanitizedUsername}`)
         isPasswordValid = await this.tryWindowsADAuthentication(sanitizedUsername, password)
@@ -610,6 +653,41 @@ class LdapService {
       if (!isPasswordValid) {
         logger.info(`🚫 All authentication methods failed for user: ${sanitizedUsername}`)
         return { success: false, message: 'Invalid username or password' }
+      }
+
+      // 4. 获取用户信息 (如果还没有)
+      // 如果是直接绑定模式，我们还没有搜索用户信息，现在需要用用户的凭据去搜索
+      if (!ldapEntry) {
+        try {
+          // Initialize mainClient if not already initialized
+          if (!mainClient) {
+            mainClient = this.createClient()
+          }
+
+          // 使用用户凭据绑定主客户端
+          await new Promise((resolve, reject) => {
+            mainClient.bind(userDN, password, (err) => {
+              if (err) {
+                reject(err)
+              } else {
+                resolve()
+              }
+            })
+          })
+
+          // 搜索用户信息
+          ldapEntry = await this.searchUser(mainClient, sanitizedUsername)
+
+          if (!ldapEntry) {
+            // 登录成功但搜不到用户详情，创建一个基本对象
+            logger.warn(`⚠️ User authenticated but attributes not found: ${sanitizedUsername}`)
+            ldapEntry = { dn: userDN, attributes: [] }
+          }
+        } catch (error) {
+          logger.error(`❌ Failed to fetch user info after login: ${error.message}`)
+          // 降级处理：仅使用用户名
+          ldapEntry = { dn: userDN, attributes: [] }
+        }
       }
 
       // 5. 提取用户信息
@@ -659,8 +737,8 @@ class LdapService {
       }
     } finally {
       // 确保客户端连接被关闭
-      if (client) {
-        client.unbind((err) => {
+      if (mainClient) {
+        mainClient.unbind((err) => {
           if (err) {
             logger.debug('Error unbinding LDAP client:', err)
           }
