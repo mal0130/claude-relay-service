@@ -1165,7 +1165,7 @@ import { useDashboardStore } from '@/stores/dashboard'
 import { useThemeStore } from '@/stores/theme'
 import { formatNumber, showToast } from '@/utils/tools'
 
-import { getBalanceSummaryApi } from '@/utils/http_apis'
+import { getBalanceSummaryApi, getApiKeyModelStatsApi } from '@/utils/http_apis'
 
 const dashboardStore = useDashboardStore()
 const themeStore = useThemeStore()
@@ -1861,7 +1861,7 @@ const showApiKeyDetail = async (stat) => {
         }
       }
 
-      const response = await apiClient.get(`/admin/api-keys/${stat.id}/model-stats?${queryParams}`)
+      const response = await getApiKeyModelStatsApi(stat.id, queryParams)
       if (response.success && response.data) {
         selectedApiKeyModels.value = response.data
       } else {
