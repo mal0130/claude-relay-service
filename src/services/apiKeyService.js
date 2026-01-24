@@ -1513,7 +1513,8 @@ class ApiKeyService {
     cacheReadTokens = 0,
     model = 'unknown',
     accountId = null,
-    accountType = null
+    accountType = null,
+    timestamp = null
   ) {
     try {
       const totalTokens = inputTokens + outputTokens + cacheCreateTokens + cacheReadTokens
@@ -1577,8 +1578,8 @@ class ApiKeyService {
       // 获取API Key数据以确定关联的账户
       const keyData = await redis.getApiKey(keyId)
       if (keyData && Object.keys(keyData).length > 0) {
-        // 更新最后使用时间
-        const lastUsedAt = new Date().toISOString()
+        // 更新最后使用时间（使用传入的时间戳或当前时间）
+        const lastUsedAt = timestamp || new Date().toISOString()
         keyData.lastUsedAt = lastUsedAt
         await redis.setApiKey(keyId, keyData)
 
@@ -1614,7 +1615,7 @@ class ApiKeyService {
 
       // 记录单次请求的使用详情（同时保存真实成本和倍率成本）
       await redis.addUsageRecord(keyId, {
-        timestamp: new Date().toISOString(),
+        timestamp: timestamp || new Date().toISOString(),
         model,
         accountId: accountId || null,
         accountType: accountType || null,
@@ -2316,7 +2317,7 @@ class ApiKeyService {
         keyIds = [keyIds]
       }
 
-      const { period: _period = 'week', model: _model } = options
+      const { period = 'week', model: filterModel } = options
       const stats = {
         totalRequests: 0,
         totalInputTokens: 0,
@@ -2326,20 +2327,134 @@ class ApiKeyService {
         modelStats: []
       }
 
-      // 汇总所有API Key的统计数据
+      // 确定时间范围
+      const periodDays = {
+        day: 1,
+        week: 7,
+        month: 30,
+        quarter: 90
+      }
+      const days = periodDays[period] || 7
+
+      // 计算起始日期：今天减去 (days - 1) 天
+      // 例如：近7天 = 今天 + 过去6天
+      const startDate = new Date()
+      startDate.setDate(startDate.getDate() - (days - 1))
+      startDate.setHours(0, 0, 0, 0)
+
+      // 结束日期：今天结束
+      const endDate = new Date()
+      endDate.setHours(23, 59, 59, 999)
+
+      // 收集所有使用记录
+      const allRecords = []
       for (const keyId of keyIds) {
-        const keyStats = await redis.getUsageStats(keyId)
-        const costStats = await redis.getCostStats(keyId)
-        if (keyStats && keyStats.total) {
-          stats.totalRequests += keyStats.total.requests || 0
-          stats.totalInputTokens += keyStats.total.inputTokens || 0
-          stats.totalOutputTokens += keyStats.total.outputTokens || 0
-          stats.totalCost += costStats?.total || 0
+        // 获取更多记录以覆盖时间范围
+        const records = await redis.getUsageRecords(keyId, 1000)
+        allRecords.push(...records)
+      }
+
+      // 按时间范围过滤
+      const filteredRecords = allRecords.filter((record) => {
+        const recordDate = new Date(record.timestamp)
+        return recordDate >= startDate && recordDate <= endDate
+      })
+
+      // 如果指定了模型，进一步过滤
+      const records = filterModel
+        ? filteredRecords.filter((r) => r.model === filterModel)
+        : filteredRecords
+
+      // 计算总计
+      stats.totalRequests = records.length
+      records.forEach((record) => {
+        stats.totalInputTokens += record.inputTokens || 0
+        stats.totalOutputTokens += record.outputTokens || 0
+        stats.totalCost += record.cost || 0
+      })
+
+      // 辅助函数：获取本地日期字符串（避免时区问题）
+      const getLocalDateString = (date) => {
+        const year = date.getFullYear()
+        const month = String(date.getMonth() + 1).padStart(2, '0')
+        const day = String(date.getDate()).padStart(2, '0')
+        return `${year}-${month}-${day}`
+      }
+
+      // 按日期聚合（dailyStats）
+      const dailyMap = {}
+      records.forEach((record) => {
+        const date = getLocalDateString(new Date(record.timestamp))
+        if (!dailyMap[date]) {
+          dailyMap[date] = {
+            date,
+            requests: 0,
+            inputTokens: 0,
+            outputTokens: 0,
+            cost: 0
+          }
+        }
+        dailyMap[date].requests++
+        dailyMap[date].inputTokens += record.inputTokens || 0
+        dailyMap[date].outputTokens += record.outputTokens || 0
+        dailyMap[date].cost += record.cost || 0
+      })
+
+      // 填充缺失的日期（确保所有日期都有数据，即使是0）
+      for (let i = 0; i < days; i++) {
+        const date = new Date(startDate)
+        date.setDate(date.getDate() + i)
+        const dateStr = getLocalDateString(date)
+        if (!dailyMap[dateStr]) {
+          dailyMap[dateStr] = {
+            date: dateStr,
+            requests: 0,
+            inputTokens: 0,
+            outputTokens: 0,
+            cost: 0
+          }
         }
       }
 
-      // TODO: 实现日期范围和模型统计
-      // 这里可以根据需要添加更详细的统计逻辑
+      // 只返回在日期范围内的数据
+      const startDateStr = getLocalDateString(startDate)
+      const endDateStr = getLocalDateString(endDate)
+
+      stats.dailyStats = Object.values(dailyMap)
+        .filter((stat) => stat.date >= startDateStr && stat.date <= endDateStr)
+        .sort((a, b) => a.date.localeCompare(b.date))
+        .map((stat) => ({
+          ...stat,
+          cost: Number(stat.cost.toFixed(6))
+        }))
+
+      // 按模型聚合（modelStats）
+      const modelMap = {}
+      records.forEach((record) => {
+        const model = record.model || 'unknown'
+        if (!modelMap[model]) {
+          modelMap[model] = {
+            name: model,
+            requests: 0,
+            inputTokens: 0,
+            outputTokens: 0,
+            totalTokens: 0,
+            cost: 0
+          }
+        }
+        modelMap[model].requests++
+        modelMap[model].inputTokens += record.inputTokens || 0
+        modelMap[model].outputTokens += record.outputTokens || 0
+        modelMap[model].totalTokens += record.totalTokens || 0
+        modelMap[model].cost += record.cost || 0
+      })
+
+      stats.modelStats = Object.values(modelMap)
+        .sort((a, b) => b.totalTokens - a.totalTokens) // 按 token 数量降序排列
+        .map((stat) => ({
+          ...stat,
+          cost: Number(stat.cost.toFixed(6))
+        }))
 
       return stats
     } catch (error) {

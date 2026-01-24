@@ -2207,9 +2207,13 @@ router.put('/api-keys/:keyId', authenticateAdmin, async (req, res) => {
         try {
           const user = await userService.getUserById(ownerId, false)
           if (!user) {
+            logger.warn(`❌ [LDAP诊断] API Key ${keyId} 绑定失败：找不到用户 ID=${ownerId}`)
             return res.status(400).json({ error: 'Invalid owner: User not found' })
           }
           if (!user.isActive) {
+            logger.warn(
+              `❌ [LDAP诊断] API Key ${keyId} 绑定失败：用户 ${user.username} (ID=${ownerId}) 已被禁用`
+            )
             return res.status(400).json({ error: 'Cannot assign to inactive user' })
           }
 
@@ -2219,7 +2223,9 @@ router.put('/api-keys/:keyId', authenticateAdmin, async (req, res) => {
           updates.createdBy = user.username
 
           // 管理员重新分配时，不检查用户的API Key数量限制
-          logger.info(`🔄 Admin reassigning API key ${keyId} to user ${user.username}`)
+          logger.info(
+            `🔄 [LDAP诊断] Admin 正在将 API Key ${keyId} 绑定到用户 ${user.username} (ID=${ownerId})`
+          )
         } catch (error) {
           logger.error('Error fetching user for owner reassignment:', error)
           return res.status(400).json({ error: 'Invalid owner ID' })
@@ -2234,7 +2240,15 @@ router.put('/api-keys/:keyId', authenticateAdmin, async (req, res) => {
 
     await apiKeyService.updateApiKey(keyId, updates)
 
-    logger.success(`📝 Admin updated API key: ${keyId}`)
+    // 如果更新了 userId，记录详细日志
+    if (updates.userId !== undefined) {
+      logger.success(
+        `✅ [LDAP诊断] API Key ${keyId} 已成功绑定到用户 ${updates.userUsername || 'Admin'} (userId=${updates.userId || 'none'})`
+      )
+    } else {
+      logger.success(`📝 Admin updated API key: ${keyId}`)
+    }
+
     return res.json({ success: true, message: 'API key updated successfully' })
   } catch (error) {
     logger.error('❌ Failed to update API key:', error)

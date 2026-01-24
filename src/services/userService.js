@@ -148,6 +148,10 @@ class UserService {
       const apiKeyService = require('./apiKeyService')
       const userApiKeys = await apiKeyService.getUserApiKeys(userId, true) // Include deleted keys for stats
 
+      logger.debug(
+        `📊 [LDAP诊断] 开始计算用户 ${userId} 的使用统计，找到 ${userApiKeys.length} 个 API Keys`
+      )
+
       const totalUsage = {
         requests: 0,
         inputTokens: 0,
@@ -155,7 +159,13 @@ class UserService {
         totalCost: 0
       }
 
+      // 详细记录每个 API Key 的统计信息（用于诊断）
       for (const apiKey of userApiKeys) {
+        const keyUsage = apiKey.usage && apiKey.usage.total ? apiKey.usage.total : null
+        logger.debug(
+          `📊 [LDAP诊断] API Key ${apiKey.id} (${apiKey.name}): userId=${apiKey.userId}, requests=${keyUsage?.requests || 0}, cost=$${apiKey.totalCost?.toFixed(4) || '0.0000'}, isDeleted=${apiKey.isDeleted}`
+        )
+
         if (apiKey.usage && apiKey.usage.total) {
           totalUsage.requests += apiKey.usage.total.requests || 0
           totalUsage.inputTokens += apiKey.usage.total.inputTokens || 0
@@ -165,11 +175,12 @@ class UserService {
       }
 
       logger.debug(
-        `📊 Calculated user ${userId} usage: ${totalUsage.requests} requests, ${totalUsage.inputTokens} input tokens, $${totalUsage.totalCost.toFixed(4)} total cost from ${userApiKeys.length} API keys`
+        `📊 [LDAP诊断] 用户 ${userId} 统计结果: ${totalUsage.requests} 请求, ${totalUsage.inputTokens} 输入tokens, $${totalUsage.totalCost.toFixed(4)} 总费用, 来自 ${userApiKeys.length} 个 API keys`
       )
 
       // Count only non-deleted API keys for the user's active count（布尔值比较）
       const activeApiKeyCount = userApiKeys.filter((key) => !key.isDeleted).length
+      logger.debug(`📊 [LDAP诊断] 用户 ${userId} 活跃 API Key 数量: ${activeApiKeyCount}`)
 
       return {
         totalUsage,

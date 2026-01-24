@@ -414,11 +414,20 @@ router.get('/usage-stats', authenticateUser, async (req, res) => {
   try {
     const { period = 'week', model } = req.query
 
+    logger.info(
+      `📊 Getting usage stats for user ${req.user.id} (${req.user.username}), period: ${period}`
+    )
+
     // 获取用户的API Keys (including deleted ones for complete usage stats)
     const userApiKeys = await apiKeyService.getUserApiKeys(req.user.id, true)
     const apiKeyIds = userApiKeys.map((key) => key.id)
 
+    logger.info(
+      `📊 Found ${apiKeyIds.length} API keys for user: ${apiKeyIds.join(', ') || '(none)'}`
+    )
+
     if (apiKeyIds.length === 0) {
+      logger.info('📊 No API keys found for user, returning empty stats')
       return res.json({
         success: true,
         stats: {
@@ -434,6 +443,12 @@ router.get('/usage-stats', authenticateUser, async (req, res) => {
 
     // 获取使用统计
     const stats = await apiKeyService.getAggregatedUsageStats(apiKeyIds, { period, model })
+
+    logger.info(
+      `📊 Returning stats: ${stats.totalRequests} requests, ${stats.dailyStats.length} days, ${stats.modelStats.length} models`
+    )
+    logger.info(`📊 Stats object keys: ${Object.keys(stats).join(', ')}`)
+    logger.info(`📊 Stats JSON length: ${JSON.stringify({ success: true, stats }).length} bytes`)
 
     res.json({
       success: true,

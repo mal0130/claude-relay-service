@@ -194,6 +194,7 @@ grafana/
 test-results/
 coverage/
 .nyc_output/
+tests/local/
 
 # Documentation build
 docs/build/

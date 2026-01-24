@@ -2,9 +2,9 @@
   <div class="space-y-6">
     <div class="sm:flex sm:items-center">
       <div class="sm:flex-auto">
-        <h1 class="text-2xl font-semibold text-gray-900">My API Keys</h1>
-        <p class="mt-2 text-sm text-gray-700">
-          Manage your API keys to access Claude Relay services
+        <h1 class="text-2xl font-semibold text-gray-900 dark:text-white">我的 API 密钥</h1>
+        <p class="mt-2 text-sm text-gray-700 dark:text-gray-400">
+          管理您的 API 密钥以访问 Claude Relay 服务
         </p>
       </div>
       <div class="mt-4 sm:ml-16 sm:mt-0 sm:flex-none">
@@ -21,7 +21,7 @@
               stroke-width="2"
             />
           </svg>
-          Create API Key
+          创建 API 密钥
         </button>
       </div>
     </div>
@@ -42,9 +42,8 @@
           </svg>
         </div>
         <div class="ml-3">
-          <p class="text-sm text-yellow-700">
-            You have reached the maximum number of API keys ({{ maxApiKeys }}). Please delete an
-            existing key to create a new one.
+          <p class="text-sm text-yellow-700 dark:text-yellow-600">
+            您已达到 API 密钥的最大数量限制（{{ maxApiKeys }}）。请删除现有密钥以创建新密钥。
           </p>
         </div>
       </div>
@@ -72,12 +71,15 @@
           fill="currentColor"
         ></path>
       </svg>
-      <p class="mt-2 text-sm text-gray-500">Loading API keys...</p>
+      <p class="mt-2 text-sm text-gray-500 dark:text-gray-400">加载 API 密钥中...</p>
     </div>
 
     <!-- API Keys List -->
-    <div v-else-if="sortedApiKeys.length > 0" class="overflow-hidden bg-white shadow sm:rounded-md">
-      <ul class="divide-y divide-gray-200" role="list">
+    <div
+      v-else-if="sortedApiKeys.length > 0"
+      class="overflow-hidden bg-white shadow dark:bg-gray-800 sm:rounded-md"
+    >
+      <ul class="divide-y divide-gray-200 dark:divide-gray-700" role="list">
         <li v-for="apiKey in sortedApiKeys" :key="apiKey.id" class="px-6 py-4">
           <div class="flex items-center justify-between">
             <div class="flex items-center">
@@ -95,34 +97,38 @@
               </div>
               <div class="ml-4">
                 <div class="flex items-center">
-                  <p class="text-sm font-medium text-gray-900">{{ apiKey.name }}</p>
+                  <p class="text-sm font-medium text-gray-900 dark:text-white">{{ apiKey.name }}</p>
                   <span
                     v-if="apiKey.isDeleted === true || apiKey.deletedAt"
-                    class="ml-2 inline-flex items-center rounded-full bg-gray-100 px-2.5 py-0.5 text-xs font-medium text-gray-800"
+                    class="ml-2 inline-flex items-center rounded-full bg-gray-100 px-2.5 py-0.5 text-xs font-medium text-gray-800 dark:bg-gray-700 dark:text-gray-300"
                   >
-                    Deleted
+                    已删除
                   </span>
                   <span
                     v-else-if="!apiKey.isActive"
-                    class="ml-2 inline-flex items-center rounded-full bg-red-100 px-2.5 py-0.5 text-xs font-medium text-red-800"
+                    class="ml-2 inline-flex items-center rounded-full bg-red-100 px-2.5 py-0.5 text-xs font-medium text-red-800 dark:bg-red-900 dark:text-red-200"
                   >
-                    Deleted
+                    已删除
                   </span>
                 </div>
                 <div class="mt-1">
-                  <p class="text-sm text-gray-500">{{ apiKey.description || 'No description' }}</p>
-                  <div class="mt-1 flex items-center space-x-4 text-xs text-gray-400">
-                    <span>Created: {{ formatDate(apiKey.createdAt) }}</span>
+                  <p class="text-sm text-gray-500 dark:text-gray-400">
+                    {{ apiKey.description || '无描述' }}
+                  </p>
+                  <div
+                    class="mt-1 flex items-center space-x-4 text-xs text-gray-400 dark:text-gray-500"
+                  >
+                    <span>创建时间：{{ formatDate(apiKey.createdAt) }}</span>
                     <span v-if="apiKey.isDeleted === 'true' || apiKey.deletedAt"
-                      >Deleted: {{ formatDate(apiKey.deletedAt) }}</span
+                      >删除时间：{{ formatDate(apiKey.deletedAt) }}</span
                     >
                     <span v-else-if="apiKey.lastUsedAt"
-                      >Last used: {{ formatDate(apiKey.lastUsedAt) }}</span
+                      >最后使用：{{ formatDate(apiKey.lastUsedAt) }}</span
                     >
-                    <span v-else>Never used</span>
+                    <span v-else>从未使用</span>
                     <span
                       v-if="apiKey.expiresAt && !(apiKey.isDeleted === 'true' || apiKey.deletedAt)"
-                      >Expires: {{ formatDate(apiKey.expiresAt) }}</span
+                      >过期时间：{{ formatDate(apiKey.expiresAt) }}</span
                     >
                   </div>
                 </div>
@@ -130,16 +136,16 @@
             </div>
             <div class="flex items-center space-x-2">
               <!-- Usage Stats -->
-              <div class="text-right text-xs text-gray-500">
-                <div>{{ formatNumber(apiKey.usage?.requests || 0) }} requests</div>
+              <div class="text-right text-xs text-gray-500 dark:text-gray-400">
+                <div>{{ formatNumber(apiKey.usage?.requests || 0) }} 次请求</div>
                 <div v-if="apiKey.usage?.totalCost">${{ apiKey.usage.totalCost.toFixed(4) }}</div>
               </div>
 
               <!-- Actions -->
               <div class="flex items-center space-x-1">
                 <button
-                  class="inline-flex items-center rounded border border-transparent p-1 text-gray-400 hover:text-gray-600"
-                  title="View API Key"
+                  class="inline-flex items-center rounded border border-transparent p-1 text-gray-400 hover:text-gray-600 dark:text-gray-500 dark:hover:text-gray-300"
+                  title="查看 API 密钥"
                   @click="showApiKey(apiKey)"
                 >
                   <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -164,8 +170,8 @@
                     apiKey.isActive &&
                     allowUserDeleteApiKeys
                   "
-                  class="inline-flex items-center rounded border border-transparent p-1 text-red-400 hover:text-red-600"
-                  title="Delete API Key"
+                  class="inline-flex items-center rounded border border-transparent p-1 text-red-400 hover:text-red-600 dark:text-red-500 dark:hover:text-red-400"
+                  title="删除 API 密钥"
                   @click="deleteApiKey(apiKey)"
                 >
                   <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -187,7 +193,7 @@
     <!-- Empty State -->
     <div v-else class="py-12 text-center">
       <svg
-        class="mx-auto h-12 w-12 text-gray-400"
+        class="mx-auto h-12 w-12 text-gray-400 dark:text-gray-500"
         fill="none"
         stroke="currentColor"
         viewBox="0 0 24 24"
@@ -199,8 +205,8 @@
           stroke-width="2"
         />
       </svg>
-      <h3 class="mt-2 text-sm font-medium text-gray-900">No API keys</h3>
-      <p class="mt-1 text-sm text-gray-500">Get started by creating your first API key.</p>
+      <h3 class="mt-2 text-sm font-medium text-gray-900 dark:text-white">暂无 API 密钥</h3>
+      <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">开始创建您的第一个 API 密钥。</p>
       <div class="mt-6">
         <button
           class="inline-flex items-center rounded-md border border-transparent bg-blue-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
@@ -214,7 +220,7 @@
               stroke-width="2"
             />
           </svg>
-          Create API Key
+          创建 API 密钥
         </button>
       </div>
     </div>
@@ -236,10 +242,10 @@
     <!-- Confirm Delete Modal -->
     <ConfirmModal
       confirm-class="bg-red-600 hover:bg-red-700"
-      confirm-text="Delete"
-      :message="`Are you sure you want to delete '${selectedApiKey?.name}'? This action cannot be undone.`"
+      confirm-text="删除"
+      :message="`确定要删除 '${selectedApiKey?.name}' 吗？此操作无法撤销。`"
       :show="showDeleteModal"
-      title="Delete API Key"
+      title="删除 API 密钥"
       @cancel="showDeleteModal = false"
       @confirm="handleDeleteConfirm"
     />

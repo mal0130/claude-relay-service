@@ -32,7 +32,7 @@
                   ]"
                   @click="handleTabChange('overview')"
                 >
-                  Overview
+                  概览
                 </button>
                 <button
                   :class="[
@@ -43,7 +43,7 @@
                   ]"
                   @click="handleTabChange('api-keys')"
                 >
-                  API Keys
+                  API 密钥
                 </button>
                 <button
                   :class="[
@@ -54,7 +54,7 @@
                   ]"
                   @click="handleTabChange('usage')"
                 >
-                  Usage Stats
+                  使用统计
                 </button>
                 <button
                   :class="[
@@ -65,14 +65,14 @@
                   ]"
                   @click="handleTabChange('tutorial')"
                 >
-                  Tutorial
+                  使用教程
                 </button>
               </div>
             </div>
           </div>
           <div class="flex items-center space-x-4">
             <div class="text-sm text-gray-700 dark:text-gray-300">
-              Welcome, <span class="font-medium">{{ userStore.userName }}</span>
+              欢迎，<span class="font-medium">{{ userStore.userName }}</span>
             </div>
 
             <!-- 主题切换按钮 -->
@@ -82,7 +82,7 @@
               class="rounded-md px-3 py-2 text-sm font-medium text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300"
               @click="handleLogout"
             >
-              Logout
+              退出登录
             </button>
           </div>
         </div>
@@ -94,10 +94,8 @@
       <!-- Overview Tab -->
       <div v-if="activeTab === 'overview'" class="space-y-6">
         <div>
-          <h1 class="text-2xl font-semibold text-gray-900 dark:text-white">Dashboard Overview</h1>
-          <p class="mt-2 text-sm text-gray-600 dark:text-gray-400">
-            Welcome to your Claude Relay dashboard
-          </p>
+          <h1 class="text-2xl font-semibold text-gray-900 dark:text-white">仪表板概览</h1>
+          <p class="mt-2 text-sm text-gray-600 dark:text-gray-400">欢迎使用 Claude Relay 仪表板</p>
         </div>
 
         <!-- Stats Cards -->
@@ -123,7 +121,7 @@
                 <div class="ml-5 w-0 flex-1">
                   <dl>
                     <dt class="truncate text-sm font-medium text-gray-500 dark:text-gray-400">
-                      Active API Keys
+                      活跃的 API 密钥
                     </dt>
                     <dd class="text-lg font-medium text-gray-900 dark:text-white">
                       {{ apiKeysStats.active }}
@@ -155,7 +153,7 @@
                 <div class="ml-5 w-0 flex-1">
                   <dl>
                     <dt class="truncate text-sm font-medium text-gray-500 dark:text-gray-400">
-                      Deleted API Keys
+                      已删除的 API 密钥
                     </dt>
                     <dd class="text-lg font-medium text-gray-900 dark:text-white">
                       {{ apiKeysStats.deleted }}
@@ -187,7 +185,7 @@
                 <div class="ml-5 w-0 flex-1">
                   <dl>
                     <dt class="truncate text-sm font-medium text-gray-500 dark:text-gray-400">
-                      Total Requests
+                      总请求数
                     </dt>
                     <dd class="text-lg font-medium text-gray-900 dark:text-white">
                       {{ formatNumber(userProfile?.totalUsage?.requests || 0) }}
@@ -219,7 +217,7 @@
                 <div class="ml-5 w-0 flex-1">
                   <dl>
                     <dt class="truncate text-sm font-medium text-gray-500 dark:text-gray-400">
-                      Input Tokens
+                      输入 Token 数
                     </dt>
                     <dd class="text-lg font-medium text-gray-900 dark:text-white">
                       {{ formatNumber(userProfile?.totalUsage?.inputTokens || 0) }}
@@ -251,7 +249,7 @@
                 <div class="ml-5 w-0 flex-1">
                   <dl>
                     <dt class="truncate text-sm font-medium text-gray-500 dark:text-gray-400">
-                      Total Cost
+                      总费用
                     </dt>
                     <dd class="text-lg font-medium text-gray-900 dark:text-white">
                       ${{ (userProfile?.totalUsage?.totalCost || 0).toFixed(4) }}
@@ -266,49 +264,47 @@
         <!-- User Info -->
         <div class="rounded-lg bg-white shadow dark:bg-gray-800">
           <div class="px-4 py-5 sm:p-6">
-            <h3 class="text-lg font-medium leading-6 text-gray-900 dark:text-white">
-              Account Information
-            </h3>
+            <h3 class="text-lg font-medium leading-6 text-gray-900 dark:text-white">账户信息</h3>
             <div class="mt-5 border-t border-gray-200 dark:border-gray-700">
               <dl class="divide-y divide-gray-200 dark:divide-gray-700">
                 <div class="py-4 sm:grid sm:grid-cols-3 sm:gap-4 sm:py-5">
-                  <dt class="text-sm font-medium text-gray-500 dark:text-gray-400">Username</dt>
+                  <dt class="text-sm font-medium text-gray-500 dark:text-gray-400">用户名</dt>
                   <dd class="mt-1 text-sm text-gray-900 dark:text-white sm:col-span-2 sm:mt-0">
                     {{ userProfile?.username }}
                   </dd>
                 </div>
                 <div class="py-4 sm:grid sm:grid-cols-3 sm:gap-4 sm:py-5">
-                  <dt class="text-sm font-medium text-gray-500 dark:text-gray-400">Display Name</dt>
+                  <dt class="text-sm font-medium text-gray-500 dark:text-gray-400">显示名称</dt>
                   <dd class="mt-1 text-sm text-gray-900 dark:text-white sm:col-span-2 sm:mt-0">
-                    {{ userProfile?.displayName || 'N/A' }}
+                    {{ userProfile?.displayName || '无' }}
                   </dd>
                 </div>
                 <div class="py-4 sm:grid sm:grid-cols-3 sm:gap-4 sm:py-5">
-                  <dt class="text-sm font-medium text-gray-500 dark:text-gray-400">Email</dt>
+                  <dt class="text-sm font-medium text-gray-500 dark:text-gray-400">邮箱</dt>
                   <dd class="mt-1 text-sm text-gray-900 dark:text-white sm:col-span-2 sm:mt-0">
-                    {{ userProfile?.email || 'N/A' }}
+                    {{ userProfile?.email || '无' }}
                   </dd>
                 </div>
                 <div class="py-4 sm:grid sm:grid-cols-3 sm:gap-4 sm:py-5">
-                  <dt class="text-sm font-medium text-gray-500 dark:text-gray-400">Role</dt>
+                  <dt class="text-sm font-medium text-gray-500 dark:text-gray-400">角色</dt>
                   <dd class="mt-1 text-sm text-gray-900 dark:text-white sm:col-span-2 sm:mt-0">
                     <span
                       class="inline-flex items-center rounded-full bg-blue-100 px-2.5 py-0.5 text-xs font-medium text-blue-800 dark:bg-blue-900 dark:text-blue-200"
                     >
-                      {{ userProfile?.role || 'user' }}
+                      {{ userProfile?.role === 'admin' ? '管理员' : '用户' }}
                     </span>
                   </dd>
                 </div>
                 <div class="py-4 sm:grid sm:grid-cols-3 sm:gap-4 sm:py-5">
-                  <dt class="text-sm font-medium text-gray-500 dark:text-gray-400">Member Since</dt>
+                  <dt class="text-sm font-medium text-gray-500 dark:text-gray-400">注册时间</dt>
                   <dd class="mt-1 text-sm text-gray-900 dark:text-white sm:col-span-2 sm:mt-0">
                     {{ formatDate(userProfile?.createdAt) }}
                   </dd>
                 </div>
                 <div class="py-4 sm:grid sm:grid-cols-3 sm:gap-4 sm:py-5">
-                  <dt class="text-sm font-medium text-gray-500 dark:text-gray-400">Last Login</dt>
+                  <dt class="text-sm font-medium text-gray-500 dark:text-gray-400">最后登录</dt>
                   <dd class="mt-1 text-sm text-gray-900 dark:text-white sm:col-span-2 sm:mt-0">
-                    {{ formatDate(userProfile?.lastLoginAt) || 'N/A' }}
+                    {{ formatDate(userProfile?.lastLoginAt) || '无' }}
                   </dd>
                 </div>
               </dl>
@@ -356,8 +352,10 @@ const apiKeysStats = ref({ active: 0, deleted: 0 })
 
 const handleTabChange = (tab) => {
   activeTab.value = tab
-  // Refresh API keys stats when switching to overview tab
+  // Refresh API keys stats and user profile when switching to overview tab
   if (tab === 'overview') {
+    console.log('[UserDashboard] 切换到概览页面，刷新数据')
+    loadUserProfile(true) // 强制刷新用户资料
     loadApiKeysStats()
   }
 }
@@ -372,29 +370,51 @@ const handleLogout = async () => {
   }
 }
 
-const loadUserProfile = async () => {
+const loadUserProfile = async (forceRefresh = false) => {
   try {
+    // 强制刷新时清除缓存
+    if (forceRefresh) {
+      console.log('[UserDashboard] 强制刷新用户资料和统计信息')
+    }
+
     userProfile.value = await userStore.getUserProfile()
+
+    // 调试日志：查看返回的统计信息
+    console.log('[UserDashboard] 用户资料加载完成:', {
+      userId: userProfile.value?.id,
+      username: userProfile.value?.username,
+      totalUsage: userProfile.value?.totalUsage,
+      apiKeyCount: userProfile.value?.apiKeyCount
+    })
   } catch (error) {
     console.error('Failed to load user profile:', error)
-    showToast('Failed to load user profile', 'error')
+    showToast('加载用户资料失败', 'error')
   }
 }
 
 const loadApiKeysStats = async () => {
   try {
     const allApiKeys = await userStore.getUserApiKeys(true) // Include deleted keys
-    console.log('All API Keys received:', allApiKeys)
+    console.log('[UserDashboard] 收到所有 API Keys:', allApiKeys)
 
     const activeKeys = allApiKeys.filter(
       (key) => !(key.isDeleted === 'true' || key.deletedAt) && key.isActive
     )
     const deletedKeys = allApiKeys.filter((key) => key.isDeleted === 'true' || key.deletedAt)
 
-    console.log('Active keys:', activeKeys)
-    console.log('Deleted keys:', deletedKeys)
-    console.log('Active count:', activeKeys.length)
-    console.log('Deleted count:', deletedKeys.length)
+    console.log('[UserDashboard] 活跃的密钥:', activeKeys)
+    console.log('[UserDashboard] 已删除的密钥:', deletedKeys)
+    console.log('[UserDashboard] 活跃数量:', activeKeys.length)
+    console.log('[UserDashboard] 已删除数量:', deletedKeys.length)
+
+    // 计算总使用统计（用于调试）
+    const totalRequests = activeKeys.reduce((sum, key) => sum + (key.usage?.requests || 0), 0)
+    const totalCost = activeKeys.reduce((sum, key) => sum + (key.usage?.totalCost || 0), 0)
+    console.log('[UserDashboard] API Keys 统计汇总:', {
+      totalRequests,
+      totalCost,
+      activeKeysCount: activeKeys.length
+    })
 
     apiKeysStats.value = { active: activeKeys.length, deleted: deletedKeys.length }
   } catch (error) {
