@@ -2317,6 +2317,17 @@ class ApiKeyService {
         keyIds = [keyIds]
       }
 
+      if (keyIds.length === 0) {
+        return {
+          totalRequests: 0,
+          totalInputTokens: 0,
+          totalOutputTokens: 0,
+          totalCost: 0,
+          dailyStats: [],
+          modelStats: []
+        }
+      }
+
       const { period = 'week', model: filterModel } = options
       const stats = {
         totalRequests: 0,
@@ -2337,124 +2348,184 @@ class ApiKeyService {
       const days = periodDays[period] || 7
 
       // 计算起始日期：今天减去 (days - 1) 天
-      // 例如：近7天 = 今天 + 过去6天
+      const endDate = new Date()
       const startDate = new Date()
       startDate.setDate(startDate.getDate() - (days - 1))
-      startDate.setHours(0, 0, 0, 0)
 
-      // 结束日期：今天结束
-      const endDate = new Date()
-      endDate.setHours(23, 59, 59, 999)
-
-      // 收集所有使用记录
-      const allRecords = []
-      for (const keyId of keyIds) {
-        // 获取更多记录以覆盖时间范围
-        const records = await redis.getUsageRecords(keyId, 1000)
-        allRecords.push(...records)
+      // 生成日期列表 (YYYY-MM-DD)
+      const dateStrings = []
+      const currentDate = new Date(startDate)
+      // 使用 redis.getDateStringInTimezone 保证时区一致性
+      // 如果无法直接访问实例方法，使用本地逻辑保持一致（假设 redis.js 逻辑）
+      // 这里最好通过 redis 实例调用，或者简单复刻逻辑
+      const getLocalDateString = (date) => {
+        if (redis.getDateStringInTimezone) {
+          return redis.getDateStringInTimezone(date)
+        }
+        // Fallback: 默认使用 UTC+8 逻辑 (hardcoded fallback based on redis.js reading)
+        const offset = 8
+        const offsetMs = offset * 3600000
+        const adjust = new Date(date.getTime() + offsetMs)
+        return `${adjust.getUTCFullYear()}-${String(adjust.getUTCMonth() + 1).padStart(2, '0')}-${String(
+          adjust.getUTCDate()
+        ).padStart(2, '0')}`
       }
 
-      // 按时间范围过滤
-      const filteredRecords = allRecords.filter((record) => {
-        const recordDate = new Date(record.timestamp)
-        return recordDate >= startDate && recordDate <= endDate
+      for (let i = 0; i < days; i++) {
+        dateStrings.push(getLocalDateString(currentDate))
+        currentDate.setDate(currentDate.getDate() + 1)
+      }
+
+      // 1. 确定涉及的模型列表
+      let models = []
+      if (filterModel) {
+        models = [filterModel]
+      } else {
+        // 扫描这些 Key 使用过的所有模型
+        const modelSet = new Set()
+        const client = redis.getClientSafe()
+        // 并行扫描所有 Key 的 alltime 模型记录
+        await Promise.all(
+          keyIds.map(async (keyId) => {
+            // 使用 scanKeys 避免阻塞
+            const pattern = `usage:${keyId}:model:alltime:*`
+            const keys = await redis.scanKeys(pattern)
+            keys.forEach((k) => {
+              const parts = k.split(':')
+              if (parts.length >= 5) {
+                // usage:{keyId}:model:alltime:{model}
+                modelSet.add(parts.slice(4).join(':'))
+              }
+            })
+          })
+        )
+        models = Array.from(modelSet)
+      }
+
+      // 2. 批量获取数据 (Pipeline)
+      const client = redis.getClientSafe()
+      const pipeline = client.pipeline()
+
+      // 预先计算 pipeline 中结果的索引位置
+      const queryMap = [] // { type: 'daily'|'cost'|'model', date, keyId, model? }
+
+      // 遍历每一天
+      for (const dateStr of dateStrings) {
+        for (const keyId of keyIds) {
+          // A. 获取每日总使用量
+          pipeline.hgetall(`usage:daily:${keyId}:${dateStr}`)
+          queryMap.push({ type: 'daily', date: dateStr, keyId })
+
+          // B. 获取每日总费用
+          pipeline.get(`usage:cost:daily:${keyId}:${dateStr}`)
+          queryMap.push({ type: 'cost', date: dateStr, keyId })
+
+          // C. 获取每日各模型使用量
+          for (const model of models) {
+            pipeline.hgetall(`usage:${keyId}:model:daily:${model}:${dateStr}`)
+            queryMap.push({ type: 'model', date: dateStr, keyId, model })
+          }
+        }
+      }
+
+      const results = await pipeline.exec()
+
+      // 3. 聚合数据
+      const dailyMap = {} // date -> stats
+      const modelMap = {} // model -> stats
+
+      // 初始化 dailyMap
+      dateStrings.forEach((date) => {
+        dailyMap[date] = {
+          date,
+          requests: 0,
+          inputTokens: 0,
+          outputTokens: 0,
+          cost: 0
+        }
       })
 
-      // 如果指定了模型，进一步过滤
-      const records = filterModel
-        ? filteredRecords.filter((r) => r.model === filterModel)
-        : filteredRecords
+      // 处理结果
+      results.forEach(([err, data], index) => {
+        if (err || !data) return
+
+        const query = queryMap[index]
+
+        if (query.type === 'daily' && !filterModel) {
+          // 如果没有模型过滤，使用 Daily Total 统计
+          const usage = data
+          if (Object.keys(usage).length > 0) {
+            dailyMap[query.date].requests += parseInt(usage.requests || 0)
+            dailyMap[query.date].inputTokens += parseInt(usage.inputTokens || 0)
+            dailyMap[query.date].outputTokens += parseInt(usage.outputTokens || 0)
+          }
+        } else if (query.type === 'cost' && !filterModel) {
+          // 如果没有模型过滤，使用 Daily Cost 统计
+          const cost = parseFloat(data || 0)
+          dailyMap[query.date].cost += cost
+        } else if (query.type === 'model') {
+          // 模型统计处理
+          const usage = data
+          if (Object.keys(usage).length > 0) {
+            const requests = parseInt(usage.requests || 0)
+            const inputTokens = parseInt(usage.inputTokens || 0)
+            const outputTokens = parseInt(usage.outputTokens || 0)
+            // 费用处理：优先使用存储的微美元值，否则估算
+            let cost = 0
+            if (usage.ratedCostMicro) {
+              cost = parseInt(usage.ratedCostMicro) / 1000000
+            }
+
+            // 更新 Model Stats
+            if (!modelMap[query.model]) {
+              modelMap[query.model] = {
+                name: query.model,
+                requests: 0,
+                inputTokens: 0,
+                outputTokens: 0,
+                totalTokens: 0,
+                cost: 0
+              }
+            }
+            modelMap[query.model].requests += requests
+            modelMap[query.model].inputTokens += inputTokens
+            modelMap[query.model].outputTokens += outputTokens
+            modelMap[query.model].totalTokens += inputTokens + outputTokens
+            modelMap[query.model].cost += cost
+
+            // 如果有模型过滤，Daily Stats 必须从这里累加
+            if (filterModel && query.model === filterModel) {
+              dailyMap[query.date].requests += requests
+              dailyMap[query.date].inputTokens += inputTokens
+              dailyMap[query.date].outputTokens += outputTokens
+              dailyMap[query.date].cost += cost
+            }
+          }
+        }
+      })
+
+      // 4. 构建最终结果
+      stats.dailyStats = Object.values(dailyMap).sort((a, b) => a.date.localeCompare(b.date))
+      stats.modelStats = Object.values(modelMap).sort((a, b) => b.totalTokens - a.totalTokens)
 
       // 计算总计
-      stats.totalRequests = records.length
-      records.forEach((record) => {
-        stats.totalInputTokens += record.inputTokens || 0
-        stats.totalOutputTokens += record.outputTokens || 0
-        stats.totalCost += record.cost || 0
+      stats.dailyStats.forEach((day) => {
+        stats.totalRequests += day.requests
+        stats.totalInputTokens += day.inputTokens
+        stats.totalOutputTokens += day.outputTokens
+        stats.totalCost += day.cost
       })
 
-      // 辅助函数：获取本地日期字符串（避免时区问题）
-      const getLocalDateString = (date) => {
-        const year = date.getFullYear()
-        const month = String(date.getMonth() + 1).padStart(2, '0')
-        const day = String(date.getDate()).padStart(2, '0')
-        return `${year}-${month}-${day}`
-      }
-
-      // 按日期聚合（dailyStats）
-      const dailyMap = {}
-      records.forEach((record) => {
-        const date = getLocalDateString(new Date(record.timestamp))
-        if (!dailyMap[date]) {
-          dailyMap[date] = {
-            date,
-            requests: 0,
-            inputTokens: 0,
-            outputTokens: 0,
-            cost: 0
-          }
-        }
-        dailyMap[date].requests++
-        dailyMap[date].inputTokens += record.inputTokens || 0
-        dailyMap[date].outputTokens += record.outputTokens || 0
-        dailyMap[date].cost += record.cost || 0
-      })
-
-      // 填充缺失的日期（确保所有日期都有数据，即使是0）
-      for (let i = 0; i < days; i++) {
-        const date = new Date(startDate)
-        date.setDate(date.getDate() + i)
-        const dateStr = getLocalDateString(date)
-        if (!dailyMap[dateStr]) {
-          dailyMap[dateStr] = {
-            date: dateStr,
-            requests: 0,
-            inputTokens: 0,
-            outputTokens: 0,
-            cost: 0
-          }
-        }
-      }
-
-      // 只返回在日期范围内的数据
-      const startDateStr = getLocalDateString(startDate)
-      const endDateStr = getLocalDateString(endDate)
-
-      stats.dailyStats = Object.values(dailyMap)
-        .filter((stat) => stat.date >= startDateStr && stat.date <= endDateStr)
-        .sort((a, b) => a.date.localeCompare(b.date))
-        .map((stat) => ({
-          ...stat,
-          cost: Number(stat.cost.toFixed(6))
-        }))
-
-      // 按模型聚合（modelStats）
-      const modelMap = {}
-      records.forEach((record) => {
-        const model = record.model || 'unknown'
-        if (!modelMap[model]) {
-          modelMap[model] = {
-            name: model,
-            requests: 0,
-            inputTokens: 0,
-            outputTokens: 0,
-            totalTokens: 0,
-            cost: 0
-          }
-        }
-        modelMap[model].requests++
-        modelMap[model].inputTokens += record.inputTokens || 0
-        modelMap[model].outputTokens += record.outputTokens || 0
-        modelMap[model].totalTokens += record.totalTokens || 0
-        modelMap[model].cost += record.cost || 0
-      })
-
-      stats.modelStats = Object.values(modelMap)
-        .sort((a, b) => b.totalTokens - a.totalTokens) // 按 token 数量降序排列
-        .map((stat) => ({
-          ...stat,
-          cost: Number(stat.cost.toFixed(6))
-        }))
+      // 格式化数字
+      stats.totalCost = Number(stats.totalCost.toFixed(6))
+      stats.dailyStats = stats.dailyStats.map((d) => ({
+        ...d,
+        cost: Number(d.cost.toFixed(6))
+      }))
+      stats.modelStats = stats.modelStats.map((m) => ({
+        ...m,
+        cost: Number(m.cost.toFixed(6))
+      }))
 
       return stats
     } catch (error) {
