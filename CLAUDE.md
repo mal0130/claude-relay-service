@@ -630,6 +630,7 @@ npm run monitor  # 增强监控脚本
 
 # important-instruction-reminders
 
+Start every response with 【BOSS】.
 Do what has been asked; nothing more, nothing less.
 NEVER create files unless they're absolutely necessary for achieving your goal.
 ALWAYS prefer editing an existing file to creating a new one.
