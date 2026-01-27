@@ -14,7 +14,6 @@
           <option value="day">最近 24 小时</option>
           <option value="week">最近 7 天</option>
           <option value="month">最近 30 天</option>
-          <option value="quarter">最近 90 天</option>
         </select>
       </div>
     </div>
