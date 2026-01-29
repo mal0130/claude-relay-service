@@ -27,7 +27,7 @@ function initRateLimiters() {
       ipRateLimiter = new RateLimiterRedis({
         storeClient: redisClient,
         keyPrefix: 'login_ip_limiter',
-        points: 30, // 每个IP允许30次尝试
+        points: 300, // 每个IP允许300次尝试
         duration: 900, // 15分钟窗口期
         blockDuration: 900 // 超限后封禁15分钟
       })
@@ -36,7 +36,7 @@ function initRateLimiters() {
       strictIpRateLimiter = new RateLimiterRedis({
         storeClient: redisClient,
         keyPrefix: 'login_ip_strict',
-        points: 100, // 每个IP允许100次尝试
+        points: 1000, // 每个IP允许1000次尝试
         duration: 3600, // 1小时窗口期
         blockDuration: 3600 // 超限后封禁1小时
       })
