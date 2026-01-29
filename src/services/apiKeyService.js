@@ -2322,6 +2322,8 @@ class ApiKeyService {
           totalRequests: 0,
           totalInputTokens: 0,
           totalOutputTokens: 0,
+          totalCacheCreateTokens: 0,
+          totalCacheReadTokens: 0,
           totalCost: 0,
           dailyStats: [],
           modelStats: []
@@ -2333,6 +2335,8 @@ class ApiKeyService {
         totalRequests: 0,
         totalInputTokens: 0,
         totalOutputTokens: 0,
+        totalCacheCreateTokens: 0,
+        totalCacheReadTokens: 0,
         totalCost: 0,
         dailyStats: [],
         modelStats: []
@@ -2441,6 +2445,8 @@ class ApiKeyService {
           requests: 0,
           inputTokens: 0,
           outputTokens: 0,
+          cacheCreateTokens: 0,
+          cacheReadTokens: 0,
           cost: 0
         }
       })
@@ -2458,6 +2464,8 @@ class ApiKeyService {
             dailyMap[query.date].requests += parseInt(usage.requests || 0)
             dailyMap[query.date].inputTokens += parseInt(usage.inputTokens || 0)
             dailyMap[query.date].outputTokens += parseInt(usage.outputTokens || 0)
+            dailyMap[query.date].cacheCreateTokens += parseInt(usage.cacheCreateTokens || 0)
+            dailyMap[query.date].cacheReadTokens += parseInt(usage.cacheReadTokens || 0)
           }
         } else if (query.type === 'cost' && !filterModel) {
           // 如果没有模型过滤，使用 Daily Cost 统计
@@ -2470,6 +2478,8 @@ class ApiKeyService {
             const requests = parseInt(usage.requests || 0)
             const inputTokens = parseInt(usage.inputTokens || 0)
             const outputTokens = parseInt(usage.outputTokens || 0)
+            const cacheCreateTokens = parseInt(usage.cacheCreateTokens || 0)
+            const cacheReadTokens = parseInt(usage.cacheReadTokens || 0)
             // 费用处理：优先使用存储的微美元值，否则估算
             let cost = 0
             if (usage.ratedCostMicro) {
@@ -2483,6 +2493,8 @@ class ApiKeyService {
                 requests: 0,
                 inputTokens: 0,
                 outputTokens: 0,
+                cacheCreateTokens: 0,
+                cacheReadTokens: 0,
                 totalTokens: 0,
                 cost: 0
               }
@@ -2490,7 +2502,9 @@ class ApiKeyService {
             modelMap[query.model].requests += requests
             modelMap[query.model].inputTokens += inputTokens
             modelMap[query.model].outputTokens += outputTokens
-            modelMap[query.model].totalTokens += inputTokens + outputTokens
+            modelMap[query.model].cacheCreateTokens += cacheCreateTokens
+            modelMap[query.model].cacheReadTokens += cacheReadTokens
+            modelMap[query.model].totalTokens += inputTokens + outputTokens + cacheCreateTokens + cacheReadTokens
             modelMap[query.model].cost += cost
 
             // 如果有模型过滤，Daily Stats 必须从这里累加
@@ -2498,6 +2512,8 @@ class ApiKeyService {
               dailyMap[query.date].requests += requests
               dailyMap[query.date].inputTokens += inputTokens
               dailyMap[query.date].outputTokens += outputTokens
+              dailyMap[query.date].cacheCreateTokens += cacheCreateTokens
+              dailyMap[query.date].cacheReadTokens += cacheReadTokens
               dailyMap[query.date].cost += cost
             }
           }
@@ -2513,6 +2529,8 @@ class ApiKeyService {
         stats.totalRequests += day.requests
         stats.totalInputTokens += day.inputTokens
         stats.totalOutputTokens += day.outputTokens
+        stats.totalCacheCreateTokens += day.cacheCreateTokens || 0
+        stats.totalCacheReadTokens += day.cacheReadTokens || 0
         stats.totalCost += day.cost
       })
 

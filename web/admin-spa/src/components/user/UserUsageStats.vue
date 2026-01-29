@@ -287,6 +287,18 @@
                   class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400"
                   scope="col"
                 >
+                  缓存创建
+                </th>
+                <th
+                  class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400"
+                  scope="col"
+                >
+                  缓存读取
+                </th>
+                <th
+                  class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400"
+                  scope="col"
+                >
                   Token 总量
                 </th>
                 <th
@@ -318,7 +330,20 @@
                   {{ formatNumber(detail.outputTokens || 0) }}
                 </td>
                 <td class="whitespace-nowrap px-6 py-4 text-sm text-gray-900 dark:text-gray-100">
-                  {{ formatNumber((detail.inputTokens || 0) + (detail.outputTokens || 0)) }}
+                  {{ formatNumber(detail.cacheCreateTokens || 0) }}
+                </td>
+                <td class="whitespace-nowrap px-6 py-4 text-sm text-gray-900 dark:text-gray-100">
+                  {{ formatNumber(detail.cacheReadTokens || 0) }}
+                </td>
+                <td class="whitespace-nowrap px-6 py-4 text-sm text-gray-900 dark:text-gray-100">
+                  {{
+                    formatNumber(
+                      (detail.inputTokens || 0) +
+                        (detail.outputTokens || 0) +
+                        (detail.cacheCreateTokens || 0) +
+                        (detail.cacheReadTokens || 0)
+                    )
+                  }}
                 </td>
                 <td
                   class="whitespace-nowrap px-6 py-4 text-sm font-medium text-gray-900 dark:text-gray-100"
