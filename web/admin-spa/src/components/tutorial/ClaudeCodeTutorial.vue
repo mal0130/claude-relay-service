@@ -85,16 +85,101 @@
       </div>
     </div>
 
-    <!-- 第三步：设置环境变量 -->
+    <!-- 第三步：修改 Claude 配置文件 -->
+    <div class="mb-6 sm:mb-10">
+      <h4
+        class="mb-3 flex items-center text-lg font-semibold text-gray-800 dark:text-gray-300 sm:mb-4 sm:text-xl"
+      >
+        <span
+          class="mr-2 flex h-6 w-6 items-center justify-center rounded-full bg-indigo-500 text-xs font-bold text-white sm:mr-3 sm:h-8 sm:w-8 sm:text-sm"
+          >3</span
+        >
+        修改 Claude 配置文件
+      </h4>
+
+      <div
+        class="mb-4 rounded-xl border border-indigo-100 bg-gradient-to-r from-indigo-50 to-blue-50 p-4 dark:border-indigo-500/40 dark:from-indigo-950/30 dark:to-blue-950/30 sm:mb-6 sm:p-6"
+      >
+        <h5
+          class="mb-2 flex items-center text-base font-semibold text-gray-800 dark:text-gray-200 sm:mb-3 sm:text-lg"
+        >
+          <i class="fas fa-file-code mr-2 text-indigo-600" />
+          配置 Claude 设置文件
+        </h5>
+        <p class="mb-3 text-sm text-gray-700 dark:text-gray-300 sm:mb-4 sm:text-base">
+          在 Claude 配置文件中添加环境变量配置，这是推荐的配置方式：
+        </p>
+
+        <div class="space-y-4">
+          <div>
+            <h6 class="mb-2 text-sm font-medium text-gray-800 dark:text-gray-300 sm:text-base">
+              配置文件位置
+            </h6>
+            <div
+              class="overflow-x-auto rounded bg-gray-900 p-2 font-mono text-xs text-green-400 sm:p-3 sm:text-sm"
+            >
+              <div class="whitespace-nowrap text-gray-300">
+                {{
+                  platform === 'windows'
+                    ? '%USERPROFILE%\\.claude\\settings.json'
+                    : '~/.claude/settings.json'
+                }}
+              </div>
+            </div>
+          </div>
+
+          <div>
+            <h6 class="mb-2 text-sm font-medium text-gray-800 dark:text-gray-300 sm:text-base">
+              配置内容
+            </h6>
+            <p class="mb-3 text-sm text-gray-600 dark:text-gray-400">在配置文件中添加以下内容：</p>
+            <div
+              class="overflow-x-auto rounded bg-gray-900 p-2 font-mono text-xs text-green-400 sm:p-3 sm:text-sm"
+            >
+              <div class="whitespace-nowrap text-gray-300">{</div>
+              <div class="whitespace-nowrap text-gray-300">&nbsp;&nbsp;"env": {</div>
+              <div class="whitespace-nowrap text-gray-300">
+                &nbsp;&nbsp;&nbsp;&nbsp;"ANTHROPIC_AUTH_TOKEN": "你的API密钥",
+              </div>
+              <div class="whitespace-nowrap text-gray-300">
+                &nbsp;&nbsp;&nbsp;&nbsp;"ANTHROPIC_BASE_URL": "{{ currentBaseUrl }}",
+              </div>
+              <div class="whitespace-nowrap text-gray-300">
+                &nbsp;&nbsp;&nbsp;&nbsp;"CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": 1
+              </div>
+              <div class="whitespace-nowrap text-gray-300">&nbsp;&nbsp;}</div>
+              <div class="whitespace-nowrap text-gray-300">}</div>
+            </div>
+            <p class="mt-2 text-xs text-yellow-700 dark:text-yellow-400">
+              💡 记得将 "你的API密钥" 替换为在上方 "API Keys" 标签页中创建的实际密钥。
+            </p>
+          </div>
+        </div>
+
+        <div
+          class="mt-4 rounded-lg border border-blue-200 bg-blue-50 p-3 dark:border-blue-500/40 dark:bg-blue-950/30 sm:p-4"
+        >
+          <h6 class="mb-2 text-sm font-medium text-blue-800 dark:text-blue-300 sm:text-base">
+            配置说明
+          </h6>
+          <ul class="space-y-1 text-xs text-blue-700 dark:text-blue-300 sm:text-sm">
+            <li>• <strong>ANTHROPIC_AUTH_TOKEN</strong>: 你的中转服务 API 密钥</li>
+            <li>• <strong>ANTHROPIC_BASE_URL</strong>: 中转服务的 API 地址</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+
+    <!-- 第四步：设置环境变量（可选） -->
     <div class="mb-6 sm:mb-10">
       <h4
         class="mb-3 flex items-center text-lg font-semibold text-gray-800 dark:text-gray-300 sm:mb-4 sm:text-xl"
       >
         <span
           class="mr-2 flex h-6 w-6 items-center justify-center rounded-full bg-purple-500 text-xs font-bold text-white sm:mr-3 sm:h-8 sm:w-8 sm:text-sm"
-          >3</span
+          >4</span
         >
-        设置环境变量
+        设置环境变量（可选）
       </h4>
 
       <div
@@ -104,10 +189,10 @@
           class="mb-2 flex items-center text-base font-semibold text-gray-800 dark:text-gray-200 sm:mb-3 sm:text-lg"
         >
           <i class="fas fa-cog mr-2 text-purple-600" />
-          配置 Claude Code 环境变量
+          配置 Claude Code 环境变量（可选）
         </h5>
         <p class="mb-3 text-sm text-gray-700 dark:text-gray-300 sm:mb-4 sm:text-base">
-          为了让 Claude Code 连接到你的中转服务，需要设置两个环境变量：
+          如果你没有使用配置文件方式，也可以通过设置环境变量来配置：
         </p>
 
         <div class="space-y-4">
@@ -307,7 +392,7 @@
       >
         <span
           class="mr-2 flex h-6 w-6 items-center justify-center rounded-full bg-orange-500 text-xs font-bold text-white sm:mr-3 sm:h-8 sm:w-8 sm:text-sm"
-          >4</span
+          >5</span
         >
         开始使用 Claude Code
       </h4>
@@ -447,6 +532,48 @@
                 </li>
               </template>
             </ul>
+          </div>
+        </details>
+
+        <details
+          class="rounded-lg border border-gray-200 bg-gray-50 dark:border-gray-700 dark:bg-gray-800"
+        >
+          <summary
+            class="cursor-pointer p-3 text-sm font-medium text-gray-800 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-700 sm:p-4 sm:text-base"
+          >
+            配置文件中添加了 API 地址和密钥，打开 Claude Code 还是提示要登录？
+          </summary>
+          <div class="px-3 pb-3 text-gray-600 dark:text-gray-400 sm:px-4 sm:pb-4">
+            <p class="mb-2">这是因为 Claude Code 首次启动时需要环境变量来初始化配置。解决方法：</p>
+            <ol class="list-inside list-decimal space-y-2 text-sm">
+              <li>在终端中先临时设置环境变量</li>
+              <li>启动 Claude Code 并等待其正常运行</li>
+              <li>退出 Claude Code 后，清除临时环境变量</li>
+              <li>之后就可以直接使用配置文件启动了</li>
+            </ol>
+            <div class="mt-3">
+              <p class="mb-2 text-sm font-medium">临时设置环境变量：</p>
+              <div
+                class="overflow-x-auto rounded bg-gray-900 p-2 font-mono text-xs text-green-400 sm:p-3 sm:text-sm"
+              >
+                <template v-if="platform === 'windows'">
+                  <div class="whitespace-nowrap text-gray-300">
+                    $env:ANTHROPIC_BASE_URL = "{{ currentBaseUrl }}"
+                  </div>
+                  <div class="whitespace-nowrap text-gray-300">
+                    $env:ANTHROPIC_AUTH_TOKEN = "你的API密钥"
+                  </div>
+                </template>
+                <template v-else>
+                  <div class="whitespace-nowrap text-gray-300">
+                    export ANTHROPIC_BASE_URL="{{ currentBaseUrl }}"
+                  </div>
+                  <div class="whitespace-nowrap text-gray-300">
+                    export ANTHROPIC_AUTH_TOKEN="你的API密钥"
+                  </div>
+                </template>
+              </div>
+            </div>
           </div>
         </details>
 
