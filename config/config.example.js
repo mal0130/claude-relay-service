@@ -18,6 +18,13 @@ const config = {
     encryptionKey: process.env.ENCRYPTION_KEY || 'CHANGE-THIS-32-CHARACTER-KEY-NOW'
   },
 
+  // 🔑 合作伙伴API配置
+  partnerApi: {
+    // 合作伙伴API验签密钥（用于SHA256签名）
+    // 如果未设置，将使用 jwtSecret 作为默认值
+    secret: process.env.PARTNER_API_SECRET || 'CHANGE-THIS-SECRET'
+  },
+
   // 📊 Redis配置
   redis: {
     host: process.env.REDIS_HOST || '127.0.0.1',
@@ -230,5 +237,10 @@ const config = {
     maxTotalCostLimit: parseFloat(process.env.QUOTA_CARD_MAX_TOTAL_COST_LIMIT) || 1000 // 最大总额度（美元）
   }
 }
+
+// 添加顶层导出以便于访问
+config.jwtSecret = config.security.jwtSecret
+config.encryptionKey = config.security.encryptionKey
+config.partnerApiSecret = config.partnerApi.secret
 
 module.exports = config
