@@ -23,7 +23,7 @@ router.post('/api-key/usage', authenticatePartner, async (req, res) => {
 
     // 1. 通过key_name查找API Key
     const client = redis.getClientSafe()
-    const allKeyIds = await client.smembers('api_keys')
+    const allKeyIds = await client.smembers('apikey:set:active')
 
     let targetKey = null
     for (const keyId of allKeyIds) {
@@ -146,7 +146,7 @@ router.post('/api-key/usage-details', authenticatePartner, async (req, res) => {
 
     // 1. 通过key_name查找API Key
     const client = redis.getClientSafe()
-    const allKeyIds = await client.smembers('api_keys')
+    const allKeyIds = await client.smembers('apikey:set:active')
 
     let targetKey = null
     for (const keyId of allKeyIds) {
@@ -412,16 +412,30 @@ router.post('/api-key/create', authenticatePartner, async (req, res) => {
 
     logger.info(`🔑 Partner creating API Key: name=${name}`)
 
-    // 查找名为 "FoxCode" 的 Claude 账户
+    // 查找名为 "FoxCode" 的 Claude 账户（支持 Official 和 Console 类型）
     const client = redis.getClientSafe()
-    const allClaudeAccountIds = await client.smembers('claude_accounts')
 
     let foxCodeAccountId = null
-    for (const accountId of allClaudeAccountIds) {
+
+    // 1. 先查找 Claude Official 账户
+    const claudeOfficialIds = await client.smembers('claude_accounts')
+    for (const accountId of claudeOfficialIds) {
       const account = await client.hgetall(`claude:account:${accountId}`)
       if (account && account.name === 'FoxCode' && account.status === 'active') {
         foxCodeAccountId = accountId
         break
+      }
+    }
+
+    // 2. 如果没找到，查找 Claude Console 账户
+    if (!foxCodeAccountId) {
+      const claudeConsoleIds = await client.smembers('claude_console_accounts')
+      for (const accountId of claudeConsoleIds) {
+        const account = await client.hgetall(`claude_console_account:${accountId}`)
+        if (account && account.name === 'FoxCode' && account.status === 'active') {
+          foxCodeAccountId = accountId
+          break
+        }
       }
     }
 
