@@ -8,39 +8,56 @@ const pricingService = require('../services/pricingService')
 
 router.post('/api-key/usage', authenticatePartner, async (req, res) => {
   try {
-    const { key_name } = req.body
+    const { key_id, key_name } = req.body
 
-    // 参数验证
-    if (!key_name) {
+    // 参数验证：key_id 和 key_name 至少提供一个
+    if (!key_id && !key_name) {
       return res.status(400).json({
         code: 1001,
-        msg: 'key_name is required',
+        msg: 'key_id or key_name is required',
         data: null
       })
     }
 
-    logger.info(`📊 Partner usage query: key_name=${key_name}`)
+    logger.info(
+      `📊 Partner usage query: ${key_id ? `key_id=${key_id}` : `key_name=${key_name}`}`
+    )
 
-    // 1. 通过key_name查找API Key
+    // 1. 查找API Key（优先使用 key_id）
     const client = redis.getClientSafe()
-    const allKeyIds = await client.smembers('apikey:set:active')
-
     let targetKey = null
-    for (const keyId of allKeyIds) {
-      const apiKey = await redis.getApiKey(keyId)
-      if (apiKey && apiKey.name === key_name && !apiKey.deleted) {
-        targetKey = apiKey
-        break
-      }
-    }
 
-    if (!targetKey) {
-      logger.warn(`❌ API Key not found: key_name=${key_name}`)
-      return res.status(404).json({
-        code: 1002,
-        msg: `No active API Key found with name: ${key_name}`,
-        data: null
-      })
+    if (key_id) {
+      // 优先通过 key_id 直接查找
+      targetKey = await redis.getApiKey(key_id)
+      if (!targetKey || targetKey.deleted) {
+        logger.warn(`❌ API Key not found: key_id=${key_id}`)
+        return res.status(404).json({
+          code: 1002,
+          msg: `No active API Key found with id: ${key_id}`,
+          data: null
+        })
+      }
+    } else {
+      // 通过 key_name 查找
+      const allKeyIds = await client.smembers('apikey:set:active')
+
+      for (const keyId of allKeyIds) {
+        const apiKey = await redis.getApiKey(keyId)
+        if (apiKey && apiKey.name === key_name && !apiKey.deleted) {
+          targetKey = apiKey
+          break
+        }
+      }
+
+      if (!targetKey) {
+        logger.warn(`❌ API Key not found: key_name=${key_name}`)
+        return res.status(404).json({
+          code: 1002,
+          msg: `No active API Key found with name: ${key_name}`,
+          data: null
+        })
+      }
     }
 
     const keyId = targetKey.id
@@ -131,39 +148,56 @@ router.post('/api-key/usage', authenticatePartner, async (req, res) => {
 // 📊 查询 API Key 用量明细（近30天）
 router.post('/api-key/usage-details', authenticatePartner, async (req, res) => {
   try {
-    const { key_name } = req.body
+    const { key_id, key_name } = req.body
 
-    // 参数验证
-    if (!key_name) {
+    // 参数验证：key_id 和 key_name 至少提供一个
+    if (!key_id && !key_name) {
       return res.status(400).json({
         code: 1001,
-        msg: 'key_name is required',
+        msg: 'key_id or key_name is required',
         data: null
       })
     }
 
-    logger.info(`📊 Partner usage details query: key_name=${key_name}`)
+    logger.info(
+      `📊 Partner usage details query: ${key_id ? `key_id=${key_id}` : `key_name=${key_name}`}`
+    )
 
-    // 1. 通过key_name查找API Key
+    // 1. 查找API Key（优先使用 key_id）
     const client = redis.getClientSafe()
-    const allKeyIds = await client.smembers('apikey:set:active')
-
     let targetKey = null
-    for (const keyId of allKeyIds) {
-      const apiKey = await redis.getApiKey(keyId)
-      if (apiKey && apiKey.name === key_name && !apiKey.deleted) {
-        targetKey = apiKey
-        break
-      }
-    }
 
-    if (!targetKey) {
-      logger.warn(`❌ API Key not found: key_name=${key_name}`)
-      return res.status(404).json({
-        code: 1002,
-        msg: `No active API Key found with name: ${key_name}`,
-        data: null
-      })
+    if (key_id) {
+      // 优先通过 key_id 直接查找
+      targetKey = await redis.getApiKey(key_id)
+      if (!targetKey || targetKey.deleted) {
+        logger.warn(`❌ API Key not found: key_id=${key_id}`)
+        return res.status(404).json({
+          code: 1002,
+          msg: `No active API Key found with id: ${key_id}`,
+          data: null
+        })
+      }
+    } else {
+      // 通过 key_name 查找
+      const allKeyIds = await client.smembers('apikey:set:active')
+
+      for (const keyId of allKeyIds) {
+        const apiKey = await redis.getApiKey(keyId)
+        if (apiKey && apiKey.name === key_name && !apiKey.deleted) {
+          targetKey = apiKey
+          break
+        }
+      }
+
+      if (!targetKey) {
+        logger.warn(`❌ API Key not found: key_name=${key_name}`)
+        return res.status(404).json({
+          code: 1002,
+          msg: `No active API Key found with name: ${key_name}`,
+          data: null
+        })
+      }
     }
 
     const keyId = targetKey.id

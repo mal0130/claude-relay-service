@@ -141,15 +141,25 @@ SHA256: abc123...
 
 ```json
 {
+  "key_id": "xxx-xxx-xxx",
+  "sign": "ABC123..."
+}
+```
+
+或
+
+```json
+{
   "key_name": "MyApp",
   "sign": "ABC123..."
 }
 ```
 
-| 参数     | 类型   | 必填 | 说明                        |
-| -------- | ------ | ---- | --------------------------- |
-| key_name | string | 是   | API Key 的名称              |
-| sign     | string | 是   | SHA256 签名（大写十六进制） |
+| 参数     | 类型   | 必填 | 说明                                                    |
+| -------- | ------ | ---- | ------------------------------------------------------- |
+| key_id   | string | 否   | API Key 的 ID（与 key_name 二选一，优先使用 key_id）   |
+| key_name | string | 否   | API Key 的名称（与 key_id 二选一）                      |
+| sign     | string | 是   | SHA256 签名（大写十六进制）                             |
 
 #### 响应格式
 
@@ -185,7 +195,7 @@ SHA256: abc123...
 ```json
 {
   "code": 1001,
-  "msg": "key_name is required",
+  "msg": "key_id or key_name is required",
   "data": null
 }
 ```
@@ -200,15 +210,25 @@ SHA256: abc123...
 
 ```json
 {
+  "key_id": "xxx-xxx-xxx",
+  "sign": "ABC123..."
+}
+```
+
+或
+
+```json
+{
   "key_name": "MyApp",
   "sign": "ABC123..."
 }
 ```
 
-| 参数     | 类型   | 必填 | 说明                        |
-| -------- | ------ | ---- | --------------------------- |
-| key_name | string | 是   | API Key 的名称              |
-| sign     | string | 是   | SHA256 签名（大写十六进制） |
+| 参数     | 类型   | 必填 | 说明                                                    |
+| -------- | ------ | ---- | ------------------------------------------------------- |
+| key_id   | string | 否   | API Key 的 ID（与 key_name 二选一，优先使用 key_id）   |
+| key_name | string | 否   | API Key 的名称（与 key_id 二选一）                      |
+| sign     | string | 是   | SHA256 签名（大写十六进制）                             |
 
 #### 响应格式
 
@@ -332,7 +352,7 @@ SHA256: abc123...
 ```json
 {
   "code": 1001,
-  "msg": "key_name is required",
+  "msg": "key_id or key_name is required",
   "data": null
 }
 ```
