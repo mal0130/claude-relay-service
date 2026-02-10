@@ -432,7 +432,7 @@ router.post('/api-key/create', authenticatePartner, async (req, res) => {
       description: 'Created by partner API',
       tags: ['uni-agent'],
       totalCostLimit: totalCostLimit ? Number(totalCostLimit) : 0,
-      claudeAccountId: foxCodeAccountId,
+      claudeConsoleAccountId: foxCodeAccountId,
       permissions: ['claude'], // 只允许访问 Claude 服务
       isActive: true
     })
