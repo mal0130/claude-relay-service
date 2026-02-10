@@ -66,9 +66,9 @@ async function authenticatePartner(req, res, next) {
     if (!signature) {
       logger.warn('❌ Partner auth failed: Missing sign parameter')
       return res.status(401).json({
-        success: false,
-        error: 'Missing authentication parameter',
-        message: 'Required parameter: sign'
+        code: 401,
+        msg: 'Missing authentication parameter: sign',
+        data: null
       })
     }
 
@@ -83,9 +83,9 @@ async function authenticatePartner(req, res, next) {
     if (signature.toUpperCase() !== expectedSignature.toUpperCase()) {
       logger.warn('❌ Partner auth failed: Invalid signature')
       return res.status(401).json({
-        success: false,
-        error: 'Invalid signature',
-        message: 'Signature verification failed'
+        code: 401,
+        msg: 'Invalid signature',
+        data: null
       })
     }
 
@@ -94,9 +94,9 @@ async function authenticatePartner(req, res, next) {
   } catch (error) {
     logger.error('❌ Partner auth error:', error)
     return res.status(500).json({
-      success: false,
-      error: 'Authentication error',
-      message: error.message
+      code: 500,
+      msg: error.message || 'Authentication error',
+      data: null
     })
   }
 }

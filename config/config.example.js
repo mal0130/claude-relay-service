@@ -22,7 +22,9 @@ const config = {
   partnerApi: {
     // 合作伙伴API验签密钥（用于SHA256签名）
     // 如果未设置，将使用 jwtSecret 作为默认值
-    secret: process.env.PARTNER_API_SECRET || 'CHANGE-THIS-SECRET'
+    secret: process.env.PARTNER_API_SECRET || 'CHANGE-THIS-SECRET',
+    // 合作伙伴创建API Key时使用的默认Claude账户ID
+    defaultClaudeAccountId: process.env.PARTNER_DEFAULT_CLAUDE_ACCOUNT_ID || ''
   },
 
   // 📊 Redis配置

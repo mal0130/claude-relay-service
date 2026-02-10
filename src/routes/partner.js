@@ -5,6 +5,7 @@ const redis = require('../models/redis')
 const logger = require('../utils/logger')
 const CostCalculator = require('../utils/costCalculator')
 const pricingService = require('../services/pricingService')
+const config = require('../../config/config')
 
 router.post('/api-key/usage', authenticatePartner, async (req, res) => {
   try {
@@ -19,9 +20,7 @@ router.post('/api-key/usage', authenticatePartner, async (req, res) => {
       })
     }
 
-    logger.info(
-      `📊 Partner usage query: ${key_id ? `key_id=${key_id}` : `key_name=${key_name}`}`
-    )
+    logger.info(`📊 Partner usage query: ${key_id ? `key_id=${key_id}` : `key_name=${key_name}`}`)
 
     // 1. 查找API Key（优先使用 key_id）
     const client = redis.getClientSafe()
@@ -66,59 +65,7 @@ router.post('/api-key/usage', authenticatePartner, async (req, res) => {
     const totalCostKey = `usage:cost:total:${keyId}`
     const totalCost = parseFloat((await client.get(totalCostKey)) || '0')
 
-    // 3. 获取每日费用
-    const dailyCost = await redis.getDailyCost(keyId)
-
-    // 4. 获取用量统计（最近30天的数据）
-    const tzDate = redis.getDateInTimezone()
-    const searchPatterns = []
-
-    // 查询最近30天
-    for (let i = 0; i < 30; i++) {
-      const d = new Date(tzDate)
-      d.setDate(d.getDate() - i)
-      const dateStr = redis.getDateStringInTimezone(d)
-      searchPatterns.push(`usage:${keyId}:model:daily:*:${dateStr}`)
-    }
-
-    // 收集所有匹配的keys
-    const allKeys = []
-    for (const pattern of searchPatterns) {
-      let cursor = '0'
-      do {
-        const [newCursor, keys] = await client.scan(cursor, 'MATCH', pattern, 'COUNT', 100)
-        cursor = newCursor
-        allKeys.push(...keys)
-      } while (cursor !== '0')
-    }
-
-    // 聚合统计数据
-    let totalRequests = 0
-    let totalTokens = 0
-    let totalInputTokens = 0
-    let totalOutputTokens = 0
-    let totalCacheCreateTokens = 0
-    let totalCacheReadTokens = 0
-
-    if (allKeys.length > 0) {
-      const usageDataList = await client.mget(allKeys)
-      for (const data of usageDataList) {
-        if (!data) continue
-        try {
-          const usage = JSON.parse(data)
-          totalRequests += usage.requests || 0
-          totalTokens += usage.tokens || 0
-          totalInputTokens += usage.inputTokens || 0
-          totalOutputTokens += usage.outputTokens || 0
-          totalCacheCreateTokens += usage.cacheCreateTokens || 0
-          totalCacheReadTokens += usage.cacheReadTokens || 0
-        } catch (e) {
-          // 忽略解析错误
-        }
-      }
-    }
-
-    // 5. 构建响应数据（精简版）
+    // 3. 构建响应数据（精简版）
     const responseData = {
       keyId: targetKey.id,
       keyName: targetKey.name,
@@ -126,9 +73,7 @@ router.post('/api-key/usage', authenticatePartner, async (req, res) => {
       totalCostLimit: parseFloat(targetKey.totalCostLimit || 0)
     }
 
-    logger.info(
-      `✅ Partner usage query success: key_name=${key_name}, totalCost=${totalCost}`
-    )
+    logger.info(`✅ Partner usage query success: key_name=${key_name}, totalCost=${totalCost}`)
 
     return res.json({
       code: 0,
@@ -202,145 +147,167 @@ router.post('/api-key/usage-details', authenticatePartner, async (req, res) => {
 
     const keyId = targetKey.id
 
-    // 2. 查询最近30天的用量数据
+    // 2. 生成最近30天的日期列表
     const tzDate = redis.getDateInTimezone()
-    const dailyUsageMap = new Map()
-    const modelStatsMap = new Map()
-    const dailyModelStatsMap = new Map() // 按天+模型维度的统计
-
-    // 生成最近30天的日期列表
+    const dateStrings = []
     for (let i = 0; i < 30; i++) {
       const d = new Date(tzDate)
       d.setDate(d.getDate() - i)
-      const dateStr = redis.getDateStringInTimezone(d)
+      dateStrings.push(redis.getDateStringInTimezone(d))
+    }
 
-      // 初始化当天数据
-      dailyUsageMap.set(dateStr, {
-        date: dateStr,
+    // 3. 发现该 Key 使用过的所有模型（通过 alltime 索引）
+    const modelSet = new Set()
+    const alltimeKeys = await redis.scanKeys(`usage:${keyId}:model:alltime:*`)
+    alltimeKeys.forEach((k) => {
+      const parts = k.split(':')
+      if (parts.length >= 5) {
+        // usage:{keyId}:model:alltime:{model}
+        modelSet.add(parts.slice(4).join(':'))
+      }
+    })
+    const models = Array.from(modelSet)
+
+    // 4. 使用 pipeline 批量查询（与 getAggregatedUsageStats 一致）
+    const pipeline = client.pipeline()
+    const queryMap = []
+
+    for (const dateStr of dateStrings) {
+      // A. 每日汇总用量
+      pipeline.hgetall(`usage:daily:${keyId}:${dateStr}`)
+      queryMap.push({ type: 'daily', date: dateStr })
+
+      // B. 每日费用
+      pipeline.get(`usage:cost:daily:${keyId}:${dateStr}`)
+      queryMap.push({ type: 'cost', date: dateStr })
+
+      // C. 每日各模型用量
+      for (const model of models) {
+        pipeline.hgetall(`usage:${keyId}:model:daily:${model}:${dateStr}`)
+        queryMap.push({ type: 'model', date: dateStr, model })
+      }
+    }
+
+    const results = await pipeline.exec()
+
+    // 5. 聚合数据
+    const dailyMap = {}
+    const modelStatsMap = {}
+    const dailyModelMap = {} // date -> model -> stats
+
+    dateStrings.forEach((date) => {
+      dailyMap[date] = {
+        date,
         requests: 0,
         inputTokens: 0,
         outputTokens: 0,
         cacheCreateTokens: 0,
         cacheReadTokens: 0,
         totalTokens: 0,
-        cost: 0,
-        models: [] // 当天的模型明细
-      })
+        cost: 0
+      }
+    })
 
-      // 查询该日期的所有模型用量
-      const pattern = `usage:${keyId}:model:daily:*:${dateStr}`
-      let cursor = '0'
-      const keys = []
+    results.forEach(([err, data], index) => {
+      if (err || !data) return
+      const query = queryMap[index]
 
-      do {
-        const [newCursor, matchedKeys] = await client.scan(cursor, 'MATCH', pattern, 'COUNT', 100)
-        cursor = newCursor
-        keys.push(...matchedKeys)
-      } while (cursor !== '0')
-
-      // 聚合该日期的数据
-      if (keys.length > 0) {
-        const usageDataList = await client.mget(keys)
-
-        for (let j = 0; j < keys.length; j++) {
-          const key = keys[j]
-          const data = usageDataList[j]
-
-          if (!data) continue
-
-          try {
-            const usage = JSON.parse(data)
-
-            // 提取模型名称
-            const modelMatch = key.match(/usage:[^:]+:model:daily:(.+):\d{4}-\d{2}-\d{2}$/)
-            const modelName = modelMatch ? modelMatch[1] : 'unknown'
-
-            // 累加到当天总计
-            const dayData = dailyUsageMap.get(dateStr)
-            dayData.requests += usage.requests || 0
-            dayData.inputTokens += usage.inputTokens || 0
-            dayData.outputTokens += usage.outputTokens || 0
-            dayData.cacheCreateTokens += usage.cacheCreateTokens || 0
-            dayData.cacheReadTokens += usage.cacheReadTokens || 0
-            dayData.totalTokens += usage.tokens || 0
-            dayData.cost += usage.cost || 0
-
-            // 累加到当天的模型明细
-            const dayModelKey = `${dateStr}:${modelName}`
-            if (!dailyModelStatsMap.has(dayModelKey)) {
-              dailyModelStatsMap.set(dayModelKey, {
-                model: modelName,
-                requests: 0,
-                inputTokens: 0,
-                outputTokens: 0,
-                cacheCreateTokens: 0,
-                cacheReadTokens: 0,
-                totalTokens: 0,
-                cost: 0
-              })
-            }
-
-            const dayModelStats = dailyModelStatsMap.get(dayModelKey)
-            dayModelStats.requests += usage.requests || 0
-            dayModelStats.inputTokens += usage.inputTokens || 0
-            dayModelStats.outputTokens += usage.outputTokens || 0
-            dayModelStats.cacheCreateTokens += usage.cacheCreateTokens || 0
-            dayModelStats.cacheReadTokens += usage.cacheReadTokens || 0
-            dayModelStats.totalTokens += usage.tokens || 0
-            dayModelStats.cost += usage.cost || 0
-
-            // 累加到模型统计
-            if (!modelStatsMap.has(modelName)) {
-              modelStatsMap.set(modelName, {
-                model: modelName,
-                requests: 0,
-                inputTokens: 0,
-                outputTokens: 0,
-                cacheCreateTokens: 0,
-                cacheReadTokens: 0,
-                totalTokens: 0,
-                cost: 0
-              })
-            }
-
-            const modelStats = modelStatsMap.get(modelName)
-            modelStats.requests += usage.requests || 0
-            modelStats.inputTokens += usage.inputTokens || 0
-            modelStats.outputTokens += usage.outputTokens || 0
-            modelStats.cacheCreateTokens += usage.cacheCreateTokens || 0
-            modelStats.cacheReadTokens += usage.cacheReadTokens || 0
-            modelStats.totalTokens += usage.tokens || 0
-            modelStats.cost += usage.cost || 0
-          } catch (e) {
-            logger.debug(`⚠️ Failed to parse usage data for key ${key}:`, e)
+      if (query.type === 'daily') {
+        if (Object.keys(data).length > 0) {
+          const day = dailyMap[query.date]
+          day.requests += parseInt(data.requests || 0)
+          day.inputTokens += parseInt(data.inputTokens || 0)
+          day.outputTokens += parseInt(data.outputTokens || 0)
+          day.cacheCreateTokens += parseInt(data.cacheCreateTokens || 0)
+          day.cacheReadTokens += parseInt(data.cacheReadTokens || 0)
+        }
+      } else if (query.type === 'cost') {
+        dailyMap[query.date].cost += parseFloat(data || 0)
+      } else if (query.type === 'model') {
+        if (Object.keys(data).length > 0) {
+          const requests = parseInt(data.requests || 0)
+          const inputTokens = parseInt(data.inputTokens || 0)
+          const outputTokens = parseInt(data.outputTokens || 0)
+          const cacheCreateTokens = parseInt(data.cacheCreateTokens || 0)
+          const cacheReadTokens = parseInt(data.cacheReadTokens || 0)
+          const totalTokens = inputTokens + outputTokens + cacheCreateTokens + cacheReadTokens
+          let cost = 0
+          if (data.ratedCostMicro) {
+            cost = parseInt(data.ratedCostMicro) / 1000000
           }
+
+          // 累加到模型总计
+          if (!modelStatsMap[query.model]) {
+            modelStatsMap[query.model] = {
+              model: query.model,
+              requests: 0,
+              inputTokens: 0,
+              outputTokens: 0,
+              cacheCreateTokens: 0,
+              cacheReadTokens: 0,
+              totalTokens: 0,
+              cost: 0
+            }
+          }
+          const ms = modelStatsMap[query.model]
+          ms.requests += requests
+          ms.inputTokens += inputTokens
+          ms.outputTokens += outputTokens
+          ms.cacheCreateTokens += cacheCreateTokens
+          ms.cacheReadTokens += cacheReadTokens
+          ms.totalTokens += totalTokens
+          ms.cost += cost
+
+          // 累加到当天模型明细
+          const dmKey = `${query.date}:${query.model}`
+          if (!dailyModelMap[dmKey]) {
+            dailyModelMap[dmKey] = {
+              model: query.model,
+              requests: 0,
+              inputTokens: 0,
+              outputTokens: 0,
+              cacheCreateTokens: 0,
+              cacheReadTokens: 0,
+              totalTokens: 0,
+              cost: 0
+            }
+          }
+          const dm = dailyModelMap[dmKey]
+          dm.requests += requests
+          dm.inputTokens += inputTokens
+          dm.outputTokens += outputTokens
+          dm.cacheCreateTokens += cacheCreateTokens
+          dm.cacheReadTokens += cacheReadTokens
+          dm.totalTokens += totalTokens
+          dm.cost += cost
         }
       }
+    })
+
+    // 计算每日 totalTokens
+    for (const day of Object.values(dailyMap)) {
+      day.totalTokens =
+        day.inputTokens + day.outputTokens + day.cacheCreateTokens + day.cacheReadTokens
     }
 
-    // 3. 转换为数组并排序（按日期倒序）
-    const dailyUsage = Array.from(dailyUsageMap.values())
-      .filter((day) => day.requests > 0) // 只返回有数据的日期
+    // 6. 构建 dailyUsage（按日期倒序，只返回有数据的日期）
+    const dailyUsage = Object.values(dailyMap)
+      .filter((day) => day.requests > 0)
       .sort((a, b) => b.date.localeCompare(a.date))
       .map((day) => {
-        // 获取当天的模型明细
-        const dayModels = []
-        for (const [key, modelData] of dailyModelStatsMap.entries()) {
-          if (key.startsWith(`${day.date}:`)) {
-            dayModels.push({
-              model: modelData.model,
-              requests: modelData.requests,
-              inputTokens: modelData.inputTokens,
-              outputTokens: modelData.outputTokens,
-              cacheCreateTokens: modelData.cacheCreateTokens,
-              cacheReadTokens: modelData.cacheReadTokens,
-              totalTokens: modelData.totalTokens,
-              cost: parseFloat(modelData.cost.toFixed(6))
-            })
-          }
-        }
-        // 按请求数倒序排序
-        dayModels.sort((a, b) => b.requests - a.requests)
+        const dayModels = Object.entries(dailyModelMap)
+          .filter(([key]) => key.startsWith(`${day.date}:`))
+          .map(([, m]) => ({
+            model: m.model,
+            requests: m.requests,
+            inputTokens: m.inputTokens,
+            outputTokens: m.outputTokens,
+            cacheCreateTokens: m.cacheCreateTokens,
+            cacheReadTokens: m.cacheReadTokens,
+            totalTokens: m.totalTokens,
+            cost: parseFloat(m.cost.toFixed(6))
+          }))
+          .sort((a, b) => b.requests - a.requests)
 
         return {
           date: day.date,
@@ -355,21 +322,21 @@ router.post('/api-key/usage-details', authenticatePartner, async (req, res) => {
         }
       })
 
-    // 4. 转换模型统计为数组并排序（按请求数倒序）
-    const modelStats = Array.from(modelStatsMap.values())
+    // 7. 构建 modelStats（按请求数倒序）
+    const modelStats = Object.values(modelStatsMap)
       .sort((a, b) => b.requests - a.requests)
-      .map((model) => ({
-        model: model.model,
-        requests: model.requests,
-        inputTokens: model.inputTokens,
-        outputTokens: model.outputTokens,
-        cacheCreateTokens: model.cacheCreateTokens,
-        cacheReadTokens: model.cacheReadTokens,
-        totalTokens: model.totalTokens,
-        cost: parseFloat(model.cost.toFixed(6))
+      .map((m) => ({
+        model: m.model,
+        requests: m.requests,
+        inputTokens: m.inputTokens,
+        outputTokens: m.outputTokens,
+        cacheCreateTokens: m.cacheCreateTokens,
+        cacheReadTokens: m.cacheReadTokens,
+        totalTokens: m.totalTokens,
+        cost: parseFloat(m.cost.toFixed(6))
       }))
 
-    // 5. 计算总计
+    // 8. 计算总计
     const totalStats = {
       requests: dailyUsage.reduce((sum, day) => sum + day.requests, 0),
       inputTokens: dailyUsage.reduce((sum, day) => sum + day.inputTokens, 0),
@@ -380,7 +347,7 @@ router.post('/api-key/usage-details', authenticatePartner, async (req, res) => {
       cost: parseFloat(dailyUsage.reduce((sum, day) => sum + day.cost, 0).toFixed(6))
     }
 
-    // 6. 构建响应数据
+    // 9. 构建响应数据
     const responseData = {
       keyId: targetKey.id,
       keyName: targetKey.name,
@@ -446,38 +413,14 @@ router.post('/api-key/create', authenticatePartner, async (req, res) => {
 
     logger.info(`🔑 Partner creating API Key: name=${name}`)
 
-    // 查找名为 "FoxCode" 的 Claude 账户（支持 Official 和 Console 类型）
-    const client = redis.getClientSafe()
-
-    let foxCodeAccountId = null
-
-    // 1. 先查找 Claude Official 账户
-    const claudeOfficialIds = await client.smembers('claude_accounts')
-    for (const accountId of claudeOfficialIds) {
-      const account = await client.hgetall(`claude:account:${accountId}`)
-      if (account && account.name === 'FoxCode' && account.status === 'active') {
-        foxCodeAccountId = accountId
-        break
-      }
-    }
-
-    // 2. 如果没找到，查找 Claude Console 账户
-    if (!foxCodeAccountId) {
-      const claudeConsoleIds = await client.smembers('claude_console_accounts')
-      for (const accountId of claudeConsoleIds) {
-        const account = await client.hgetall(`claude_console_account:${accountId}`)
-        if (account && account.name === 'FoxCode' && account.status === 'active') {
-          foxCodeAccountId = accountId
-          break
-        }
-      }
-    }
+    // 从环境变量获取默认 Claude 账户 ID
+    const foxCodeAccountId = config.partnerApi.defaultClaudeAccountId
 
     if (!foxCodeAccountId) {
-      logger.warn('❌ FoxCode account not found or inactive')
-      return res.status(404).json({
-        code: 1002,
-        msg: 'FoxCode account not found or inactive',
+      logger.warn('❌ Partner default Claude account ID not configured')
+      return res.status(500).json({
+        code: 1003,
+        msg: 'Partner default Claude account ID not configured. Please set PARTNER_DEFAULT_CLAUDE_ACCOUNT_ID environment variable.',
         data: null
       })
     }
