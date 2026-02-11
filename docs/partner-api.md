@@ -141,25 +141,15 @@ SHA256: abc123...
 
 ```json
 {
-  "key_id": "xxx-xxx-xxx",
+  "key_ids": ["xxx-xxx-xxx", "yyy-yyy-yyy"],
   "sign": "ABC123..."
 }
 ```
 
-或
-
-```json
-{
-  "key_name": "MyApp",
-  "sign": "ABC123..."
-}
-```
-
-| 参数     | 类型   | 必填 | 说明                                                    |
-| -------- | ------ | ---- | ------------------------------------------------------- |
-| key_id   | string | 否   | API Key 的 ID（与 key_name 二选一，优先使用 key_id）   |
-| key_name | string | 否   | API Key 的名称（与 key_id 二选一）                      |
-| sign     | string | 是   | SHA256 签名（大写十六进制）                             |
+| 参数    | 类型   | 必填 | 说明                                    |
+| ------- | ------ | ---- | --------------------------------------- |
+| key_ids | array  | 是   | API Key ID 列表（最多 100 个）          |
+| sign    | string | 是   | SHA256 签名（大写十六进制）             |
 
 #### 响应格式
 
@@ -170,32 +160,40 @@ SHA256: abc123...
   "code": 0,
   "msg": "success",
   "data": {
-    "keyId": "xxx-xxx-xxx",
-    "keyName": "MyApp",
-    "totalCost": 12.34,
-    "totalCostLimit": 100.0
+    "xxx-xxx-xxx": {
+      "keyId": "xxx-xxx-xxx",
+      "keyName": "MyApp",
+      "totalCost": 12.34,
+      "totalCostLimit": 100.0
+    },
+    "yyy-yyy-yyy": {
+      "keyId": "yyy-yyy-yyy",
+      "keyName": "MyApp2",
+      "totalCost": 5.67,
+      "totalCostLimit": 50.0
+    }
   }
 }
 ```
 
 ### 响应字段说明
 
-| 字段                | 类型   | 说明                                      |
-| ------------------- | ------ | ----------------------------------------- |
-| code                | number | 状态码，0表示成功，其他值表示错误         |
-| msg                 | string | 消息，成功时为"success"，失败时为错误信息 |
-| data                | object | 业务数据                                  |
-| data.keyId          | string | API Key ID                                |
-| data.keyName        | string | API Key 名称                              |
-| data.totalCost      | number | 总费用（美元）                            |
-| data.totalCostLimit | number | 总费用限制（美元）                        |
+| 字段                       | 类型   | 说明                                      |
+| -------------------------- | ------ | ----------------------------------------- |
+| code                       | number | 状态码，0表示成功，其他值表示错误         |
+| msg                        | string | 消息，成功时为"success"，失败时为错误信息 |
+| data                       | object | 业务数据，key 为 API Key ID               |
+| data[keyId].keyId          | string | API Key ID                                |
+| data[keyId].keyName        | string | API Key 名称                              |
+| data[keyId].totalCost      | number | 总费用（美元）                            |
+| data[keyId].totalCostLimit | number | 总费用限制（美元）                        |
 
 **错误响应**
 
 ```json
 {
   "code": 1001,
-  "msg": "key_id or key_name is required",
+  "msg": "key_ids is required",
   "data": null
 }
 ```
@@ -210,25 +208,15 @@ SHA256: abc123...
 
 ```json
 {
-  "key_id": "xxx-xxx-xxx",
+  "key_ids": ["xxx-xxx-xxx", "yyy-yyy-yyy"],
   "sign": "ABC123..."
 }
 ```
 
-或
-
-```json
-{
-  "key_name": "MyApp",
-  "sign": "ABC123..."
-}
-```
-
-| 参数     | 类型   | 必填 | 说明                                                    |
-| -------- | ------ | ---- | ------------------------------------------------------- |
-| key_id   | string | 否   | API Key 的 ID（与 key_name 二选一，优先使用 key_id）   |
-| key_name | string | 否   | API Key 的名称（与 key_id 二选一）                      |
-| sign     | string | 是   | SHA256 签名（大写十六进制）                             |
+| 参数    | 类型   | 必填 | 说明                                    |
+| ------- | ------ | ---- | --------------------------------------- |
+| key_ids | array  | 是   | API Key ID 列表（最多 100 个）          |
+| sign    | string | 是   | SHA256 签名（大写十六进制）             |
 
 #### 响应格式
 
@@ -239,8 +227,8 @@ SHA256: abc123...
   "code": 0,
   "msg": "success",
   "data": {
-    "keyId": "xxx-xxx-xxx",
-    "keyName": "MyApp",
+    "keyId": "aggregated",
+    "keyName": "Aggregated View",
     "period": "last_30_days",
     "totalStats": {
       "requests": 1500,
@@ -352,7 +340,7 @@ SHA256: abc123...
 ```json
 {
   "code": 1001,
-  "msg": "key_id or key_name is required",
+  "msg": "key_ids is required",
   "data": null
 }
 ```
@@ -403,8 +391,8 @@ function generateSignature(params, secretKey) {
 }
 
 // 查询用量
-async function queryUsage(keyName) {
-  const params = { key_name: keyName }
+async function queryUsage(keyIds) {
+  const params = { key_ids: keyIds }
   const signature = generateSignature(params, SECRET_KEY)
 
   // 将签名添加到参数中
@@ -426,10 +414,12 @@ async function queryUsage(keyName) {
 }
 
 // 使用示例
-queryUsage('MyApp')
+queryUsage(['key-id-1', 'key-id-2'])
   .then((data) => {
-    console.log('总费用:', data.data.totalCost)
-    console.log('费用限制:', data.data.totalCostLimit)
+    // data.data 是 key-value 形式，key 为 keyId
+    for (const [keyId, info] of Object.entries(data.data)) {
+      console.log(`${keyId}: 总费用=${info.totalCost}, 限制=${info.totalCostLimit}`)
+    }
   })
   .catch((err) => console.error(err))
 ```
@@ -463,8 +453,8 @@ function generateSignature(params, secretKey) {
 }
 
 // 查询用量明细
-async function queryUsageDetails(keyName) {
-  const params = { key_name: keyName }
+async function queryUsageDetails(keyIds) {
+  const params = { key_ids: keyIds }
   const signature = generateSignature(params, SECRET_KEY)
   params.sign = signature
 
@@ -484,7 +474,7 @@ async function queryUsageDetails(keyName) {
 }
 
 // 使用示例
-queryUsageDetails('MyApp')
+queryUsageDetails(['key-id-1', 'key-id-2'])
   .then((data) => {
     const { totalStats, dailyUsage, modelStats } = data.data
 
@@ -545,9 +535,9 @@ def generate_signature(params, secret_key):
     # 5. SHA256 哈希并转大写
     return hashlib.sha256(sign_str.encode('utf-8')).hexdigest().upper()
 
-def query_usage(key_name):
+def query_usage(key_ids):
     """查询 API Key 用量"""
-    params = {'key_name': key_name}
+    params = {'key_ids': key_ids}
     signature = generate_signature(params, SECRET_KEY)
 
     # 将签名添加到参数中
@@ -572,9 +562,9 @@ def query_usage(key_name):
 
 # 使用示例
 if __name__ == '__main__':
-    result = query_usage('MyApp')
-    print(f"总费用: ${result['data']['totalCost']}")
-    print(f"费用限制: ${result['data']['totalCostLimit']}")
+    result = query_usage(['key-id-1', 'key-id-2'])
+    for key_id, info in result['data'].items():
+        print(f"{key_id}: 总费用=${info['totalCost']}, 限制=${info['totalCostLimit']}")
 ```
 
 #### 示例 2: 查询用量明细
@@ -603,9 +593,9 @@ def generate_signature(params, secret_key):
     sign_str += secret_key
     return hashlib.sha256(sign_str.encode('utf-8')).hexdigest().upper()
 
-def query_usage_details(key_name):
+def query_usage_details(key_ids):
     """查询 API Key 用量明细"""
-    params = {'key_name': key_name}
+    params = {'key_ids': key_ids}
     signature = generate_signature(params, SECRET_KEY)
     params['sign'] = signature
 
@@ -625,7 +615,7 @@ def query_usage_details(key_name):
 
 # 使用示例
 if __name__ == '__main__':
-    result = query_usage_details('MyApp')
+    result = query_usage_details(['key-id-1', 'key-id-2'])
     total_stats = result['data']['totalStats']
     daily_usage = result['data']['dailyUsage']
     model_stats = result['data']['modelStats']
@@ -691,8 +681,8 @@ function generateSignature($params, $secretKey) {
 /**
  * 查询 API Key 用量
  */
-function queryUsage($keyName) {
-    $params = ['key_name' => $keyName];
+function queryUsage($keyIds) {
+    $params = ['key_ids' => $keyIds];
     $signature = generateSignature($params, SECRET_KEY);
 
     // 将签名添加到参数中
@@ -719,10 +709,11 @@ function queryUsage($keyName) {
 
 // 使用示例
 try {
-    $result = queryUsage('MyApp');
+    $result = queryUsage(['key-id-1', 'key-id-2']);
     echo "查询成功:\n";
-    echo "总费用: $" . $result['data']['totalCost'] . "\n";
-    echo "费用限制: $" . $result['data']['totalCostLimit'] . "\n";
+    foreach ($result['data'] as $keyId => $info) {
+        echo "$keyId: 总费用=\$" . $info['totalCost'] . ", 限制=\$" . $info['totalCostLimit'] . "\n";
+    }
 } catch (Exception $e) {
     echo "错误: " . $e->getMessage() . "\n";
 }
@@ -758,8 +749,8 @@ function generateSignature($params, $secretKey) {
 }
 
 // 查询用量明细
-function queryUsageDetails($keyName) {
-    $params = ['key_name' => $keyName];
+function queryUsageDetails($keyIds) {
+    $params = ['key_ids' => $keyIds];
     $signature = generateSignature($params, SECRET_KEY);
     $params['sign'] = $signature;
 
@@ -782,7 +773,7 @@ function queryUsageDetails($keyName) {
 
 // 使用示例
 try {
-    $result = queryUsageDetails('MyApp');
+    $result = queryUsageDetails(['key-id-1', 'key-id-2']);
     $totalStats = $result['data']['totalStats'];
     $dailyUsage = $result['data']['dailyUsage'];
     $modelStats = $result['data']['modelStats'];
@@ -815,10 +806,10 @@ try {
 
 API_URL="http://localhost:3000/partner/api-key/usage"
 SECRET_KEY="your-secret-key"
-KEY_NAME="MyApp"
+KEY_IDS='["key-id-1","key-id-2"]'
 
 # 构建参数（按 key 排序）
-SIGN_STR="key_name=${KEY_NAME}"
+SIGN_STR="key_ids=${KEY_IDS}"
 
 # 追加密钥
 SIGN_STR="${SIGN_STR}${SECRET_KEY}"
@@ -827,7 +818,7 @@ SIGN_STR="${SIGN_STR}${SECRET_KEY}"
 SIGNATURE=$(echo -n "$SIGN_STR" | openssl dgst -sha256 | awk '{print toupper($2)}')
 
 # 构建请求体（包含签名）
-BODY="{\"key_name\":\"$KEY_NAME\",\"sign\":\"$SIGNATURE\"}"
+BODY="{\"key_ids\":$KEY_IDS,\"sign\":\"$SIGNATURE\"}"
 
 # 发送请求
 curl -X POST "$API_URL" \
@@ -842,10 +833,10 @@ curl -X POST "$API_URL" \
 
 API_URL="http://localhost:3000/partner/api-key/usage-details"
 SECRET_KEY="your-secret-key"
-KEY_NAME="MyApp"
+KEY_IDS='["key-id-1","key-id-2"]'
 
 # 构建参数（按 key 排序）
-SIGN_STR="key_name=${KEY_NAME}"
+SIGN_STR="key_ids=${KEY_IDS}"
 
 # 追加密钥
 SIGN_STR="${SIGN_STR}${SECRET_KEY}"
@@ -854,7 +845,7 @@ SIGN_STR="${SIGN_STR}${SECRET_KEY}"
 SIGNATURE=$(echo -n "$SIGN_STR" | openssl dgst -sha256 | awk '{print toupper($2)}')
 
 # 构建请求体（包含签名）
-BODY="{\"key_name\":\"$KEY_NAME\",\"sign\":\"$SIGNATURE\"}"
+BODY="{\"key_ids\":$KEY_IDS,\"sign\":\"$SIGNATURE\"}"
 
 # 发送请求并格式化输出
 curl -X POST "$API_URL" \
@@ -888,7 +879,7 @@ partnerApi: {
 | code | HTTP 状态码 | 说明                                     |
 | ---- | ----------- | ---------------------------------------- |
 | 0    | 200         | 成功                                     |
-| 1001 | 400         | 缺少必需参数 key_name                    |
+| 1001 | 400         | 缺少必需参数 key_ids                     |
 | 1002 | 404         | 未找到指定的 API Key                     |
 | 1003 | 500         | 服务器内部错误                           |
 | 401  | 401         | 签名验证失败（缺少 sign 参数或签名错误） |

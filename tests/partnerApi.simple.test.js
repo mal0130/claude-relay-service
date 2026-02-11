@@ -195,48 +195,16 @@ async function testCreateApiKeyInvalidSignature() {
 }
 
 /**
- * 测试 4: 查询 API Key 用量汇总（使用 key_name）
+ * 测试 4: 查询 API Key 用量汇总（使用 key_ids）
  */
 async function testQueryUsage() {
-  await test('测试 4: 查询 API Key 用量汇总（使用 key_name）', async () => {
-    if (!createdApiKeyName) {
-      console.log('  跳过：需要先创建 API Key')
-      return
-    }
-
-    const params = { key_name: createdApiKeyName }
-    const signature = generateSignature(params)
-
-    const response = await axios.post(
-      `${API_BASE_URL}/partner/api-key/usage`,
-      { ...params, sign: signature },
-      { headers: { 'Content-Type': 'application/json' } }
-    )
-
-    assert(response.status === 200, 'HTTP 状态码应为 200')
-    assert(response.data.code === 0, '响应 code 应为 0')
-    assert(response.data.msg === 'success', '响应 msg 应为 success')
-    assert(response.data.data.keyId === createdApiKeyId, 'keyId 应匹配')
-    assert(response.data.data.keyName === createdApiKeyName, 'keyName 应匹配')
-    assert(typeof response.data.data.totalCost === 'number', 'totalCost 应为数字')
-    assert(typeof response.data.data.totalCostLimit === 'number', 'totalCostLimit 应为数字')
-
-    console.log(`  总费用: $${response.data.data.totalCost}`)
-    console.log(`  费用限制: $${response.data.data.totalCostLimit}`)
-  })
-}
-
-/**
- * 测试 4.5: 查询 API Key 用量汇总（使用 key_id，优先级测试）
- */
-async function testQueryUsageByKeyId() {
-  await test('测试 4.5: 查询 API Key 用量汇总（使用 key_id）', async () => {
+  await test('测试 4: 查询 API Key 用量汇总（使用 key_ids）', async () => {
     if (!createdApiKeyId) {
       console.log('  跳过：需要先创建 API Key')
       return
     }
 
-    const params = { key_id: createdApiKeyId }
+    const params = { key_ids: [createdApiKeyId] }
     const signature = generateSignature(params)
 
     const response = await axios.post(
@@ -248,13 +216,46 @@ async function testQueryUsageByKeyId() {
     assert(response.status === 200, 'HTTP 状态码应为 200')
     assert(response.data.code === 0, '响应 code 应为 0')
     assert(response.data.msg === 'success', '响应 msg 应为 success')
-    assert(response.data.data.keyId === createdApiKeyId, 'keyId 应匹配')
-    assert(response.data.data.keyName === createdApiKeyName, 'keyName 应匹配')
-    assert(typeof response.data.data.totalCost === 'number', 'totalCost 应为数字')
-    assert(typeof response.data.data.totalCostLimit === 'number', 'totalCostLimit 应为数字')
+    assert(typeof response.data.data === 'object', 'data 应为对象')
+    assert(response.data.data[createdApiKeyId], '应包含对应 keyId 的数据')
 
-    console.log(`  使用 key_id 查询成功`)
-    console.log(`  总费用: $${response.data.data.totalCost}`)
+    const keyData = response.data.data[createdApiKeyId]
+    assert(keyData.keyId === createdApiKeyId, 'keyId 应匹配')
+    assert(keyData.keyName === createdApiKeyName, 'keyName 应匹配')
+    assert(typeof keyData.totalCost === 'number', 'totalCost 应为数字')
+    assert(typeof keyData.totalCostLimit === 'number', 'totalCostLimit 应为数字')
+
+    console.log(`  总费用: $${keyData.totalCost}`)
+    console.log(`  费用限制: $${keyData.totalCostLimit}`)
+  })
+}
+
+/**
+ * 测试 4.5: 查询 API Key 用量汇总（多个 key_ids）
+ */
+async function testQueryUsageByKeyId() {
+  await test('测试 4.5: 查询 API Key 用量汇总（多个 key_ids）', async () => {
+    if (!createdApiKeyId) {
+      console.log('  跳过：需要先创建 API Key')
+      return
+    }
+
+    const fakeId = 'non-existent-id-12345'
+    const params = { key_ids: [createdApiKeyId, fakeId] }
+    const signature = generateSignature(params)
+
+    const response = await axios.post(
+      `${API_BASE_URL}/partner/api-key/usage`,
+      { ...params, sign: signature },
+      { headers: { 'Content-Type': 'application/json' } }
+    )
+
+    assert(response.status === 200, 'HTTP 状态码应为 200')
+    assert(response.data.code === 0, '响应 code 应为 0')
+    assert(response.data.data[createdApiKeyId], '应包含存在的 keyId 数据')
+    assert(!response.data.data[fakeId], '不存在的 keyId 不应出现在结果中')
+
+    console.log(`  多 key_ids 查询成功，返回 ${Object.keys(response.data.data).length} 条结果`)
   })
 }
 
@@ -263,28 +264,29 @@ async function testQueryUsageByKeyId() {
  */
 async function testQueryUsageNotFound() {
   await test('测试 5: 查询用量 - API Key 不存在', async () => {
-    const params = { key_name: 'NonExistentKey_999999' }
+    const params = { key_ids: ['non-existent-id-999999'] }
     const signature = generateSignature(params)
 
-    try {
-      await axios.post(
-        `${API_BASE_URL}/partner/api-key/usage`,
-        { ...params, sign: signature },
-        { headers: { 'Content-Type': 'application/json' } }
-      )
-      assert(false, '应该抛出错误')
-    } catch (error) {
-      assert(error.response.status === 404, 'HTTP 状态码应为 404')
-      assert(error.response.data.code === 1002, '错误码应为 1002')
-    }
+    const response = await axios.post(
+      `${API_BASE_URL}/partner/api-key/usage`,
+      { ...params, sign: signature },
+      { headers: { 'Content-Type': 'application/json' } }
+    )
+
+    assert(response.status === 200, 'HTTP 状态码应为 200')
+    assert(response.data.code === 0, '响应 code 应为 0')
+    assert(
+      Object.keys(response.data.data).length === 0,
+      '不存在的 key 应返回空对象'
+    )
   })
 }
 
 /**
- * 测试 5.5: 查询用量 - 缺少参数（key_id 和 key_name 都不提供）
+ * 测试 5.5: 查询用量 - 缺少 key_ids 参数
  */
 async function testQueryUsageMissingParams() {
-  await test('测试 5.5: 查询用量 - 缺少 key_id 和 key_name 参数', async () => {
+  await test('测试 5.5: 查询用量 - 缺少 key_ids 参数', async () => {
     const params = {}
     const signature = generateSignature(params)
 
@@ -299,24 +301,24 @@ async function testQueryUsageMissingParams() {
       assert(error.response.status === 400, 'HTTP 状态码应为 400')
       assert(error.response.data.code === 1001, '错误码应为 1001')
       assert(
-        error.response.data.msg.includes('key_id or key_name is required'),
-        '错误信息应包含 key_id or key_name is required'
+        error.response.data.msg.includes('key_ids is required'),
+        '错误信息应包含 key_ids is required'
       )
     }
   })
 }
 
 /**
- * 测试 6: 查询 API Key 用量明细（使用 key_name）
+ * 测试 6: 查询 API Key 用量明细（使用 key_ids）
  */
 async function testQueryUsageDetails() {
-  await test('测试 6: 查询 API Key 用量明细（使用 key_name）', async () => {
-    if (!createdApiKeyName) {
+  await test('测试 6: 查询 API Key 用量明细（使用 key_ids）', async () => {
+    if (!createdApiKeyId) {
       console.log('  跳过：需要先创建 API Key')
       return
     }
 
-    const params = { key_name: createdApiKeyName }
+    const params = { key_ids: [createdApiKeyId] }
     const signature = generateSignature(params)
 
     const response = await axios.post(
@@ -328,8 +330,7 @@ async function testQueryUsageDetails() {
     assert(response.status === 200, 'HTTP 状态码应为 200')
     assert(response.data.code === 0, '响应 code 应为 0')
     assert(response.data.msg === 'success', '响应 msg 应为 success')
-    assert(response.data.data.keyId === createdApiKeyId, 'keyId 应匹配')
-    assert(response.data.data.keyName === createdApiKeyName, 'keyName 应匹配')
+    assert(response.data.data.keyId === 'aggregated', 'keyId 应为 aggregated')
     assert(response.data.data.period === 'last_30_days', 'period 应为 last_30_days')
     assert(response.data.data.totalStats, '应包含 totalStats')
     assert(Array.isArray(response.data.data.dailyUsage), 'dailyUsage 应为数组')
@@ -361,16 +362,17 @@ async function testQueryUsageDetails() {
 }
 
 /**
- * 测试 6.5: 查询 API Key 用量明细（使用 key_id）
+ * 测试 6.5: 查询 API Key 用量明细（多个 key_ids）
  */
 async function testQueryUsageDetailsByKeyId() {
-  await test('测试 6.5: 查询 API Key 用量明细（使用 key_id）', async () => {
+  await test('测试 6.5: 查询 API Key 用量明细（多个 key_ids）', async () => {
     if (!createdApiKeyId) {
       console.log('  跳过：需要先创建 API Key')
       return
     }
 
-    const params = { key_id: createdApiKeyId }
+    const fakeId = 'non-existent-id-12345'
+    const params = { key_ids: [createdApiKeyId, fakeId] }
     const signature = generateSignature(params)
 
     const response = await axios.post(
@@ -381,19 +383,18 @@ async function testQueryUsageDetailsByKeyId() {
 
     assert(response.status === 200, 'HTTP 状态码应为 200')
     assert(response.data.code === 0, '响应 code 应为 0')
-    assert(response.data.msg === 'success', '响应 msg 应为 success')
-    assert(response.data.data.keyId === createdApiKeyId, 'keyId 应匹配')
+    assert(response.data.data.keyId === 'aggregated', 'keyId 应为 aggregated')
     assert(response.data.data.period === 'last_30_days', 'period 应为 last_30_days')
 
-    console.log(`  使用 key_id 查询明细成功`)
+    console.log(`  多 key_ids 查询明细成功`)
   })
 }
 
 /**
- * 测试 7: 查询用量明细 - 缺少参数
+ * 测试 7: 查询用量明细 - 缺少 key_ids 参数
  */
 async function testQueryUsageDetailsMissingParam() {
-  await test('测试 7: 查询用量明细 - 缺少 key_id 和 key_name 参数', async () => {
+  await test('测试 7: 查询用量明细 - 缺少 key_ids 参数', async () => {
     const params = {}
     const signature = generateSignature(params)
 
@@ -408,8 +409,8 @@ async function testQueryUsageDetailsMissingParam() {
       assert(error.response.status === 400, 'HTTP 状态码应为 400')
       assert(error.response.data.code === 1001, '错误码应为 1001')
       assert(
-        error.response.data.msg.includes('key_id or key_name is required'),
-        '错误信息应包含 key_id or key_name is required'
+        error.response.data.msg.includes('key_ids is required'),
+        '错误信息应包含 key_ids is required'
       )
     }
   })

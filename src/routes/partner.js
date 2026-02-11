@@ -7,78 +7,290 @@ const CostCalculator = require('../utils/costCalculator')
 const pricingService = require('../services/pricingService')
 const config = require('../../config/config')
 
+// Helper: Find API Key by ID or Name
+async function findApiKey(keyId, keyName) {
+  const client = redis.getClientSafe()
+
+  if (keyId) {
+    const targetKey = await redis.getApiKey(keyId)
+    if (!targetKey || targetKey.deleted) {
+      return null
+    }
+    return targetKey
+  }
+
+  if (keyName) {
+    const allKeyIds = await client.smembers('apikey:set:active')
+    for (const id of allKeyIds) {
+      const apiKey = await redis.getApiKey(id)
+      if (apiKey && apiKey.name === keyName && !apiKey.deleted) {
+        return apiKey
+      }
+    }
+  }
+  return null
+}
+
+// Helper: Get usage summary for a key
+async function getUsageSummary(apiKey) {
+  const client = redis.getClientSafe()
+  const keyId = apiKey.id
+  const totalCostKey = `usage:cost:total:${keyId}`
+  const totalCost = parseFloat((await client.get(totalCostKey)) || '0')
+
+  return {
+    keyId: apiKey.id,
+    keyName: apiKey.name,
+    totalCost: parseFloat(totalCost.toFixed(4)),
+    totalCostLimit: parseFloat(apiKey.totalCostLimit || 0)
+  }
+}
+
+// Helper: Get usage details for a key
+async function getUsageDetails(apiKey) {
+  const client = redis.getClientSafe()
+  const keyId = apiKey.id
+
+  // 1. Generate date list (last 30 days)
+  const tzDate = redis.getDateInTimezone()
+  const dateStrings = []
+  for (let i = 0; i < 30; i++) {
+    const d = new Date(tzDate)
+    d.setDate(d.getDate() - i)
+    dateStrings.push(redis.getDateStringInTimezone(d))
+  }
+
+  // 2. Find models used
+  const modelSet = new Set()
+  const alltimeKeys = await redis.scanKeys(`usage:${keyId}:model:alltime:*`)
+  alltimeKeys.forEach((k) => {
+    const parts = k.split(':')
+    if (parts.length >= 5) {
+      modelSet.add(parts.slice(4).join(':'))
+    }
+  })
+  const models = Array.from(modelSet)
+
+  // 3. Pipeline query
+  const pipeline = client.pipeline()
+  const queryMap = []
+
+  for (const dateStr of dateStrings) {
+    pipeline.hgetall(`usage:daily:${keyId}:${dateStr}`)
+    queryMap.push({ type: 'daily', date: dateStr })
+
+    pipeline.get(`usage:cost:daily:${keyId}:${dateStr}`)
+    queryMap.push({ type: 'cost', date: dateStr })
+
+    for (const model of models) {
+      pipeline.hgetall(`usage:${keyId}:model:daily:${model}:${dateStr}`)
+      queryMap.push({ type: 'model', date: dateStr, model })
+    }
+  }
+
+  const results = await pipeline.exec()
+
+  // 4. Aggregate data
+  const dailyMap = {}
+  const modelStatsMap = {}
+  const dailyModelMap = {}
+
+  dateStrings.forEach((date) => {
+    dailyMap[date] = {
+      date,
+      requests: 0,
+      inputTokens: 0,
+      outputTokens: 0,
+      cacheCreateTokens: 0,
+      cacheReadTokens: 0,
+      totalTokens: 0,
+      cost: 0
+    }
+  })
+
+  results.forEach(([err, data], index) => {
+    if (err || !data) return
+    const query = queryMap[index]
+
+    if (query.type === 'daily') {
+      if (Object.keys(data).length > 0) {
+        const day = dailyMap[query.date]
+        day.requests += parseInt(data.requests || 0)
+        day.inputTokens += parseInt(data.inputTokens || 0)
+        day.outputTokens += parseInt(data.outputTokens || 0)
+        day.cacheCreateTokens += parseInt(data.cacheCreateTokens || 0)
+        day.cacheReadTokens += parseInt(data.cacheReadTokens || 0)
+      }
+    } else if (query.type === 'cost') {
+      dailyMap[query.date].cost += parseFloat(data || 0)
+    } else if (query.type === 'model') {
+      if (Object.keys(data).length > 0) {
+        const requests = parseInt(data.requests || 0)
+        const inputTokens = parseInt(data.inputTokens || 0)
+        const outputTokens = parseInt(data.outputTokens || 0)
+        const cacheCreateTokens = parseInt(data.cacheCreateTokens || 0)
+        const cacheReadTokens = parseInt(data.cacheReadTokens || 0)
+        const totalTokens = inputTokens + outputTokens + cacheCreateTokens + cacheReadTokens
+        let cost = 0
+        if (data.ratedCostMicro) {
+          cost = parseInt(data.ratedCostMicro) / 1000000
+        }
+
+        // Aggregate model stats
+        if (!modelStatsMap[query.model]) {
+          modelStatsMap[query.model] = {
+            model: query.model,
+            requests: 0,
+            inputTokens: 0,
+            outputTokens: 0,
+            cacheCreateTokens: 0,
+            cacheReadTokens: 0,
+            totalTokens: 0,
+            cost: 0
+          }
+        }
+        const ms = modelStatsMap[query.model]
+        ms.requests += requests
+        ms.inputTokens += inputTokens
+        ms.outputTokens += outputTokens
+        ms.cacheCreateTokens += cacheCreateTokens
+        ms.cacheReadTokens += cacheReadTokens
+        ms.totalTokens += totalTokens
+        ms.cost += cost
+
+        // Aggregate daily model stats
+        const dmKey = `${query.date}:${query.model}`
+        if (!dailyModelMap[dmKey]) {
+          dailyModelMap[dmKey] = {
+            model: query.model,
+            requests: 0,
+            inputTokens: 0,
+            outputTokens: 0,
+            cacheCreateTokens: 0,
+            cacheReadTokens: 0,
+            totalTokens: 0,
+            cost: 0
+          }
+        }
+        const dm = dailyModelMap[dmKey]
+        dm.requests += requests
+        dm.inputTokens += inputTokens
+        dm.outputTokens += outputTokens
+        dm.cacheCreateTokens += cacheCreateTokens
+        dm.cacheReadTokens += cacheReadTokens
+        dm.totalTokens += totalTokens
+        dm.cost += cost
+      }
+    }
+  })
+
+  // Calculate daily totalTokens
+  for (const day of Object.values(dailyMap)) {
+    day.totalTokens =
+      day.inputTokens + day.outputTokens + day.cacheCreateTokens + day.cacheReadTokens
+  }
+
+  // Build dailyUsage
+  const dailyUsage = Object.values(dailyMap)
+    .filter((day) => day.requests > 0)
+    .sort((a, b) => b.date.localeCompare(a.date))
+    .map((day) => {
+      const dayModels = Object.entries(dailyModelMap)
+        .filter(([key]) => key.startsWith(`${day.date}:`))
+        .map(([, m]) => ({
+          model: m.model,
+          requests: m.requests,
+          inputTokens: m.inputTokens,
+          outputTokens: m.outputTokens,
+          cacheCreateTokens: m.cacheCreateTokens,
+          cacheReadTokens: m.cacheReadTokens,
+          totalTokens: m.totalTokens,
+          cost: parseFloat(m.cost.toFixed(6))
+        }))
+        .sort((a, b) => b.requests - a.requests)
+
+      return {
+        date: day.date,
+        requests: day.requests,
+        inputTokens: day.inputTokens,
+        outputTokens: day.outputTokens,
+        cacheCreateTokens: day.cacheCreateTokens,
+        cacheReadTokens: day.cacheReadTokens,
+        totalTokens: day.totalTokens,
+        cost: parseFloat(day.cost.toFixed(6)),
+        models: dayModels
+      }
+    })
+
+  // Build modelStats
+  const modelStats = Object.values(modelStatsMap)
+    .sort((a, b) => b.requests - a.requests)
+    .map((m) => ({
+      model: m.model,
+      requests: m.requests,
+      inputTokens: m.inputTokens,
+      outputTokens: m.outputTokens,
+      cacheCreateTokens: m.cacheCreateTokens,
+      cacheReadTokens: m.cacheReadTokens,
+      totalTokens: m.totalTokens,
+      cost: parseFloat(m.cost.toFixed(6))
+    }))
+
+  // Calculate totalStats
+  const totalStats = {
+    requests: dailyUsage.reduce((sum, day) => sum + day.requests, 0),
+    inputTokens: dailyUsage.reduce((sum, day) => sum + day.inputTokens, 0),
+    outputTokens: dailyUsage.reduce((sum, day) => sum + day.outputTokens, 0),
+    cacheCreateTokens: dailyUsage.reduce((sum, day) => sum + day.cacheCreateTokens, 0),
+    cacheReadTokens: dailyUsage.reduce((sum, day) => sum + day.cacheReadTokens, 0),
+    totalTokens: dailyUsage.reduce((sum, day) => sum + day.totalTokens, 0),
+    cost: parseFloat(dailyUsage.reduce((sum, day) => sum + day.cost, 0).toFixed(6))
+  }
+
+  return {
+    keyId: apiKey.id,
+    keyName: apiKey.name,
+    period: 'last_30_days',
+    totalStats,
+    dailyUsage,
+    modelStats
+  }
+}
+
 router.post('/api-key/usage', authenticatePartner, async (req, res) => {
   try {
-    const { key_id, key_name } = req.body
+    const { key_ids } = req.body
 
-    // 参数验证：key_id 和 key_name 至少提供一个
-    if (!key_id && !key_name) {
+    if (!key_ids || !Array.isArray(key_ids)) {
       return res.status(400).json({
         code: 1001,
-        msg: 'key_id or key_name is required',
+        msg: 'key_ids is required and must be an array',
         data: null
       })
     }
 
-    logger.info(`📊 Partner usage query: ${key_id ? `key_id=${key_id}` : `key_name=${key_name}`}`)
-
-    // 1. 查找API Key（优先使用 key_id）
-    const client = redis.getClientSafe()
-    let targetKey = null
-
-    if (key_id) {
-      // 优先通过 key_id 直接查找
-      targetKey = await redis.getApiKey(key_id)
-      if (!targetKey || targetKey.deleted) {
-        logger.warn(`❌ API Key not found: key_id=${key_id}`)
-        return res.status(404).json({
-          code: 1002,
-          msg: `No active API Key found with id: ${key_id}`,
-          data: null
-        })
-      }
-    } else {
-      // 通过 key_name 查找
-      const allKeyIds = await client.smembers('apikey:set:active')
-
-      for (const keyId of allKeyIds) {
-        const apiKey = await redis.getApiKey(keyId)
-        if (apiKey && apiKey.name === key_name && !apiKey.deleted) {
-          targetKey = apiKey
-          break
-        }
-      }
-
-      if (!targetKey) {
-        logger.warn(`❌ API Key not found: key_name=${key_name}`)
-        return res.status(404).json({
-          code: 1002,
-          msg: `No active API Key found with name: ${key_name}`,
-          data: null
-        })
-      }
+    if (key_ids.length > 100) {
+      return res.status(400).json({
+        code: 1001,
+        msg: 'key_ids length cannot exceed 100',
+        data: null
+      })
     }
 
-    const keyId = targetKey.id
-
-    // 2. 获取总费用
-    const totalCostKey = `usage:cost:total:${keyId}`
-    const totalCost = parseFloat((await client.get(totalCostKey)) || '0')
-
-    // 3. 构建响应数据（精简版）
-    const responseData = {
-      keyId: targetKey.id,
-      keyName: targetKey.name,
-      totalCost: parseFloat(totalCost.toFixed(4)),
-      totalCostLimit: parseFloat(targetKey.totalCostLimit || 0)
+    logger.info(`📊 Partner usage query: count=${key_ids.length}`)
+    const results = {}
+    for (const id of key_ids) {
+      const apiKey = await findApiKey(id, null)
+      if (apiKey) {
+        const summary = await getUsageSummary(apiKey)
+        results[apiKey.id] = summary
+      }
     }
-
-    logger.info(`✅ Partner usage query success: key_name=${key_name}, totalCost=${totalCost}`)
 
     return res.json({
       code: 0,
       msg: 'success',
-      data: responseData
+      data: results
     })
   } catch (error) {
     logger.error('❌ Partner usage query error:', error)
@@ -93,111 +305,40 @@ router.post('/api-key/usage', authenticatePartner, async (req, res) => {
 // 📊 查询 API Key 用量明细（近30天）
 router.post('/api-key/usage-details', authenticatePartner, async (req, res) => {
   try {
-    const { key_id, key_name } = req.body
+    const { key_ids } = req.body
 
-    // 参数验证：key_id 和 key_name 至少提供一个
-    if (!key_id && !key_name) {
+    if (!key_ids || !Array.isArray(key_ids)) {
       return res.status(400).json({
         code: 1001,
-        msg: 'key_id or key_name is required',
+        msg: 'key_ids is required and must be an array',
         data: null
       })
     }
 
-    logger.info(
-      `📊 Partner usage details query: ${key_id ? `key_id=${key_id}` : `key_name=${key_name}`}`
-    )
+    if (key_ids.length > 100) {
+      return res.status(400).json({
+        code: 1001,
+        msg: 'key_ids length cannot exceed 100',
+        data: null
+      })
+    }
 
-    // 1. 查找API Key（优先使用 key_id）
-    const client = redis.getClientSafe()
-    let targetKey = null
-
-    if (key_id) {
-      // 优先通过 key_id 直接查找
-      targetKey = await redis.getApiKey(key_id)
-      if (!targetKey || targetKey.deleted) {
-        logger.warn(`❌ API Key not found: key_id=${key_id}`)
-        return res.status(404).json({
-          code: 1002,
-          msg: `No active API Key found with id: ${key_id}`,
-          data: null
-        })
-      }
-    } else {
-      // 通过 key_name 查找
-      const allKeyIds = await client.smembers('apikey:set:active')
-
-      for (const keyId of allKeyIds) {
-        const apiKey = await redis.getApiKey(keyId)
-        if (apiKey && apiKey.name === key_name && !apiKey.deleted) {
-          targetKey = apiKey
-          break
-        }
-      }
-
-      if (!targetKey) {
-        logger.warn(`❌ API Key not found: key_name=${key_name}`)
-        return res.status(404).json({
-          code: 1002,
-          msg: `No active API Key found with name: ${key_name}`,
-          data: null
-        })
+    logger.info(`📊 Partner usage details query: count=${key_ids.length}`)
+    const results = []
+    for (const id of key_ids) {
+      const apiKey = await findApiKey(id, null)
+      if (apiKey) {
+        const details = await getUsageDetails(apiKey)
+        results.push(details)
       }
     }
 
-    const keyId = targetKey.id
-
-    // 2. 生成最近30天的日期列表
-    const tzDate = redis.getDateInTimezone()
-    const dateStrings = []
-    for (let i = 0; i < 30; i++) {
-      const d = new Date(tzDate)
-      d.setDate(d.getDate() - i)
-      dateStrings.push(redis.getDateStringInTimezone(d))
-    }
-
-    // 3. 发现该 Key 使用过的所有模型（通过 alltime 索引）
-    const modelSet = new Set()
-    const alltimeKeys = await redis.scanKeys(`usage:${keyId}:model:alltime:*`)
-    alltimeKeys.forEach((k) => {
-      const parts = k.split(':')
-      if (parts.length >= 5) {
-        // usage:{keyId}:model:alltime:{model}
-        modelSet.add(parts.slice(4).join(':'))
-      }
-    })
-    const models = Array.from(modelSet)
-
-    // 4. 使用 pipeline 批量查询（与 getAggregatedUsageStats 一致）
-    const pipeline = client.pipeline()
-    const queryMap = []
-
-    for (const dateStr of dateStrings) {
-      // A. 每日汇总用量
-      pipeline.hgetall(`usage:daily:${keyId}:${dateStr}`)
-      queryMap.push({ type: 'daily', date: dateStr })
-
-      // B. 每日费用
-      pipeline.get(`usage:cost:daily:${keyId}:${dateStr}`)
-      queryMap.push({ type: 'cost', date: dateStr })
-
-      // C. 每日各模型用量
-      for (const model of models) {
-        pipeline.hgetall(`usage:${keyId}:model:daily:${model}:${dateStr}`)
-        queryMap.push({ type: 'model', date: dateStr, model })
-      }
-    }
-
-    const results = await pipeline.exec()
-
-    // 5. 聚合数据
-    const dailyMap = {}
-    const modelStatsMap = {}
-    const dailyModelMap = {} // date -> model -> stats
-
-    dateStrings.forEach((date) => {
-      dailyMap[date] = {
-        date,
+    // 聚合数据
+    const aggregated = {
+      keyId: 'aggregated',
+      keyName: 'Aggregated View',
+      period: 'last_30_days',
+      totalStats: {
         requests: 0,
         inputTokens: 0,
         outputTokens: 0,
@@ -205,110 +346,97 @@ router.post('/api-key/usage-details', authenticatePartner, async (req, res) => {
         cacheReadTokens: 0,
         totalTokens: 0,
         cost: 0
-      }
-    })
-
-    results.forEach(([err, data], index) => {
-      if (err || !data) return
-      const query = queryMap[index]
-
-      if (query.type === 'daily') {
-        if (Object.keys(data).length > 0) {
-          const day = dailyMap[query.date]
-          day.requests += parseInt(data.requests || 0)
-          day.inputTokens += parseInt(data.inputTokens || 0)
-          day.outputTokens += parseInt(data.outputTokens || 0)
-          day.cacheCreateTokens += parseInt(data.cacheCreateTokens || 0)
-          day.cacheReadTokens += parseInt(data.cacheReadTokens || 0)
-        }
-      } else if (query.type === 'cost') {
-        dailyMap[query.date].cost += parseFloat(data || 0)
-      } else if (query.type === 'model') {
-        if (Object.keys(data).length > 0) {
-          const requests = parseInt(data.requests || 0)
-          const inputTokens = parseInt(data.inputTokens || 0)
-          const outputTokens = parseInt(data.outputTokens || 0)
-          const cacheCreateTokens = parseInt(data.cacheCreateTokens || 0)
-          const cacheReadTokens = parseInt(data.cacheReadTokens || 0)
-          const totalTokens = inputTokens + outputTokens + cacheCreateTokens + cacheReadTokens
-          let cost = 0
-          if (data.ratedCostMicro) {
-            cost = parseInt(data.ratedCostMicro) / 1000000
-          }
-
-          // 累加到模型总计
-          if (!modelStatsMap[query.model]) {
-            modelStatsMap[query.model] = {
-              model: query.model,
-              requests: 0,
-              inputTokens: 0,
-              outputTokens: 0,
-              cacheCreateTokens: 0,
-              cacheReadTokens: 0,
-              totalTokens: 0,
-              cost: 0
-            }
-          }
-          const ms = modelStatsMap[query.model]
-          ms.requests += requests
-          ms.inputTokens += inputTokens
-          ms.outputTokens += outputTokens
-          ms.cacheCreateTokens += cacheCreateTokens
-          ms.cacheReadTokens += cacheReadTokens
-          ms.totalTokens += totalTokens
-          ms.cost += cost
-
-          // 累加到当天模型明细
-          const dmKey = `${query.date}:${query.model}`
-          if (!dailyModelMap[dmKey]) {
-            dailyModelMap[dmKey] = {
-              model: query.model,
-              requests: 0,
-              inputTokens: 0,
-              outputTokens: 0,
-              cacheCreateTokens: 0,
-              cacheReadTokens: 0,
-              totalTokens: 0,
-              cost: 0
-            }
-          }
-          const dm = dailyModelMap[dmKey]
-          dm.requests += requests
-          dm.inputTokens += inputTokens
-          dm.outputTokens += outputTokens
-          dm.cacheCreateTokens += cacheCreateTokens
-          dm.cacheReadTokens += cacheReadTokens
-          dm.totalTokens += totalTokens
-          dm.cost += cost
-        }
-      }
-    })
-
-    // 计算每日 totalTokens
-    for (const day of Object.values(dailyMap)) {
-      day.totalTokens =
-        day.inputTokens + day.outputTokens + day.cacheCreateTokens + day.cacheReadTokens
+      },
+      dailyUsage: [],
+      modelStats: []
     }
 
-    // 6. 构建 dailyUsage（按日期倒序，只返回有数据的日期）
-    const dailyUsage = Object.values(dailyMap)
-      .filter((day) => day.requests > 0)
+    const dailyMap = {} // date -> { stats..., models: { modelName -> stats } }
+    const modelMap = {} // modelName -> stats
+
+    for (const result of results) {
+      // 1. 聚合总统计
+      aggregated.totalStats.requests += result.totalStats.requests
+      aggregated.totalStats.inputTokens += result.totalStats.inputTokens
+      aggregated.totalStats.outputTokens += result.totalStats.outputTokens
+      aggregated.totalStats.cacheCreateTokens += result.totalStats.cacheCreateTokens
+      aggregated.totalStats.cacheReadTokens += result.totalStats.cacheReadTokens
+      aggregated.totalStats.totalTokens += result.totalStats.totalTokens
+      aggregated.totalStats.cost += result.totalStats.cost
+
+      // 2. 聚合模型统计
+      for (const mStat of result.modelStats) {
+        if (!modelMap[mStat.model]) {
+          modelMap[mStat.model] = { ...mStat }
+        } else {
+          const exist = modelMap[mStat.model]
+          exist.requests += mStat.requests
+          exist.inputTokens += mStat.inputTokens
+          exist.outputTokens += mStat.outputTokens
+          exist.cacheCreateTokens += mStat.cacheCreateTokens
+          exist.cacheReadTokens += mStat.cacheReadTokens
+          exist.totalTokens += mStat.totalTokens
+          exist.cost += mStat.cost
+        }
+      }
+
+      // 3. 聚合每日用量
+      for (const dayStat of result.dailyUsage) {
+        if (!dailyMap[dayStat.date]) {
+          dailyMap[dayStat.date] = {
+            date: dayStat.date,
+            requests: dayStat.requests,
+            inputTokens: dayStat.inputTokens,
+            outputTokens: dayStat.outputTokens,
+            cacheCreateTokens: dayStat.cacheCreateTokens,
+            cacheReadTokens: dayStat.cacheReadTokens,
+            totalTokens: dayStat.totalTokens,
+            cost: dayStat.cost,
+            models: {}
+          }
+          // 初始化当日模型
+          for (const m of dayStat.models) {
+            dailyMap[dayStat.date].models[m.model] = { ...m }
+          }
+        } else {
+          const exist = dailyMap[dayStat.date]
+          exist.requests += dayStat.requests
+          exist.inputTokens += dayStat.inputTokens
+          exist.outputTokens += dayStat.outputTokens
+          exist.cacheCreateTokens += dayStat.cacheCreateTokens
+          exist.cacheReadTokens += dayStat.cacheReadTokens
+          exist.totalTokens += dayStat.totalTokens
+          exist.cost += dayStat.cost
+
+          // 合并当日模型数据
+          for (const m of dayStat.models) {
+            if (!exist.models[m.model]) {
+              exist.models[m.model] = { ...m }
+            } else {
+              const eModel = exist.models[m.model]
+              eModel.requests += m.requests
+              eModel.inputTokens += m.inputTokens
+              eModel.outputTokens += m.outputTokens
+              eModel.cacheCreateTokens += m.cacheCreateTokens
+              eModel.cacheReadTokens += m.cacheReadTokens
+              eModel.totalTokens += m.totalTokens
+              eModel.cost += m.cost
+            }
+          }
+        }
+      }
+    }
+
+    // 4. 格式化输出 - Daily Usage
+    aggregated.dailyUsage = Object.values(dailyMap)
       .sort((a, b) => b.date.localeCompare(a.date))
       .map((day) => {
-        const dayModels = Object.entries(dailyModelMap)
-          .filter(([key]) => key.startsWith(`${day.date}:`))
-          .map(([, m]) => ({
-            model: m.model,
-            requests: m.requests,
-            inputTokens: m.inputTokens,
-            outputTokens: m.outputTokens,
-            cacheCreateTokens: m.cacheCreateTokens,
-            cacheReadTokens: m.cacheReadTokens,
-            totalTokens: m.totalTokens,
+        const models = Object.values(day.models)
+          .sort((a, b) => b.requests - a.requests)
+          .map((m) => ({
+            ...m,
             cost: parseFloat(m.cost.toFixed(6))
           }))
-          .sort((a, b) => b.requests - a.requests)
-
         return {
           date: day.date,
           requests: day.requests,
@@ -318,53 +446,25 @@ router.post('/api-key/usage-details', authenticatePartner, async (req, res) => {
           cacheReadTokens: day.cacheReadTokens,
           totalTokens: day.totalTokens,
           cost: parseFloat(day.cost.toFixed(6)),
-          models: dayModels
+          models: models
         }
       })
 
-    // 7. 构建 modelStats（按请求数倒序）
-    const modelStats = Object.values(modelStatsMap)
+    // 5. 格式化输出 - Model Stats
+    aggregated.modelStats = Object.values(modelMap)
       .sort((a, b) => b.requests - a.requests)
       .map((m) => ({
-        model: m.model,
-        requests: m.requests,
-        inputTokens: m.inputTokens,
-        outputTokens: m.outputTokens,
-        cacheCreateTokens: m.cacheCreateTokens,
-        cacheReadTokens: m.cacheReadTokens,
-        totalTokens: m.totalTokens,
+        ...m,
         cost: parseFloat(m.cost.toFixed(6))
       }))
 
-    // 8. 计算总计
-    const totalStats = {
-      requests: dailyUsage.reduce((sum, day) => sum + day.requests, 0),
-      inputTokens: dailyUsage.reduce((sum, day) => sum + day.inputTokens, 0),
-      outputTokens: dailyUsage.reduce((sum, day) => sum + day.outputTokens, 0),
-      cacheCreateTokens: dailyUsage.reduce((sum, day) => sum + day.cacheCreateTokens, 0),
-      cacheReadTokens: dailyUsage.reduce((sum, day) => sum + day.cacheReadTokens, 0),
-      totalTokens: dailyUsage.reduce((sum, day) => sum + day.totalTokens, 0),
-      cost: parseFloat(dailyUsage.reduce((sum, day) => sum + day.cost, 0).toFixed(6))
-    }
-
-    // 9. 构建响应数据
-    const responseData = {
-      keyId: targetKey.id,
-      keyName: targetKey.name,
-      period: 'last_30_days',
-      totalStats,
-      dailyUsage,
-      modelStats
-    }
-
-    logger.info(
-      `✅ Partner usage details query success: key_name=${key_name}, days=${dailyUsage.length}, models=${modelStats.length}`
-    )
+    // 6. 修正总费用精度
+    aggregated.totalStats.cost = parseFloat(aggregated.totalStats.cost.toFixed(6))
 
     return res.json({
       code: 0,
       msg: 'success',
-      data: responseData
+      data: aggregated
     })
   } catch (error) {
     logger.error('❌ Partner usage details query error:', error)
