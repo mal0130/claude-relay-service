@@ -681,32 +681,61 @@
           <h3 class="text-base font-semibold text-gray-900 dark:text-gray-100 sm:text-lg">
             API Keys 使用排行
           </h3>
-          <!-- 维度切换按钮 -->
-          <div class="flex gap-1 rounded-lg bg-gray-100 p-1 dark:bg-gray-700">
-            <button
-              :class="[
-                'rounded-md px-2 py-1 text-xs font-medium transition-colors sm:px-3 sm:text-sm',
-                apiKeysTrendMetric === 'requests'
-                  ? 'bg-white text-blue-600 shadow-sm dark:bg-gray-800'
-                  : 'text-gray-600 hover:text-gray-900 dark:text-gray-300 dark:hover:text-gray-100'
-              ]"
-              @click="((apiKeysTrendMetric = 'requests'), updateApiKeysUsageTrendChart())"
-            >
-              <i class="fas fa-exchange-alt mr-1" /><span class="hidden sm:inline">请求次数</span
-              ><span class="sm:hidden">请求</span>
-            </button>
-            <button
-              :class="[
-                'rounded-md px-2 py-1 text-xs font-medium transition-colors sm:px-3 sm:text-sm',
-                apiKeysTrendMetric === 'tokens'
-                  ? 'bg-white text-blue-600 shadow-sm dark:bg-gray-800'
-                  : 'text-gray-600 hover:text-gray-900 dark:text-gray-300 dark:hover:text-gray-100'
-              ]"
-              @click="((apiKeysTrendMetric = 'tokens'), updateApiKeysUsageTrendChart())"
-            >
-              <i class="fas fa-coins mr-1" /><span class="hidden sm:inline">Token 数量</span
-              ><span class="sm:hidden">Token</span>
-            </button>
+          <div class="flex flex-wrap items-center gap-2">
+            <!-- 标签筛选 -->
+            <div class="flex gap-1 rounded-lg bg-gray-100 p-1 dark:bg-gray-700">
+              <button
+                :class="[
+                  'rounded-md px-2 py-1 text-xs font-medium transition-colors sm:px-3 sm:text-sm',
+                  apiKeysTagFilter === ''
+                    ? 'bg-white text-blue-600 shadow-sm dark:bg-gray-800'
+                    : 'text-gray-600 hover:text-gray-900 dark:text-gray-300 dark:hover:text-gray-100'
+                ]"
+                @click="setApiKeysTagFilter('')"
+              >
+                全部
+              </button>
+              <button
+                v-for="tag in apiKeysTagOptions"
+                :key="tag"
+                :class="[
+                  'rounded-md px-2 py-1 text-xs font-medium transition-colors sm:px-3 sm:text-sm',
+                  apiKeysTagFilter === tag
+                    ? 'bg-white text-blue-600 shadow-sm dark:bg-gray-800'
+                    : 'text-gray-600 hover:text-gray-900 dark:text-gray-300 dark:hover:text-gray-100'
+                ]"
+                @click="setApiKeysTagFilter(tag)"
+              >
+                <i class="fas fa-tag mr-1" />{{ tag }}
+              </button>
+            </div>
+            <!-- 维度切换按钮 -->
+            <div class="flex gap-1 rounded-lg bg-gray-100 p-1 dark:bg-gray-700">
+              <button
+                :class="[
+                  'rounded-md px-2 py-1 text-xs font-medium transition-colors sm:px-3 sm:text-sm',
+                  apiKeysTrendMetric === 'requests'
+                    ? 'bg-white text-blue-600 shadow-sm dark:bg-gray-800'
+                    : 'text-gray-600 hover:text-gray-900 dark:text-gray-300 dark:hover:text-gray-100'
+                ]"
+                @click="((apiKeysTrendMetric = 'requests'), updateApiKeysUsageTrendChart())"
+              >
+                <i class="fas fa-exchange-alt mr-1" /><span class="hidden sm:inline">请求次数</span
+                ><span class="sm:hidden">请求</span>
+              </button>
+              <button
+                :class="[
+                  'rounded-md px-2 py-1 text-xs font-medium transition-colors sm:px-3 sm:text-sm',
+                  apiKeysTrendMetric === 'tokens'
+                    ? 'bg-white text-blue-600 shadow-sm dark:bg-gray-800'
+                    : 'text-gray-600 hover:text-gray-900 dark:text-gray-300 dark:hover:text-gray-100'
+                ]"
+                @click="((apiKeysTrendMetric = 'tokens'), updateApiKeysUsageTrendChart())"
+              >
+                <i class="fas fa-coins mr-1" /><span class="hidden sm:inline">Token 数量</span
+                ><span class="sm:hidden">Token</span>
+              </button>
+            </div>
           </div>
         </div>
         <div class="mb-4 text-xs text-gray-600 dark:text-gray-400 sm:text-sm">
@@ -714,6 +743,9 @@
             共 {{ apiKeysTrendData.apiKeyStats?.length }} 个 API Key，图表显示 Top 50
           </span>
           <span v-else> 共 {{ apiKeysTrendData.apiKeyStats?.length || 0 }} 个 API Key </span>
+          <span v-if="apiKeysTagFilter" class="ml-1 text-blue-600">
+            (标签: {{ apiKeysTagFilter }})
+          </span>
           <span class="ml-2 text-gray-400">(点击柱状图查看详情)</span>
         </div>
 
@@ -1182,7 +1214,8 @@ const {
   formattedUptime,
   dateFilter,
   trendGranularity,
-  apiKeysTrendMetric
+  apiKeysTrendMetric,
+  apiKeysTagFilter
 } = storeToRefs(dashboardStore)
 
 const {
@@ -1663,6 +1696,9 @@ const apiKeyStatsPageSize = ref(5)
 const apiKeyStatsSortColumn = ref('requests') // 默认按请求数排序
 const apiKeyStatsSortDirection = ref('desc') // 'asc' 或 'desc'
 
+// 标签筛选选项
+const apiKeysTagOptions = ['uni-agent', '公司自用']
+
 // 排序后的API Key统计数据
 const sortedApiKeyStats = computed(() => {
   const stats = [...(apiKeysTrendData.value.apiKeyStats || [])]
@@ -1724,6 +1760,14 @@ const handleApiKeyPageChange = (page) => {
   apiKeyStatsPage.value = page
 }
 
+const setApiKeysTagFilter = async (tag) => {
+  apiKeysTagFilter.value = tag
+  apiKeyStatsPage.value = 1
+  await loadApiKeysTrend(apiKeysTrendMetric.value, null, tag)
+  await nextTick()
+  createApiKeysUsageTrendChart()
+}
+
 // 创建API Keys使用总量柱状图
 function createApiKeysUsageTrendChart() {
   if (!apiKeysUsageTrendChart.value) return
@@ -1732,7 +1776,7 @@ function createApiKeysUsageTrendChart() {
     apiKeysUsageTrendChartInstance.destroy()
   }
 
-  // 使用统计列表数据，取前50个用于图表展示
+  // 使用筛选后的统计列表数据，取前50个用于图表展示
   const stats = (apiKeysTrendData.value.apiKeyStats || []).slice(0, 50)
   const metric = apiKeysTrendMetric.value
 
@@ -2066,7 +2110,7 @@ function createApiKeyDetailChart() {
 
 // 更新API Keys使用趋势图
 async function updateApiKeysUsageTrendChart() {
-  await loadApiKeysTrend(apiKeysTrendMetric.value)
+  await loadApiKeysTrend(apiKeysTrendMetric.value, null, apiKeysTagFilter.value)
   await nextTick()
   createApiKeysUsageTrendChart()
 }

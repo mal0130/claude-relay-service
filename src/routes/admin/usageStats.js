@@ -1645,10 +1645,10 @@ router.get('/account-usage-trend', authenticateAdmin, async (req, res) => {
 // 获取按API Key分组的使用趋势
 router.get('/api-keys-usage-trend', authenticateAdmin, async (req, res) => {
   try {
-    const { granularity = 'day', days = 7, startDate, endDate, metric = 'tokens' } = req.query
+    const { granularity = 'day', days = 7, startDate, endDate, metric = 'tokens', tag } = req.query
 
     logger.info(
-      `📊 Getting API keys usage trend, granularity: ${granularity}, days: ${days}, metric: ${metric}`
+      `📊 Getting API keys usage trend, granularity: ${granularity}, days: ${days}, metric: ${metric}${tag ? `, tag: ${tag}` : ''}`
     )
 
     const trendData = []
@@ -1656,9 +1656,14 @@ router.get('/api-keys-usage-trend', authenticateAdmin, async (req, res) => {
     // 获取所有API Keys（只需要 id 和 name，过滤已删除的）
     const apiKeyIds = await redis.scanApiKeyIds()
     const apiKeyBasicData = await redis.batchGetApiKeys(apiKeyIds)
-    const apiKeyMap = new Map(
-      apiKeyBasicData.filter((key) => !key.isDeleted).map((key) => [key.id, key])
-    )
+    let filteredKeys = apiKeyBasicData.filter((key) => !key.isDeleted)
+
+    // 按标签筛选
+    if (tag) {
+      filteredKeys = filteredKeys.filter((key) => Array.isArray(key.tags) && key.tags.includes(tag))
+    }
+
+    const apiKeyMap = new Map(filteredKeys.map((key) => [key.id, key]))
 
     if (granularity === 'hour') {
       // 小时粒度统计
@@ -2024,9 +2029,11 @@ router.get('/api-keys-usage-trend', authenticateAdmin, async (req, res) => {
     for (const point of trendData) {
       for (const [apiKeyId, data] of Object.entries(point.apiKeys)) {
         if (!apiKeyStatsMap.has(apiKeyId)) {
+          const keyInfo = apiKeyMap.get(apiKeyId)
           apiKeyStatsMap.set(apiKeyId, {
             id: apiKeyId,
             name: data.name,
+            tags: keyInfo?.tags || [],
             requests: 0,
             tokens: 0,
             cost: 0

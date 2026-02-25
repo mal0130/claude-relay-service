@@ -84,6 +84,7 @@ export const useDashboardStore = defineStore('dashboard', () => {
         ]
       : [
           { value: 'today', label: '今日', days: 1 },
+          { value: 'yesterday', label: '昨日', days: 1 },
           { value: '7days', label: '7天', days: 7 },
           { value: '30days', label: '30天', days: 30 }
         ]
@@ -134,6 +135,7 @@ export const useDashboardStore = defineStore('dashboard', () => {
   // 趋势图粒度
   const trendGranularity = ref(initialGranularity) // 'day' 或 'hour'
   const apiKeysTrendMetric = ref('requests') // 'requests' 或 'tokens'
+  const apiKeysTagFilter = ref('') // 标签筛选
   const accountUsageGroup = ref('claude') // claude | openai | gemini
 
   // 计算属性
@@ -334,6 +336,13 @@ export const useDashboardStore = defineStore('dashboard', () => {
         }
       } else {
         url += `granularity=day&days=${days}`
+        if (dateFilter.value.type === 'preset' && dateFilter.value.preset === 'yesterday') {
+          const yesterday = new Date()
+          yesterday.setDate(yesterday.getDate() - 1)
+          const startDate = getSystemTimezoneDay(yesterday, true)
+          const endDate = getSystemTimezoneDay(yesterday, false)
+          url += `&startDate=${encodeURIComponent(startDate.toISOString())}&endDate=${encodeURIComponent(endDate.toISOString())}`
+        }
       }
 
       const response = await getUsageStatsApi(url)
@@ -369,6 +378,11 @@ export const useDashboardStore = defineStore('dashboard', () => {
           if (dateFilter.value.preset === 'today') {
             startDate = getSystemTimezoneDay(now, true)
             endDate = getSystemTimezoneDay(now, false)
+          } else if (dateFilter.value.preset === 'yesterday') {
+            const yesterday = new Date()
+            yesterday.setDate(yesterday.getDate() - 1)
+            startDate = getSystemTimezoneDay(yesterday, true)
+            endDate = getSystemTimezoneDay(yesterday, false)
           } else {
             const daysAgo = new Date()
             daysAgo.setDate(daysAgo.getDate() - (option.days - 1))
@@ -389,7 +403,7 @@ export const useDashboardStore = defineStore('dashboard', () => {
     }
   }
 
-  async function loadApiKeysTrend(metric = 'requests', granularity = null) {
+  async function loadApiKeysTrend(metric = 'requests', granularity = null, tag = '') {
     const currentGranularity = granularity || getEffectiveGranularity()
     try {
       let url = '/admin/api-keys-usage-trend?'
@@ -413,16 +427,26 @@ export const useDashboardStore = defineStore('dashboard', () => {
       } else {
         days =
           dateFilter.value.type === 'preset'
-            ? dateFilter.value.preset === 'today'
+            ? dateFilter.value.preset === 'today' || dateFilter.value.preset === 'yesterday'
               ? 1
               : dateFilter.value.preset === '7days'
                 ? 7
                 : 30
             : calculateDaysBetween(dateFilter.value.customStart, dateFilter.value.customEnd)
         url += `granularity=day&days=${days}`
+        if (dateFilter.value.type === 'preset' && dateFilter.value.preset === 'yesterday') {
+          const yesterday = new Date()
+          yesterday.setDate(yesterday.getDate() - 1)
+          const startDate = getSystemTimezoneDay(yesterday, true)
+          const endDate = getSystemTimezoneDay(yesterday, false)
+          url += `&startDate=${encodeURIComponent(startDate.toISOString())}&endDate=${encodeURIComponent(endDate.toISOString())}`
+        }
       }
 
       url += `&metric=${metric}`
+      if (tag) {
+        url += `&tag=${encodeURIComponent(tag)}`
+      }
 
       const response = await getUsageStatsApi(url)
       if (response.success) {
@@ -462,13 +486,20 @@ export const useDashboardStore = defineStore('dashboard', () => {
       } else {
         days =
           dateFilter.value.type === 'preset'
-            ? dateFilter.value.preset === 'today'
+            ? dateFilter.value.preset === 'today' || dateFilter.value.preset === 'yesterday'
               ? 1
               : dateFilter.value.preset === '7days'
                 ? 7
                 : 30
             : calculateDaysBetween(dateFilter.value.customStart, dateFilter.value.customEnd)
         url += `granularity=day&days=${days}`
+        if (dateFilter.value.type === 'preset' && dateFilter.value.preset === 'yesterday') {
+          const yesterday = new Date()
+          yesterday.setDate(yesterday.getDate() - 1)
+          const startDate = getSystemTimezoneDay(yesterday, true)
+          const endDate = getSystemTimezoneDay(yesterday, false)
+          url += `&startDate=${encodeURIComponent(startDate.toISOString())}&endDate=${encodeURIComponent(endDate.toISOString())}`
+        }
       }
 
       url += `&group=${group}`
@@ -510,6 +541,11 @@ export const useDashboardStore = defineStore('dashboard', () => {
 
       if (normalizedPreset === 'today') {
         startDate.setHours(0, 0, 0, 0)
+        endDate.setHours(23, 59, 59, 999)
+      } else if (normalizedPreset === 'yesterday') {
+        startDate.setDate(now.getDate() - 1)
+        startDate.setHours(0, 0, 0, 0)
+        endDate.setDate(now.getDate() - 1)
         endDate.setHours(23, 59, 59, 999)
       } else if (option?.days) {
         startDate.setDate(now.getDate() - (option.days - 1))
@@ -663,7 +699,7 @@ export const useDashboardStore = defineStore('dashboard', () => {
         // 天粒度
         days = option ? option.days : 7
         // 设置模型统计期间
-        if (dateFilter.value.preset === 'today') {
+        if (dateFilter.value.preset === 'today' || dateFilter.value.preset === 'yesterday') {
           modelPeriod = 'daily'
         } else {
           modelPeriod = 'monthly'
@@ -686,7 +722,7 @@ export const useDashboardStore = defineStore('dashboard', () => {
     await Promise.all([
       loadUsageTrend(days, effectiveGranularity),
       loadModelStats(modelPeriod, effectiveGranularity),
-      loadApiKeysTrend(apiKeysTrendMetric.value, effectiveGranularity),
+      loadApiKeysTrend(apiKeysTrendMetric.value, effectiveGranularity, apiKeysTagFilter.value),
       loadAccountUsageTrend(accountUsageGroup.value, effectiveGranularity)
     ])
   }
@@ -725,6 +761,7 @@ export const useDashboardStore = defineStore('dashboard', () => {
     dateFilter,
     trendGranularity,
     apiKeysTrendMetric,
+    apiKeysTagFilter,
     accountUsageGroup,
 
     // 计算属性
