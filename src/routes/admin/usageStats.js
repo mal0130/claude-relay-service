@@ -2040,15 +2040,29 @@ router.get('/api-keys-usage-trend', authenticateAdmin, async (req, res) => {
     } else {
       // 天粒度统计（按日期集合扫描）
       const daysCount = parseInt(days) || 7
-      const today = new Date()
 
       // 收集所有天的元数据
       const dayInfos = []
-      for (let i = 0; i < daysCount; i++) {
-        const date = new Date(today)
-        date.setDate(date.getDate() - i)
-        const dateStr = redis.getDateStringInTimezone(date)
-        dayInfos.push({ dateStr })
+      if (startDate && endDate) {
+        // 有明确的日期范围时，按范围枚举日期
+        const start = new Date(startDate)
+        const end = new Date(endDate)
+        const current = new Date(start)
+        while (current <= end) {
+          const dateStr = redis.getDateStringInTimezone(current)
+          if (!dayInfos.some((d) => d.dateStr === dateStr)) {
+            dayInfos.push({ dateStr })
+          }
+          current.setDate(current.getDate() + 1)
+        }
+      } else {
+        const today = new Date()
+        for (let i = 0; i < daysCount; i++) {
+          const date = new Date(today)
+          date.setDate(date.getDate() - i)
+          const dateStr = redis.getDateStringInTimezone(date)
+          dayInfos.push({ dateStr })
+        }
       }
 
       // 使用索引获取数据，按日期批量查询
