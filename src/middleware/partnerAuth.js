@@ -81,7 +81,7 @@ async function authenticatePartner(req, res, next) {
 
     // 5. 验证签名（不区分大小写）
     if (signature.toUpperCase() !== expectedSignature.toUpperCase()) {
-      logger.warn('❌ Partner auth failed: Invalid signature')
+      logger.warn(`❌ Partner auth failed: Invalid signature. Expected: ${expectedSignature}, Received: ${signature}`)
       return res.status(401).json({
         code: 401,
         msg: 'Invalid signature',
