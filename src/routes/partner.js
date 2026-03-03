@@ -619,9 +619,7 @@ router.post('/api-key/update-config', authenticatePartner, async (req, res) => {
 
         // 更新服务倍率 - 只更新 claude 服务的倍率
         const rate = Number(config.rate)
-        const currentServiceRates = apiKey.serviceRates || {}
         updates.serviceRates = {
-          ...currentServiceRates,
           claude: rate
         }
 
