@@ -1346,7 +1346,7 @@ show_status() {
             redis_cmd="$redis_cmd -p $REDIS_PORT"
         fi
         if [ -n "$REDIS_PASSWORD" ]; then
-            redis_cmd="$redis_cmd -a '$REDIS_PASSWORD'"
+            redis_cmd="$redis_cmd -a $REDIS_PASSWORD"
         fi
         
         if $redis_cmd ping 2>/dev/null | grep -q "PONG"; then
