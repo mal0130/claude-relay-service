@@ -25,6 +25,7 @@ const {
   handleAnthropicMessagesToGemini,
   handleAnthropicCountTokensToGemini
 } = require('../services/anthropicGeminiBridgeService')
+const webhookService = require('../services/webhookService')
 const router = express.Router()
 
 function queueRateLimitUpdate(
@@ -1396,6 +1397,20 @@ async function handleMessagesRequest(req, res) {
       code: handledError.code,
       stack: handledError.stack
     })
+
+    // 发送 Webhook 通知
+    const rawError = handledError.response?.data || handledError
+    const rawErrorStr = typeof rawError === 'string' ? rawError : JSON.stringify(rawError, null, 2)
+    webhookService
+      .sendNotification('systemError', {
+        title: 'Claude Relay API 错误',
+        platform: 'claude',
+        apiKey: req.apiKey?.name || req.apiKey?.id || 'N/A',
+        path: req.path,
+        method: req.method,
+        error: rawErrorStr
+      })
+      .catch((e) => logger.warn('Failed to send webhook notification:', e))
 
     // 确保在任何情况下都能返回有效的JSON响应
     if (!res.headersSent) {
