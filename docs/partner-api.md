@@ -84,15 +84,19 @@ SHA256: abc123...
 {
   "name": "MyApp",
   "totalCostLimit": 100.0,
+  "claude_account_id": "account-uuid-here",
+  "rate": 2.1,
   "sign": "ABC123..."
 }
 ```
 
-| 参数           | 类型   | 必填 | 说明                        |
-| -------------- | ------ | ---- | --------------------------- |
-| name           | string | 是   | API Key 的名称              |
-| totalCostLimit | number | 否   | 总费用限制（美元）          |
-| sign           | string | 是   | SHA256 签名（大写十六进制） |
+| 参数              | 类型   | 必填 | 说明                        |
+| ----------------- | ------ | ---- | --------------------------- |
+| name              | string | 是   | API Key 的名称              |
+| totalCostLimit    | number | 否   | 总费用限制（美元）          |
+| claude_account_id | string | 否   | 绑定的 Claude 账户 ID       |
+| rate              | number | 否   | 服务倍率                    |
+| sign              | string | 是   | SHA256 签名（大写十六进制） |
 
 #### 响应格式
 
@@ -153,10 +157,10 @@ SHA256: abc123...
 }
 ```
 
-| 参数    | 类型   | 必填 | 说明                                    |
-| ------- | ------ | ---- | --------------------------------------- |
-| key_ids | array  | 是   | API Key ID 列表（最多 100 个）          |
-| sign    | string | 是   | SHA256 签名（大写十六进制）             |
+| 参数    | 类型   | 必填 | 说明                           |
+| ------- | ------ | ---- | ------------------------------ |
+| key_ids | array  | 是   | API Key ID 列表（最多 100 个） |
+| sign    | string | 是   | SHA256 签名（大写十六进制）    |
 
 #### 响应格式
 
@@ -220,10 +224,10 @@ SHA256: abc123...
 }
 ```
 
-| 参数    | 类型   | 必填 | 说明                                    |
-| ------- | ------ | ---- | --------------------------------------- |
-| key_ids | array  | 是   | API Key ID 列表（最多 100 个）          |
-| sign    | string | 是   | SHA256 签名（大写十六进制）             |
+| 参数    | 类型   | 必填 | 说明                           |
+| ------- | ------ | ---- | ------------------------------ |
+| key_ids | array  | 是   | API Key ID 列表（最多 100 个） |
+| sign    | string | 是   | SHA256 签名（大写十六进制）    |
 
 #### 响应格式
 
@@ -298,49 +302,49 @@ SHA256: abc123...
 
 **响应字段说明**
 
-| 字段                              | 类型   | 说明                                      |
-| --------------------------------- | ------ | ----------------------------------------- |
-| code                              | number | 状态码，0表示成功，其他值表示错误         |
-| msg                               | string | 消息，成功时为"success"，失败时为错误信息 |
-| data                              | object | 业务数据                                  |
-| data.keyId                        | string | API Key ID                                |
-| data.keyName                      | string | API Key 名称                              |
-| data.period                       | string | 统计周期（固定为 "last_30_days"）        |
-| data.totalStats                   | object | 总计统计数据                              |
-| data.totalStats.requests          | number | 总请求次数                                |
-| data.totalStats.inputTokens       | number | 总输入 Token 数                           |
-| data.totalStats.outputTokens      | number | 总输出 Token 数                           |
-| data.totalStats.cacheCreateTokens | number | 总缓存创建 Token 数                       |
-| data.totalStats.cacheReadTokens   | number | 总缓存读取 Token 数                       |
-| data.totalStats.totalTokens       | number | 总 Token 数（所有类型之和）               |
-| data.totalStats.cost              | number | 总费用（美元）                            |
-| data.dailyUsage                   | array  | 每日用量明细数组（按日期倒序）            |
-| data.dailyUsage[].date            | string | 日期（YYYY-MM-DD 格式）                   |
-| data.dailyUsage[].requests        | number | 当日请求次数                              |
-| data.dailyUsage[].inputTokens     | number | 当日输入 Token 数                         |
-| data.dailyUsage[].outputTokens    | number | 当日输出 Token 数                         |
-| data.dailyUsage[].cacheCreateTokens | number | 当日缓存创建 Token 数                   |
-| data.dailyUsage[].cacheReadTokens | number | 当日缓存读取 Token 数                     |
-| data.dailyUsage[].totalTokens     | number | 当日总 Token 数                           |
-| data.dailyUsage[].cost            | number | 当日费用（美元）                          |
-| data.dailyUsage[].models          | array  | 当日各模型的用量明细（按请求数倒序）      |
-| data.dailyUsage[].models[].model  | string | 模型名称                                  |
-| data.dailyUsage[].models[].requests | number | 该模型当日请求次数                      |
-| data.dailyUsage[].models[].inputTokens | number | 该模型当日输入 Token 数              |
-| data.dailyUsage[].models[].outputTokens | number | 该模型当日输出 Token 数             |
-| data.dailyUsage[].models[].cacheCreateTokens | number | 该模型当日缓存创建 Token 数   |
-| data.dailyUsage[].models[].cacheReadTokens | number | 该模型当日缓存读取 Token 数     |
-| data.dailyUsage[].models[].totalTokens | number | 该模型当日总 Token 数                |
-| data.dailyUsage[].models[].cost   | number | 该模型当日费用（美元）                    |
-| data.modelStats                   | array  | 按模型维度的统计数组（按请求数倒序）      |
-| data.modelStats[].model           | string | 模型名称                                  |
-| data.modelStats[].requests        | number | 该模型的请求次数                          |
-| data.modelStats[].inputTokens     | number | 该模型的输入 Token 数                     |
-| data.modelStats[].outputTokens    | number | 该模型的输出 Token 数                     |
-| data.modelStats[].cacheCreateTokens | number | 该模型的缓存创建 Token 数               |
-| data.modelStats[].cacheReadTokens | number | 该模型的缓存读取 Token 数                 |
-| data.modelStats[].totalTokens     | number | 该模型的总 Token 数                       |
-| data.modelStats[].cost            | number | 该模型的费用（美元）                      |
+| 字段                                         | 类型   | 说明                                      |
+| -------------------------------------------- | ------ | ----------------------------------------- |
+| code                                         | number | 状态码，0表示成功，其他值表示错误         |
+| msg                                          | string | 消息，成功时为"success"，失败时为错误信息 |
+| data                                         | object | 业务数据                                  |
+| data.keyId                                   | string | API Key ID                                |
+| data.keyName                                 | string | API Key 名称                              |
+| data.period                                  | string | 统计周期（固定为 "last_30_days"）         |
+| data.totalStats                              | object | 总计统计数据                              |
+| data.totalStats.requests                     | number | 总请求次数                                |
+| data.totalStats.inputTokens                  | number | 总输入 Token 数                           |
+| data.totalStats.outputTokens                 | number | 总输出 Token 数                           |
+| data.totalStats.cacheCreateTokens            | number | 总缓存创建 Token 数                       |
+| data.totalStats.cacheReadTokens              | number | 总缓存读取 Token 数                       |
+| data.totalStats.totalTokens                  | number | 总 Token 数（所有类型之和）               |
+| data.totalStats.cost                         | number | 总费用（美元）                            |
+| data.dailyUsage                              | array  | 每日用量明细数组（按日期倒序）            |
+| data.dailyUsage[].date                       | string | 日期（YYYY-MM-DD 格式）                   |
+| data.dailyUsage[].requests                   | number | 当日请求次数                              |
+| data.dailyUsage[].inputTokens                | number | 当日输入 Token 数                         |
+| data.dailyUsage[].outputTokens               | number | 当日输出 Token 数                         |
+| data.dailyUsage[].cacheCreateTokens          | number | 当日缓存创建 Token 数                     |
+| data.dailyUsage[].cacheReadTokens            | number | 当日缓存读取 Token 数                     |
+| data.dailyUsage[].totalTokens                | number | 当日总 Token 数                           |
+| data.dailyUsage[].cost                       | number | 当日费用（美元）                          |
+| data.dailyUsage[].models                     | array  | 当日各模型的用量明细（按请求数倒序）      |
+| data.dailyUsage[].models[].model             | string | 模型名称                                  |
+| data.dailyUsage[].models[].requests          | number | 该模型当日请求次数                        |
+| data.dailyUsage[].models[].inputTokens       | number | 该模型当日输入 Token 数                   |
+| data.dailyUsage[].models[].outputTokens      | number | 该模型当日输出 Token 数                   |
+| data.dailyUsage[].models[].cacheCreateTokens | number | 该模型当日缓存创建 Token 数               |
+| data.dailyUsage[].models[].cacheReadTokens   | number | 该模型当日缓存读取 Token 数               |
+| data.dailyUsage[].models[].totalTokens       | number | 该模型当日总 Token 数                     |
+| data.dailyUsage[].models[].cost              | number | 该模型当日费用（美元）                    |
+| data.modelStats                              | array  | 按模型维度的统计数组（按请求数倒序）      |
+| data.modelStats[].model                      | string | 模型名称                                  |
+| data.modelStats[].requests                   | number | 该模型的请求次数                          |
+| data.modelStats[].inputTokens                | number | 该模型的输入 Token 数                     |
+| data.modelStats[].outputTokens               | number | 该模型的输出 Token 数                     |
+| data.modelStats[].cacheCreateTokens          | number | 该模型的缓存创建 Token 数                 |
+| data.modelStats[].cacheReadTokens            | number | 该模型的缓存读取 Token 数                 |
+| data.modelStats[].totalTokens                | number | 该模型的总 Token 数                       |
+| data.modelStats[].cost                       | number | 该模型的费用（美元）                      |
 
 **错误响应**
 
@@ -381,21 +385,13 @@ SHA256: abc123...
 }
 ```
 
-| 参数 | 类型 | 必填 | 说明 |
-|------|------|------|------|
-| configs | array | 是 | 配置数组，每个元素包含 key_id 和 rate |
-| configs[].key_id | string | 是 | API Key ID |
-| configs[].rate | number | 是 | 服务倍率（2.1/2.7/3.2） |
-| claude_account_id | string | 否 | 绑定的 Claude 账户 ID（所有 key_id 共用） |
-| sign | string | 是 | SHA256 签名（大写十六进制） |
-
-**服务倍率档位说明**
-
-| 总费用限制 | 服务倍率 | 说明 |
-|-----------|---------|------|
-| $40 | 2.1 | 基础档 |
-| $200 | 2.7 | 标准档 |
-| $600 | 3.2 | 高级档 |
+| 参数              | 类型   | 必填 | 说明                                      |
+| ----------------- | ------ | ---- | ----------------------------------------- |
+| configs           | array  | 是   | 配置数组，每个元素包含 key_id 和 rate     |
+| configs[].key_id  | string | 是   | API Key ID                                |
+| configs[].rate    | number | 是   | 服务倍率                                  |
+| claude_account_id | string | 否   | 绑定的 Claude 账户 ID（所有 key_id 共用） |
+| sign              | string | 是   | SHA256 签名（大写十六进制）               |
 
 **参数验证规则**
 
@@ -428,17 +424,17 @@ SHA256: abc123...
 
 **响应字段说明**
 
-| 字段 | 类型 | 说明 |
-|------|------|------|
-| code | number | 状态码，0表示成功（部分成功也返回0），其他值表示错误 |
-| msg | string | 消息，成功时为"success" |
-| data | object | 业务数据 |
-| data.total | number | 处理的总条数 |
-| data.success | number | 成功更新的条数 |
-| data.failed | number | 失败的条数 |
-| data.failedDetails | array | 失败详情列表 |
-| data.failedDetails[].key_id | string | 失败的 API Key ID |
-| data.failedDetails[].reason | string | 失败原因 |
+| 字段                        | 类型   | 说明                                                 |
+| --------------------------- | ------ | ---------------------------------------------------- |
+| code                        | number | 状态码，0表示成功（部分成功也返回0），其他值表示错误 |
+| msg                         | string | 消息，成功时为"success"                              |
+| data                        | object | 业务数据                                             |
+| data.total                  | number | 处理的总条数                                         |
+| data.success                | number | 成功更新的条数                                       |
+| data.failed                 | number | 失败的条数                                           |
+| data.failedDetails          | array  | 失败详情列表                                         |
+| data.failedDetails[].key_id | string | 失败的 API Key ID                                    |
+| data.failedDetails[].reason | string | 失败原因                                             |
 
 **错误响应**
 
@@ -469,14 +465,6 @@ SHA256: abc123...
 ```json
 {
   "code": 1001,
-  "msg": "configs[0].rate is required and must be one of: 2.1, 2.7, 3.2",
-  "data": null
-}
-```
-
-```json
-{
-  "code": 1001,
   "msg": "Claude account not found or inactive",
   "data": null
 }
@@ -488,12 +476,11 @@ SHA256: abc123...
 2. **逐个处理**: 遍历 configs 数组，逐个更新 API Key 配置
 3. **错误隔离**: 某个 API Key 更新失败不影响其他 API Key 的更新
 4. **验证 API Key**: 检查 key_id 对应的 API Key 是否存在且未删除
-5. **验证服务倍率**: rate 必须是 2.1、2.7 或 3.2 之一
-6. **验证 Claude 账户**: 如果提供了 claude_account_id，必须验证该账户存在且状态为 active
-7. **更新配置**:
+5. **验证 Claude 账户**: 如果提供了 claude_account_id，必须验证该账户存在且状态为 active
+6. **更新配置**:
    - 更新 API Key 的 rateMultiplier 字段
    - 如果提供了 claude_account_id，更新所有 API Key 的 claudeConsoleAccountId 字段
-8. **返回结果**: 返回处理总数、成功数、失败数和失败详情（包含 key_id 和失败原因）
+7. **返回结果**: 返回处理总数、成功数、失败数和失败详情（包含 key_id 和失败原因）
 
 #### 安全考虑
 
@@ -643,12 +630,12 @@ queryUsageDetails(['key-id-1', 'key-id-2'])
     console.log('总费用:', `$${totalStats.cost}`)
 
     console.log('\n=== 每日用量（最近5天）===')
-    dailyUsage.slice(0, 5).forEach(day => {
+    dailyUsage.slice(0, 5).forEach((day) => {
       console.log(`${day.date}: ${day.requests}次请求, ${day.totalTokens} tokens, $${day.cost}`)
     })
 
     console.log('\n=== 模型统计（Top 3）===')
-    modelStats.slice(0, 3).forEach(model => {
+    modelStats.slice(0, 3).forEach((model) => {
       console.log(`${model.model}: ${model.requests}次请求, $${model.cost}`)
     })
   })

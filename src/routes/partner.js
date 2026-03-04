@@ -480,7 +480,7 @@ router.post('/api-key/usage-details', authenticatePartner, async (req, res) => {
 // 🔑 创建 API Key
 router.post('/api-key/create', authenticatePartner, async (req, res) => {
   try {
-    const { name, totalCostLimit } = req.body
+    const { name, totalCostLimit, claude_account_id, rate } = req.body
 
     // 参数验证
     if (!name || typeof name !== 'string' || name.trim().length === 0) {
@@ -512,12 +512,32 @@ router.post('/api-key/create', authenticatePartner, async (req, res) => {
       })
     }
 
+    // 验证 rate 参数（如果提供）
+    if (rate !== undefined && rate !== null && rate !== '') {
+      const rateNum = Number(rate)
+      if (Number.isNaN(rateNum) || rateNum <= 0) {
+        return res.status(400).json({
+          code: 1001,
+          msg: 'rate must be a positive number',
+          data: null
+        })
+      }
+      // 验证是否为 1 位小数
+      if (!/^\d+\.\d$/.test(rate.toString())) {
+        return res.status(400).json({
+          code: 1001,
+          msg: 'rate must have exactly 1 decimal place',
+          data: null
+        })
+      }
+    }
+
     logger.info(`🔑 Partner creating API Key: name=${name}`)
 
-    // 从环境变量获取默认 Claude 账户 ID
-    const foxCodeAccountId = config.partnerApi.defaultClaudeAccountId
+    // 确定使用的 Claude 账户 ID
+    const targetAccountId = claude_account_id || config.partnerApi.defaultClaudeAccountId
 
-    if (!foxCodeAccountId) {
+    if (!targetAccountId) {
       logger.warn('❌ Partner default Claude account ID not configured')
       return res.status(500).json({
         code: 1003,
@@ -526,17 +546,41 @@ router.post('/api-key/create', authenticatePartner, async (req, res) => {
       })
     }
 
-    // 调用 apiKeyService 创建 API Key
-    const apiKeyService = require('../services/apiKeyService')
-    const newKey = await apiKeyService.generateApiKey({
+    // 验证 Claude 账户（如果提供了自定义账户）
+    if (claude_account_id) {
+      const claudeConsoleAccountService = require('../services/account/claudeConsoleAccountService')
+      const account = await claudeConsoleAccountService.getAccount(claude_account_id)
+
+      if (!account || !account.isActive) {
+        return res.status(400).json({
+          code: 1001,
+          msg: 'Claude account not found or inactive',
+          data: null
+        })
+      }
+    }
+
+    // 准备创建参数
+    const createParams = {
       name: name.trim(),
       description: 'Created by partner API',
       tags: ['uni-agent'],
       totalCostLimit: totalCostLimit ? Number(totalCostLimit) : 0,
-      claudeConsoleAccountId: foxCodeAccountId,
+      claudeConsoleAccountId: targetAccountId,
       permissions: ['claude'], // 只允许访问 Claude 服务
       isActive: true
-    })
+    }
+
+    // 如果提供了 rate，设置服务倍率
+    if (rate !== undefined && rate !== null && rate !== '') {
+      createParams.serviceRates = {
+        claude: Number(rate)
+      }
+    }
+
+    // 调用 apiKeyService 创建 API Key
+    const apiKeyService = require('../services/apiKeyService')
+    const newKey = await apiKeyService.generateApiKey(createParams)
 
     logger.success(`✅ Partner created API Key: ${newKey.id} (${name})`)
 
