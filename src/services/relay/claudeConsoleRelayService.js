@@ -960,7 +960,7 @@ class ClaudeConsoleRelayService {
                 const errorJson = JSON.parse(fullErrorData)
                 const sanitizedError = sanitizeUpstreamError(errorJson)
 
-                // 发送 Webhook 通知
+                // 发送 Webhook 通知，增加sanitizedError字段
                 webhookService
                   .sendNotification('systemError', {
                     title: 'Claude Console 流式响应错误状态',
