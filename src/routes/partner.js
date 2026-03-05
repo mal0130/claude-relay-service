@@ -522,11 +522,11 @@ router.post('/api-key/create', authenticatePartner, async (req, res) => {
           data: null
         })
       }
-      // 验证是否为 1 位小数
-      if (!/^\d+\.\d$/.test(rate.toString())) {
+      // 验证最多包含 1 位小数
+      if (!/^\d+(\.\d)?$/.test(rate.toString())) {
         return res.status(400).json({
           code: 1001,
-          msg: 'rate must have exactly 1 decimal place',
+          msg: 'rate must be an integer or have at most 1 decimal place',
           data: null
         })
       }
