@@ -717,22 +717,6 @@ class ClaudeConsoleRelayService {
           `❌ Claude Console stream relay failed (Account: ${account?.name || accountId}):`,
           error
         )
-
-        // 发送 Webhook 通知
-        const rawError = error.response?.data || error.message || error
-        const rawErrorStr =
-          typeof rawError === 'string' ? rawError : JSON.stringify(rawError, null, 2)
-        webhookService
-          .sendNotification('systemError', {
-            title: 'Claude Console 流式请求错误',
-            platform: 'claude-console',
-            apiKeyName: apiKeyData.name || '',
-            accountId,
-            account: account?.name || accountId,
-            requestId,
-            error: rawErrorStr
-          })
-          .catch((e) => logger.warn('Failed to send webhook notification:', e))
       }
       throw error
     } finally {
@@ -1309,21 +1293,6 @@ class ClaudeConsoleRelayService {
               `❌ Claude Console stream error (Account: ${account?.name || accountId}):`,
               error
             )
-
-            // 发送 Webhook 通知
-            const rawError = error.response?.data || error.message || error
-            const rawErrorStr =
-              typeof rawError === 'string' ? rawError : JSON.stringify(rawError, null, 2)
-            webhookService
-              .sendNotification('systemError', {
-                title: 'Claude Console 流式响应错误',
-                platform: 'claude-console',
-                apiKeyName: apiKeyData.name || '',
-                accountId,
-                account: account?.name || accountId,
-                error: rawErrorStr
-              })
-              .catch((e) => logger.warn('Failed to send webhook notification:', e))
 
             if (isStreamWritable(responseStream)) {
               // 如果有 streamTransformer（如测试请求），使用前端期望的格式
