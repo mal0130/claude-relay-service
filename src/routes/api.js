@@ -28,6 +28,9 @@ const {
 const webhookService = require('../services/webhookService')
 const router = express.Router()
 
+// 每日通知缓存：apiKeyName -> 日期
+const dailyNotificationCache = new Map()
+
 function queueRateLimitUpdate(
   rateLimitInfo,
   usageSummary,
@@ -1398,52 +1401,77 @@ async function handleMessagesRequest(req, res) {
       stack: handledError.stack
     })
 
-    // 确保在任何情况下都能返回有效的JSON响应
-    if (!res.headersSent) {
-      // 根据错误类型设置适当的状态码
-      let statusCode = 500
-      let errorType = 'Relay service error'
+    // 根据错误类型设置适当的状态码
+    let statusCode = 500
+    let errorType = 'Relay service error'
 
-      if (
-        handledError.message.includes('Connection reset') ||
-        handledError.message.includes('socket hang up')
-      ) {
-        statusCode = 502
-        errorType = 'Upstream connection error'
-      } else if (handledError.message.includes('Connection refused')) {
-        statusCode = 502
-        errorType = 'Upstream service unavailable'
-      } else if (handledError.message.includes('timeout')) {
-        statusCode = 504
-        errorType = 'Upstream timeout'
-      } else if (
-        handledError.message.includes('resolve') ||
-        handledError.message.includes('ENOTFOUND')
-      ) {
-        statusCode = 502
-        errorType = 'Upstream hostname resolution failed'
+    if (
+      handledError.message.includes('Connection reset') ||
+      handledError.message.includes('socket hang up')
+    ) {
+      statusCode = 502
+      errorType = 'Upstream connection error'
+    } else if (handledError.message.includes('Connection refused')) {
+      statusCode = 502
+      errorType = 'Upstream service unavailable'
+    } else if (handledError.message.includes('timeout')) {
+      statusCode = 504
+      errorType = 'Upstream timeout'
+    } else if (
+      handledError.message.includes('resolve') ||
+      handledError.message.includes('ENOTFOUND')
+    ) {
+      statusCode = 502
+      errorType = 'Upstream hostname resolution failed'
+    }
+
+    // 发送 Webhook 通知（无论响应头是否已发送）
+    const rawError = handledError.response?.data || handledError
+    let processedError = rawError
+    if (typeof rawError === 'object' && rawError !== null) {
+      processedError = { ...rawError }
+      delete processedError.stack
+    }
+    const rawErrorStr =
+      typeof processedError === 'string' ? processedError : JSON.stringify(processedError, null, 2)
+
+    const sanitizedError = {
+      status: statusCode,
+      code: errorType,
+      message: handledError.message || 'An unexpected error occurred',
+      timestamp: new Date().toISOString()
+    }
+
+    // 检查是否需要发送通知（No available accounts 错误每个 apiKeyName 每日只通知一次）
+    const shouldNotify = (() => {
+      const message = handledError.message || ''
+      if (!message.includes('No available accounts')) {
+        return true
       }
 
-      // 发送 Webhook 通知
-      const rawError = handledError.response?.data || handledError
-      // 如果是对象，删除 stack 属性
-      let processedError = rawError
-      if (typeof rawError === 'object' && rawError !== null) {
-        processedError = { ...rawError }
-        delete processedError.stack
+      const apiKeyName = req.apiKey?.name || ''
+      if (!apiKeyName) {
+        return true
       }
-      const rawErrorStr =
-        typeof processedError === 'string'
-          ? processedError
-          : JSON.stringify(processedError, null, 2)
 
-      // 组装sanitizedError对象
-      const sanitizedError = {
-        status: statusCode,
-        code: errorType,
-        message: handledError.message || 'An unexpected error occurred',
-        timestamp: new Date().toISOString()
+      const today = new Date().toISOString().split('T')[0]
+      const cacheKey = `${apiKeyName}:${today}`
+
+      if (dailyNotificationCache.has(cacheKey)) {
+        return false
       }
+
+      dailyNotificationCache.set(cacheKey, true)
+      // 清理过期缓存
+      for (const [key] of dailyNotificationCache) {
+        if (!key.endsWith(today)) {
+          dailyNotificationCache.delete(key)
+        }
+      }
+      return true
+    })()
+
+    if (shouldNotify) {
       webhookService
         .sendNotification('systemError', {
           title: 'Claude Relay API 错误',
@@ -1455,7 +1483,10 @@ async function handleMessagesRequest(req, res) {
           sanitizedError
         })
         .catch((e) => logger.warn('Failed to send webhook notification:', e))
+    }
 
+    // 确保在任何情况下都能返回有效的JSON响应
+    if (!res.headersSent) {
       return res.status(statusCode).json({
         error: errorType,
         message: handledError.message || 'An unexpected error occurred',

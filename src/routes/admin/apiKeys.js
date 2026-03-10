@@ -71,37 +71,37 @@ function validateServiceRates(serviceRates) {
 // 获取所有用户列表（用于API Key分配）
 router.get('/users', authenticateAdmin, async (req, res) => {
   try {
-    const userService = require('../../services/userService')
+    // const userService = require('../../services/userService')
 
-    // Extract query parameters for filtering
-    const { role, isActive } = req.query
-    const options = { limit: 1000 }
+    // // Extract query parameters for filtering
+    // const { role, isActive } = req.query
+    // const options = { limit: 1000 }
 
-    // Apply role filter if provided
-    if (role) {
-      options.role = role
-    }
+    // // Apply role filter if provided
+    // if (role) {
+    //   options.role = role
+    // }
 
-    // Apply isActive filter if provided, otherwise default to active users only
-    if (isActive !== undefined) {
-      options.isActive = isActive === 'true'
-    } else {
-      options.isActive = true // Default to active users for backwards compatibility
-    }
+    // // Apply isActive filter if provided, otherwise default to active users only
+    // if (isActive !== undefined) {
+    //   options.isActive = isActive === 'true'
+    // } else {
+    //   options.isActive = true // Default to active users for backwards compatibility
+    // }
 
-    const result = await userService.getAllUsers(options)
+    // const result = await userService.getAllUsers(options)
 
-    // Extract users array from the paginated result
-    const allUsers = result.users || []
+    // // Extract users array from the paginated result
+    // const allUsers = result.users || []
 
-    // Map to the format needed for the dropdown
-    const activeUsers = allUsers.map((user) => ({
-      id: user.id,
-      username: user.username,
-      displayName: user.displayName || user.username,
-      email: user.email,
-      role: user.role
-    }))
+    // // Map to the format needed for the dropdown
+    // const activeUsers = allUsers.map((user) => ({
+    //   id: user.id,
+    //   username: user.username,
+    //   displayName: user.displayName || user.username,
+    //   email: user.email,
+    //   role: user.role
+    // }))
 
     // 添加Admin选项作为第一个
     const usersWithAdmin = [
@@ -111,8 +111,8 @@ router.get('/users', authenticateAdmin, async (req, res) => {
         displayName: 'Admin',
         email: '',
         role: 'admin'
-      },
-      ...activeUsers
+      }
+      // ,...activeUsers
     ]
 
     return res.json({
