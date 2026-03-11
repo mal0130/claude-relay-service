@@ -120,6 +120,42 @@ async function validateOpenAIBinding(openaiAccountId) {
   return !!account && account.isActive === 'true'
 }
 
+function normalizePermissionList(permissions) {
+  if (!permissions) {
+    return []
+  }
+
+  if (Array.isArray(permissions)) {
+    return permissions
+  }
+
+  if (typeof permissions === 'string') {
+    if (permissions.startsWith('[')) {
+      try {
+        const parsed = JSON.parse(permissions)
+        return Array.isArray(parsed) ? parsed : []
+      } catch {
+        return []
+      }
+    }
+
+    if (permissions === 'all') {
+      return []
+    }
+
+    if (permissions.includes(',')) {
+      return permissions
+        .split(',')
+        .map((permission) => permission.trim())
+        .filter(Boolean)
+    }
+
+    return [permissions]
+  }
+
+  return []
+}
+
 function normalizeServiceRates(serviceRates) {
   if (!serviceRates) {
     return {}
@@ -843,7 +879,7 @@ router.post('/api-key/update-config', authenticatePartner, async (req, res) => {
         }
 
         if (claudeBindingUpdates || openai_account_id) {
-          const permissions = new Set(Array.isArray(apiKey.permissions) ? apiKey.permissions : [])
+          const permissions = new Set(normalizePermissionList(apiKey.permissions))
           permissions.add('claude')
           if (openai_account_id) {
             permissions.add('openai')
