@@ -138,6 +138,8 @@ function isOldSession(body) {
 
 // 🔧 共享的消息处理函数
 async function handleMessagesRequest(req, res) {
+  let accountId
+  let accountType
   try {
     const startTime = Date.now()
 
@@ -355,8 +357,6 @@ async function handleMessagesRequest(req, res) {
 
       // 使用统一调度选择账号（传递请求的模型）
       const requestedModel = req.body.model
-      let accountId
-      let accountType
       try {
         const selection = await unifiedClaudeScheduler.selectAccountForApiKey(
           req.apiKey,
@@ -1032,8 +1032,6 @@ async function handleMessagesRequest(req, res) {
 
       // 使用统一调度选择账号（传递请求的模型）
       const requestedModel = req.body.model
-      let accountId
-      let accountType
       try {
         const selection = await unifiedClaudeScheduler.selectAccountForApiKey(
           req.apiKey,
@@ -1432,8 +1430,20 @@ async function handleMessagesRequest(req, res) {
       processedError = { ...rawError }
       delete processedError.stack
     }
-    const rawErrorStr =
-      typeof processedError === 'string' ? processedError : JSON.stringify(processedError, null, 2)
+
+    let rawErrorStr
+    try {
+      rawErrorStr =
+        typeof processedError === 'string'
+          ? processedError
+          : JSON.stringify(processedError, null, 2)
+    } catch (stringifyError) {
+      // 处理循环引用错误
+      rawErrorStr =
+        typeof processedError === 'string'
+          ? processedError
+          : `Error: ${handledError.message || 'Unknown error'} (JSON serialization failed: ${stringifyError.message})`
+    }
 
     const sanitizedError = {
       status: statusCode,
@@ -1477,6 +1487,7 @@ async function handleMessagesRequest(req, res) {
           title: 'Claude Relay API 错误',
           platform: 'claude',
           apiKeyName: req.apiKey?.name || '',
+          accountId: accountId || '',
           path: req.path,
           method: req.method,
           error: rawErrorStr,

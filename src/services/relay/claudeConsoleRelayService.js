@@ -971,6 +971,20 @@ class ClaudeConsoleRelayService {
                 const sanitizedText = sanitizeErrorMessage(errorDataForCheck)
                 logger.error(`🧹 [Stream] [SANITIZED] Error response to client: ${sanitizedText}`)
 
+                // try中解析失败未能发送webhook，在此补发
+                webhookService
+                  .sendNotification('systemError', {
+                    title: 'Claude Console 流式响应错误状态',
+                    platform: 'claude-console',
+                    apiKeyName: apiKeyData.name || '',
+                    accountId,
+                    account: account?.name || accountId,
+                    status: response.status,
+                    error: errorDataForCheck,
+                    sanitizedError: sanitizedText
+                  })
+                  .catch((e) => logger.warn('Failed to send webhook notification:', e))
+
                 if (isStreamWritable(responseStream)) {
                   responseStream.write(sanitizedText)
                   responseStream.end()

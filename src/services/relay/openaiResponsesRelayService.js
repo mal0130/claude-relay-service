@@ -9,6 +9,7 @@ const config = require('../../../config/config')
 const crypto = require('crypto')
 const LRUCache = require('../../utils/lruCache')
 const upstreamErrorHelper = require('../../utils/upstreamErrorHelper')
+const webhookService = require('../webhookService')
 
 // lastUsedAt 更新节流（每账户 60 秒内最多更新一次，使用 LRU 防止内存泄漏）
 const lastUsedAtThrottle = new LRUCache(1000) // 最多缓存 1000 个账户
@@ -68,6 +69,28 @@ class OpenAIResponsesRelayService {
     const sessionHash = sessionId
       ? crypto.createHash('sha256').update(sessionId).digest('hex')
       : null
+
+    // 辅助函数：发送错误 webhook
+    const sendErrorWebhook = (status, responseBody, rawError = null) => {
+      webhookService
+        .sendNotification('systemError', {
+          title: 'OpenAI Responses 请求错误',
+          platform: 'openai-responses',
+          apiKeyName: apiKeyData?.name || '',
+          accountId: account?.id || '',
+          account: account?.name || account?.id || '',
+          status,
+          response: responseBody,
+          error: rawError
+            ? {
+                message: rawError.message,
+                code: rawError.code,
+                data: rawError.response?.data
+              }
+            : undefined
+        })
+        .catch((e) => logger.warn('Failed to send webhook notification:', e))
+    }
 
     try {
       // 获取完整的账户信息（包含解密的 API Key）
@@ -205,6 +228,7 @@ class OpenAIResponsesRelayService {
             resets_in_seconds: resetsInSeconds
           }
         }
+        sendErrorWebhook(429, errorResponse)
         return res.status(429).json(errorResponse)
       }
 
@@ -297,6 +321,7 @@ class OpenAIResponsesRelayService {
           req.removeListener('close', handleClientDisconnect)
           res.removeListener('close', handleClientDisconnect)
 
+          sendErrorWebhook(401, unauthorizedResponse)
           return res.status(401).json(unauthorizedResponse)
         }
 
@@ -327,9 +352,9 @@ class OpenAIResponsesRelayService {
         req.removeListener('close', handleClientDisconnect)
         res.removeListener('close', handleClientDisconnect)
 
-        return res
-          .status(response.status)
-          .json(upstreamErrorHelper.sanitizeErrorForClient(errorData))
+        const sanitizedError = upstreamErrorHelper.sanitizeErrorForClient(errorData)
+        sendErrorWebhook(response.status, sanitizedError)
+        return res.status(response.status).json(sanitizedError)
       }
 
       // 更新最后使用时间（节流）
@@ -349,7 +374,7 @@ class OpenAIResponsesRelayService {
       }
 
       // 处理非流式响应
-      return this._handleNormalResponse(response, res, account, apiKeyData, req.body?.model)
+      return this._handleNormalResponse(response, res, account, apiKeyData, req.body?.model, req)
     } catch (error) {
       // 清理 AbortController
       if (abortController && !abortController.signal.aborted) {
@@ -451,20 +476,25 @@ class OpenAIResponsesRelayService {
             }
           }
 
+          sendErrorWebhook(401, unauthorizedResponse, error)
           return res.status(401).json(unauthorizedResponse)
         }
 
-        return res.status(status).json(upstreamErrorHelper.sanitizeErrorForClient(errorData))
+        const sanitizedError = upstreamErrorHelper.sanitizeErrorForClient(errorData)
+        sendErrorWebhook(status, sanitizedError, error)
+        return res.status(status).json(sanitizedError)
       }
 
       // 其他错误
-      return res.status(500).json({
+      const errorResponse = {
         error: {
           message: 'Internal server error',
           type: 'internal_error',
           details: error.message
         }
-      })
+      }
+      sendErrorWebhook(500, errorResponse, error)
+      return res.status(500).json(errorResponse)
     }
   }
 
@@ -709,7 +739,7 @@ class OpenAIResponsesRelayService {
   }
 
   // 处理非流式响应
-  async _handleNormalResponse(response, res, account, apiKeyData, requestedModel) {
+  async _handleNormalResponse(response, res, account, apiKeyData, requestedModel, req) {
     const responseData = response.data
 
     // 提取 usage 数据和实际 model

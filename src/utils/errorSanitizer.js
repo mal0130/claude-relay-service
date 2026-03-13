@@ -21,7 +21,8 @@ const ERROR_CODES = {
   E012: { message: 'Server overloaded', status: 529 },
   E013: { message: 'Invalid API key', status: 401 },
   E014: { message: 'Quota exceeded', status: 429 },
-  E015: { message: 'Internal server error', status: 500 }
+  E015: { message: 'Internal server error', status: 500 },
+  E016: { message: 'Prompt is too long', status: 413 }
 }
 
 // 错误特征匹配规则（按优先级排序）
@@ -55,6 +56,12 @@ const ERROR_MATCHERS = [
   // 模型错误
   { pattern: /model.*not.*found|model.*unavailable|unsupported.*model/i, code: 'E006' },
 
+  // 上下文超长错误
+  {
+    pattern: /prompt is too long|too many tokens|context.*too long|exceeds.*token.*limit/i,
+    code: 'E016'
+  },
+
   // 请求错误
   { pattern: /bad.*request|invalid.*request|invalid.*argument|malformed/i, code: 'E005' },
   { pattern: /not.*found|404/i, code: 'E010' },
@@ -77,6 +84,7 @@ function mapToErrorCode(error, options = {}) {
 
   // 提取原始错误信息
   const originalMessage = extractOriginalMessage(error)
+
   const errorCode = error?.code || error?.response?.status
   const statusCode = error?.response?.status || error?.status || error?.statusCode
 
