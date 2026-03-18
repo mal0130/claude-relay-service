@@ -2395,7 +2395,6 @@ class ApiKeyService {
       const days = periodDays[period] || 7
 
       // 计算起始日期：今天减去 (days - 1) 天
-      const endDate = new Date()
       const startDate = new Date()
       startDate.setDate(startDate.getDate() - (days - 1))
 
@@ -2430,7 +2429,6 @@ class ApiKeyService {
       } else {
         // 扫描这些 Key 使用过的所有模型
         const modelSet = new Set()
-        const client = redis.getClientSafe()
         // 并行扫描所有 Key 的 alltime 模型记录
         await Promise.all(
           keyIds.map(async (keyId) => {
@@ -2496,7 +2494,9 @@ class ApiKeyService {
 
       // 处理结果
       results.forEach(([err, data], index) => {
-        if (err || !data) return
+        if (err || !data) {
+          return
+        }
 
         const query = queryMap[index]
 
