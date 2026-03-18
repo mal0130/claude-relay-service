@@ -594,6 +594,8 @@ async function handleMessages(req, res) {
               model,
               accountId,
               'gemini',
+              null,
+              null,
               _usageExtra
             )
           }
@@ -718,6 +720,8 @@ async function handleMessages(req, res) {
                 model,
                 accountId,
                 'gemini',
+                null,
+                null,
                 _usageExtra
               )
               .then(() => {
@@ -1742,6 +1746,8 @@ async function handleGenerateContent(req, res) {
           model,
           account.id,
           'gemini',
+          null,
+          null,
           _usageExtra
         )
         logger.info(
@@ -2099,6 +2105,8 @@ async function handleStreamGenerateContent(req, res) {
             model,
             account.id,
             'gemini',
+            null,
+            null,
             _usageExtra
           )
           .then((costs) =>
@@ -2460,6 +2468,8 @@ async function handleStandardGenerateContent(req, res) {
           model,
           accountId,
           'gemini',
+          null,
+          null,
           _usageExtra
         )
         logger.info(
@@ -2909,6 +2919,8 @@ async function handleStandardStreamGenerateContent(req, res) {
             model,
             accountId,
             'gemini',
+            null,
+            null,
             _usageExtra
           )
           .then(() => {
