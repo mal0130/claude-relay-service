@@ -3,10 +3,6 @@
  * 从不同格式的请求体中提取用户最后一条输入，并分类项目类型
  */
 
-const logger = require('./logger')
-
-const PROJECT_PREFIX = '# Project\nThis is a uni-app'
-
 /**
  * 从请求体中提取最后一条用户消息（数组格式）
  * @param {Object} body - 请求体
@@ -18,8 +14,6 @@ function extractUserInput(body, format = 'anthropic', maxLength = 100) {
   if (!body || typeof body !== 'object') {
     return []
   }
-
-  logger.info(`🔍 extractUserInput body: ${JSON.stringify(body)}`)
 
   let result = []
 
@@ -213,16 +207,13 @@ function classifyProjectType(body, format = 'anthropic') {
         }
     }
 
-    // 逐条检查是否以特定前缀开头
+    // 逐条检查内容中是否包含项目类型标识
     for (const text of texts) {
-      if (!text.startsWith(PROJECT_PREFIX)) {
-        continue
-      }
-      // uni-app-x 先判断（"uni-app x" 比 "uni-app" 更长）
-      if (text.startsWith('# Project\nThis is a uni-app x project')) {
+      // uni-app-x 先判断（避免被 "uni-app" 匹配吃掉）
+      if (text.includes('This is a uni-app x project')) {
         return 'uni-app-x'
       }
-      if (text.startsWith('# Project\nThis is a uni-app project')) {
+      if (text.includes('This is a uni-app project')) {
         return 'uni-app'
       }
     }

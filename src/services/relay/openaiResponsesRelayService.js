@@ -664,6 +664,9 @@ class OpenAIResponsesRelayService {
             `📊 Recorded usage - Input: ${totalInputTokens}(actual:${actualInputTokens}+cached:${cacheReadTokens}), CacheCreate: ${cacheCreateTokens}, Output: ${outputTokens}, Total: ${totalTokens}, Model: ${modelToRecord}`
           )
 
+          // 打印出 req headers 信息
+          logger.info(`🔍 extractUserInput request headers: ${JSON.stringify(req.headers)}`)
+
           // 更新账户的 token 使用统计
           await openaiResponsesAccountService.updateAccountUsage(account.id, totalTokens)
 
