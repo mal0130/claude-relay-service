@@ -58,102 +58,116 @@ function extractUserInput(body, format = 'anthropic', maxLength = 100) {
 /**
  * 从 Anthropic (Claude Code) 格式提取用户输入
  * messages 中 role='user' 的 content(数组) 中 type='text' 的 text 内容
+ * 正序收集前 maxCount 条 user 消息
  * @returns {Array<string>}
  */
-function extractFromAnthropic(body) {
+function extractFromAnthropic(body, maxCount = 10) {
   const { messages } = body
   if (!Array.isArray(messages) || messages.length === 0) {
     return []
   }
 
-  // 反向查找最后一条 user 消息
-  for (let i = messages.length - 1; i >= 0; i--) {
-    const msg = messages[i]
+  const result = []
+  for (const msg of messages) {
     if (msg.role !== 'user') {
       continue
     }
 
     if (typeof msg.content === 'string') {
-      return [msg.content]
-    }
-
-    if (Array.isArray(msg.content)) {
-      const texts = msg.content
+      result.push(msg.content)
+    } else if (Array.isArray(msg.content)) {
+      const text = msg.content
         .filter((part) => part.type === 'text' && part.text)
         .map((part) => part.text)
-      if (texts.length > 0) {
-        return texts
+        .join('\n')
+      if (text) {
+        result.push(text)
       }
+    }
+
+    if (result.length >= maxCount) {
+      break
     }
   }
 
-  return []
+  return result
 }
 
 /**
  * 从 OpenAI 格式提取用户输入
  * input/messages 中 role='user' 的 content(数组) 中 type='input_text' 的 text 内容
+ * 正序收集前 maxCount 条 user 消息
  * @returns {Array<string>}
  */
-function extractFromOpenAI(body) {
+function extractFromOpenAI(body, maxCount = 10) {
   const items = body.input || body.messages
   if (!Array.isArray(items) || items.length === 0) {
     return []
   }
 
-  // 反向查找最后一条 user 消息
-  for (let i = items.length - 1; i >= 0; i--) {
-    const msg = items[i]
+  const result = []
+  for (const msg of items) {
     if (msg.role !== 'user') {
       continue
     }
 
     if (typeof msg.content === 'string') {
-      return [msg.content]
-    }
-
-    if (Array.isArray(msg.content)) {
-      const texts = msg.content
+      result.push(msg.content)
+    } else if (Array.isArray(msg.content)) {
+      const text = msg.content
         .filter((part) => (part.type === 'input_text' || part.type === 'text') && part.text)
         .map((part) => part.text)
-      if (texts.length > 0) {
-        return texts
+        .join('\n')
+      if (text) {
+        result.push(text)
       }
+    }
+
+    if (result.length >= maxCount) {
+      break
     }
   }
 
-  return []
+  return result
 }
 
 /**
  * 从 Gemini 格式提取用户输入
  * contents 中 role='user' 的 parts 中有 text 的内容
+ * 正序收集前 maxCount 条 user 消息
  * @returns {Array<string>}
  */
-function extractFromGemini(body) {
+function extractFromGemini(body, maxCount = 10) {
   const { contents } = body
   if (!Array.isArray(contents) || contents.length === 0) {
     if (body.messages) {
-      return extractFromOpenAI(body)
+      return extractFromOpenAI(body, maxCount)
     }
     return []
   }
 
-  for (let i = contents.length - 1; i >= 0; i--) {
-    const item = contents[i]
+  const result = []
+  for (const item of contents) {
     if (item.role !== 'user') {
       continue
     }
 
     if (Array.isArray(item.parts)) {
-      const texts = item.parts.filter((part) => part.text).map((part) => part.text)
-      if (texts.length > 0) {
-        return texts
+      const text = item.parts
+        .filter((part) => part.text)
+        .map((part) => part.text)
+        .join('\n')
+      if (text) {
+        result.push(text)
       }
+    }
+
+    if (result.length >= maxCount) {
+      break
     }
   }
 
-  return []
+  return result
 }
 
 /**
