@@ -3,6 +3,8 @@
  * 从不同格式的请求体中提取用户最后一条输入，并分类项目类型
  */
 
+const logger = require('./logger')
+
 const PROJECT_PREFIX = '# Project\nThis is a uni-app'
 
 /**
@@ -16,6 +18,8 @@ function extractUserInput(body, format = 'anthropic', maxLength = 100) {
   if (!body || typeof body !== 'object') {
     return []
   }
+
+  logger.info(`🔍 extractUserInput body: ${JSON.stringify(body)}`)
 
   let result = []
 
