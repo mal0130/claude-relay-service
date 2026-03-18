@@ -644,6 +644,7 @@ const handleResponses = async (req, res) => {
             actualModel,
             accountId,
             'openai',
+            null,
             req._serviceTier,
             _usageExtra
           )
@@ -770,6 +771,7 @@ const handleResponses = async (req, res) => {
             modelToRecord,
             accountId,
             'openai',
+            null,
             req._serviceTier,
             _usageExtra
           )

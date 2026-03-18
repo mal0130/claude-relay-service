@@ -732,6 +732,8 @@ async function handleMessagesRequest(req, res) {
                 result.model,
                 accountId,
                 'bedrock',
+                null,
+                null,
                 _usageExtra
               )
               .then((costs) => {
