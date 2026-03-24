@@ -1107,7 +1107,7 @@ const authenticateApiKey = async (req, res, next) => {
         const currentCost = parseFloat((await redis.getClient().get(costCountKey)) || '0')
 
         // 检查请求次数限制
-        if (ruleRequests > 0 && currentRequests > ruleRequests) {
+        if (ruleRequests > 0 && currentRequests >= ruleRequests) {
           const resetTime = new Date(windowStart + windowDuration)
           const remainingMinutes = Math.ceil((resetTime - now) / 60000)
 
@@ -1146,7 +1146,7 @@ const authenticateApiKey = async (req, res, next) => {
             })
           }
         } else if (ruleCost > 0) {
-          if (currentCost > ruleCost) {
+          if (currentCost >= ruleCost) {
             const resetTime = new Date(windowStart + windowDuration)
             const remainingMinutes = Math.ceil((resetTime - now) / 60000)
 

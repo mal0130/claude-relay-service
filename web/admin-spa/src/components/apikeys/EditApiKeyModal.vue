@@ -980,9 +980,9 @@ const normalizeRateLimits = (rateLimits) => {
   }
 
   return parsed.map((rule) => ({
-    window: rule?.window || '',
-    requests: rule?.requests || '',
-    cost: rule?.cost || ''
+    window: rule?.window ?? '',
+    requests: rule?.requests ?? '',
+    cost: rule?.cost ?? ''
   }))
 }
 

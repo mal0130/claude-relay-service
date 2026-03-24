@@ -799,7 +799,7 @@ class RedisClient {
     }
 
     // 数组字段（JSON 解析）
-    const arrayFields = ['tags', 'restrictedModels', 'allowedClients']
+    const arrayFields = ['tags', 'restrictedModels', 'allowedClients', 'rateLimits']
     for (const field of arrayFields) {
       if (parsed[field]) {
         try {

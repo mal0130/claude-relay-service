@@ -17,9 +17,7 @@
           <i :class="['text-[11px]', iconClass]" />
           <span>{{ label }}</span>
         </div>
-        <span class="text-gray-700 dark:text-gray-200"
-          >${{ currentValue.toFixed(2) }} / ${{ limitValue.toFixed(2) }}</span
-        >
+        <span class="text-gray-700 dark:text-gray-200">{{ formattedRange }}</span>
       </div>
       <div class="relative h-1.5 overflow-hidden rounded-full bg-gray-200/85 dark:bg-gray-700/70">
         <div
@@ -57,7 +55,7 @@
         </div>
         <div class="flex items-center gap-1.5">
           <span class="text-xs font-bold tabular-nums" :class="currentValueClass">
-            ${{ currentValue.toFixed(2) }} / ${{ limitValue.toFixed(2) }}
+            {{ formattedRange }}
           </span>
         </div>
       </div>
@@ -102,6 +100,10 @@ const props = defineProps({
     type: [Number, String],
     required: true
   },
+  unit: {
+    type: String,
+    default: 'usd'
+  },
   showShine: {
     type: Boolean,
     default: false
@@ -109,6 +111,15 @@ const props = defineProps({
 })
 
 const isCompact = computed(() => props.variant === 'compact')
+const isUsd = computed(() => props.unit === 'usd')
+const formatValue = (val) => {
+  if (isUsd.value) return `$${val.toFixed(2)}`
+  return `${Math.round(val)}`
+}
+const formattedRange = computed(() => {
+  const suffix = isUsd.value ? '' : '次'
+  return `${formatValue(currentValue.value)} / ${formatValue(limitValue.value)}${suffix}`
+})
 const currentValue = computed(() => {
   const n = Number(props.current)
   return Number.isFinite(n) ? n : 0

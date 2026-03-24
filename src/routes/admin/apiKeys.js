@@ -1227,23 +1227,28 @@ async function calculateKeyStats(keyId, timeRange, startDate, endDate) {
     rateLimitStatuses: []
   }
 
-  try {
-    const dailyCostLimit = parseFloat(apiKey?.dailyCostLimit) || 0
-    const weeklyOpusCostLimit = parseFloat(apiKey?.weeklyOpusCostLimit) || 0
-    const normalizedRateLimits = parseRateLimits(apiKey?.rateLimits)
-    const effectiveRateLimits =
-      normalizedRateLimits.length > 0
-        ? normalizedRateLimits
-        : (() => {
-            const legacyWindow = parseInt(apiKey?.rateLimitWindow || 0)
-            const legacyRequests = parseInt(apiKey?.rateLimitRequests || 0)
-            const legacyCost = parseFloat(apiKey?.rateLimitCost || 0)
-            if (legacyWindow > 0 && (legacyRequests > 0 || legacyCost > 0)) {
-              return [{ window: legacyWindow, requests: legacyRequests, cost: legacyCost }]
-            }
-            return []
-          })()
+  // 解析限制配置（在 try 外部，避免后续 Redis 读取失败导致配置丢失）
+  const dailyCostLimit = parseFloat(apiKey?.dailyCostLimit) || 0
+  const weeklyOpusCostLimit = parseFloat(apiKey?.weeklyOpusCostLimit) || 0
+  const normalizedRateLimits = parseRateLimits(apiKey?.rateLimits)
+  logger.debug(
+    `🔍 [LimitDebug] keyId=${keyId}, raw rateLimits=${JSON.stringify(apiKey?.rateLimits)}, parsed=${JSON.stringify(normalizedRateLimits)}`
+  )
+  const effectiveRateLimits =
+    normalizedRateLimits.length > 0
+      ? normalizedRateLimits
+      : (() => {
+          const legacyWindow = parseInt(apiKey?.rateLimitWindow || 0)
+          const legacyRequests = parseInt(apiKey?.rateLimitRequests || 0)
+          const legacyCost = parseFloat(apiKey?.rateLimitCost || 0)
+          if (legacyWindow > 0 && (legacyRequests > 0 || legacyCost > 0)) {
+            return [{ window: legacyWindow, requests: legacyRequests, cost: legacyCost }]
+          }
+          return []
+        })()
 
+  // 获取费用相关数据
+  try {
     if (dailyCostLimit > 0) {
       dailyCost = await redis.getDailyCost(keyId)
     }
@@ -1256,8 +1261,13 @@ async function calculateKeyStats(keyId, timeRange, startDate, endDate) {
       const resetHour = parseInt(apiKey?.weeklyResetHour || 0)
       weeklyOpusCost = await redis.getWeeklyOpusCost(keyId, resetDay, resetHour)
     }
+  } catch (error) {
+    logger.warn(`⚠️ 获取费用限制数据失败 (key: ${keyId}):`, error.message)
+  }
 
-    const rateLimitStatuses = []
+  // 获取速率限制窗口数据（独立 try/catch，避免费用获取失败影响速率限制显示）
+  const rateLimitStatuses = []
+  try {
     const now = Date.now()
 
     for (let index = 0; index < effectiveRateLimits.length; index++) {
@@ -1338,24 +1348,28 @@ async function calculateKeyStats(keyId, timeRange, startDate, endDate) {
         })
       }
     }
-
-    limitData.rateLimitStatuses = rateLimitStatuses
-    limitData.dailyCost = dailyCost
-    limitData.weeklyOpusCost = weeklyOpusCost
-    limitData.currentWindowCost = currentWindowCost
-    limitData.currentWindowRequests = currentWindowRequests
-    limitData.currentWindowTokens = currentWindowTokens
-    limitData.windowRemainingSeconds = windowRemainingSeconds
-    limitData.windowStartTime = windowStartTime
-    limitData.windowEndTime = windowEndTime
-    limitData.allTimeCost = allTimeCost
   } catch (error) {
-    logger.warn(`⚠️ 获取实时限制数据失败 (key: ${keyId}):`, error.message)
+    logger.warn(`⚠️ 获取速率限制窗口数据失败 (key: ${keyId}):`, error.message)
   }
 
-  limitInfo = getLimitInfo()
+  limitData.rateLimitStatuses = rateLimitStatuses
+  logger.debug(
+    `🔍 [LimitDebug] keyId=${keyId}, effectiveRules=${effectiveRateLimits.length}, rateLimitStatuses=${JSON.stringify(rateLimitStatuses)}`
+  )
+  limitData.dailyCost = dailyCost
+  limitData.weeklyOpusCost = weeklyOpusCost
+  limitData.currentWindowCost = currentWindowCost
+  limitData.currentWindowRequests = currentWindowRequests
+  limitData.currentWindowTokens = currentWindowTokens
+  limitData.windowRemainingSeconds = windowRemainingSeconds
+  limitData.windowStartTime = windowStartTime
+  limitData.windowEndTime = windowEndTime
+  limitData.allTimeCost = allTimeCost
 
-  // 如果没有使用数据，返回零值但包含窗口数据
+  limitInfo = getLimitInfo()
+  logger.debug(
+    `🔍 [LimitDebug] keyId=${keyId}, final limitStatuses count=${limitInfo.limitStatuses?.length}, summary=${limitInfo.limitSummary}`
+  )
   if (uniqueKeys.length === 0) {
     return {
       requests: 0,

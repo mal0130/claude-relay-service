@@ -653,26 +653,41 @@
                             </div>
                           </template>
                           <template v-else>
-                            <div class="flex items-center gap-2">
+                            <div
+                              v-if="getLimitSummary(key) === 'unlimited'"
+                              class="flex items-center gap-2"
+                            >
                               <span
                                 class="inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-semibold"
                                 :class="getLimitSummaryClass(key)"
                               >
-                                {{ getLimitSummaryLabel(key) }}
-                              </span>
-                              <span class="truncate text-[11px] text-gray-500 dark:text-gray-400">
-                                {{ getLimitSecondaryText(key) }}
+                                无限制
                               </span>
                             </div>
-
-                            <LimitProgressBar
-                              v-if="getPrimaryLimitStatus(key)"
-                              :current="getPrimaryLimitStatus(key).current || 0"
-                              :label="getPrimaryLimitStatus(key).label"
-                              :limit="getPrimaryLimitStatus(key).limit"
-                              :type="getLimitProgressType(getPrimaryLimitStatus(key))"
-                              variant="compact"
-                            />
+                            <template v-else>
+                              <div
+                                v-for="(status, idx) in getLimitStatuses(key)"
+                                :key="idx"
+                                class="rounded-lg bg-gray-50 p-1.5 dark:bg-gray-700/70"
+                              >
+                                <LimitProgressBar
+                                  :current="status.current || 0"
+                                  :label="status.label"
+                                  :limit="status.limit"
+                                  :type="getLimitProgressType(status)"
+                                  :unit="status.unit || 'usd'"
+                                  variant="compact"
+                                />
+                                <div
+                                  v-if="
+                                    status.remainingSeconds != null && status.remainingSeconds > 0
+                                  "
+                                  class="mt-0.5 text-[10px] text-gray-500 dark:text-gray-400"
+                                >
+                                  重置剩余 {{ formatWindowTime(status.remainingSeconds) }}
+                                </div>
+                              </div>
+                            </template>
                           </template>
                         </div>
                       </td>
@@ -1432,26 +1447,39 @@
                     </div>
                   </template>
                   <template v-else>
-                    <div class="flex items-center gap-2">
+                    <div
+                      v-if="getLimitSummary(key) === 'unlimited'"
+                      class="flex items-center gap-2"
+                    >
                       <span
                         class="inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-semibold"
                         :class="getLimitSummaryClass(key)"
                       >
-                        {{ getLimitSummaryLabel(key) }}
-                      </span>
-                      <span class="text-xs text-gray-500 dark:text-gray-400">
-                        {{ getLimitSecondaryText(key) }}
+                        无限制
                       </span>
                     </div>
-
-                    <LimitProgressBar
-                      v-if="getPrimaryLimitStatus(key)"
-                      :current="getPrimaryLimitStatus(key).current || 0"
-                      :label="getPrimaryLimitStatus(key).label"
-                      :limit="getPrimaryLimitStatus(key).limit"
-                      :type="getLimitProgressType(getPrimaryLimitStatus(key))"
-                      variant="compact"
-                    />
+                    <template v-else>
+                      <div
+                        v-for="(status, idx) in getLimitStatuses(key)"
+                        :key="idx"
+                        class="rounded-lg bg-gray-50 p-1.5 dark:bg-gray-700/70"
+                      >
+                        <LimitProgressBar
+                          :current="status.current || 0"
+                          :label="status.label"
+                          :limit="status.limit"
+                          :type="getLimitProgressType(status)"
+                          :unit="status.unit || 'usd'"
+                          variant="compact"
+                        />
+                        <div
+                          v-if="status.remainingSeconds != null && status.remainingSeconds > 0"
+                          class="mt-0.5 text-[10px] text-gray-500 dark:text-gray-400"
+                        >
+                          重置剩余 {{ formatWindowTime(status.remainingSeconds) }}
+                        </div>
+                      </div>
+                    </template>
                   </template>
                 </div>
               </div>
@@ -2729,20 +2757,6 @@ const getLimitSummary = (key) => {
   return hasConfiguredLimits(key) ? 'normal' : 'unlimited'
 }
 
-const getPrimaryLimitStatus = (key) => {
-  const statuses = getLimitStatuses(key)
-  if (statuses.length === 0) return null
-
-  return statuses.find((status) => status.reached) || statuses[0]
-}
-
-const getLimitSummaryLabel = (key) => {
-  const summary = getLimitSummary(key)
-  if (summary === 'reached') return '已满'
-  if (summary === 'normal') return '正常'
-  return '无限制'
-}
-
 const getLimitSummaryClass = (key) => {
   const summary = getLimitSummary(key)
   if (summary === 'reached') {
@@ -2760,47 +2774,6 @@ const getLimitProgressType = (status) => {
   if (status.key === 'daily_cost') return 'daily'
   if (status.key === 'total_cost') return 'total'
   return 'window'
-}
-
-const getLimitSecondaryText = (key) => {
-  const statuses = getLimitStatuses(key)
-  const primaryStatus = getPrimaryLimitStatus(key)
-
-  if (!primaryStatus) {
-    return '未配置限制'
-  }
-
-  if (primaryStatus.key === 'rate_limit') {
-    const sameWindowStatuses = statuses.filter(
-      (s) =>
-        s.key === 'rate_limit' &&
-        s.windowMinutes === primaryStatus.windowMinutes &&
-        s.remainingSeconds === primaryStatus.remainingSeconds
-    )
-    const labels = sameWindowStatuses
-      .map((s) => {
-        console.log('Status unit:', s.unit, 'Status:', s)
-        if (s.unit === 'requests') {
-          return `${s.current}/${s.limit}次`
-        }
-        if (s.unit === 'usd') {
-          return `$${s.current.toFixed(2)}/$${s.limit.toFixed(2)}`
-        }
-        return null
-      })
-      .filter((l) => l)
-    const remainingText =
-      primaryStatus.remainingSeconds > 0
-        ? `，${formatWindowTime(primaryStatus.remainingSeconds)}后重置`
-        : ''
-    const otherCount = statuses.length - sameWindowStatuses.length
-    const suffix = otherCount > 0 ? `，另有 ${otherCount} 条限制` : ''
-    return `${primaryStatus.windowMinutes}分钟限制，${labels.join(' + ')}${remainingText}${suffix}`
-  }
-
-  const extraCount = Math.max(statuses.length - 1, 0)
-  const suffix = extraCount > 0 ? `，另有 ${extraCount} 条限制` : ''
-  return `${primaryStatus.label}${suffix}`
 }
 
 // 检查是否正在加载统计
