@@ -258,6 +258,8 @@ async function handleChatCompletion(req, res, apiKeyData) {
     const _userInput = extractUserInput(req.body, 'openai')
     const _usageExtra = {
       sessionId: sessionHash || null,
+      rawSessionId:
+        req.headers['session_id'] || req.headers['x-session-id'] || req.body?.session_id || null,
       userInput: _userInput,
       projectType: classifyProjectType(req.body, 'openai')
     }

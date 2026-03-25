@@ -40,6 +40,7 @@ const {
   requestSizeLimit
 } = require('./middleware/auth')
 const { browserFallbackMiddleware } = require('./middleware/browserFallback')
+const { requestIdMiddleware } = require('./middleware/requestId')
 
 class Application {
   constructor() {
@@ -157,6 +158,9 @@ class Application {
       accountGroupService.ensureReverseIndexes().catch((err) => {
         logger.error('📁 Account group reverse index migration failed:', err)
       })
+
+      // 🆔 请求 ID 中间件 - 必须最先注册，为所有日志提供链路追踪
+      this.app.use(requestIdMiddleware)
 
       // 超早期拦截 /admin-next/ 请求 - 在所有中间件之前
       this.app.use((req, res, next) => {

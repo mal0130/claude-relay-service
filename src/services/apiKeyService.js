@@ -146,6 +146,7 @@ class ApiKeyService {
       permissions = [], // 数组格式，空数组表示全部服务，如 ['claude', 'gemini']
       isActive = true,
       concurrencyLimit = 0,
+      rateLimits = [], // 多规则速率限制 [{window, requests, cost}, ...]
       rateLimitWindow = null,
       rateLimitRequests = null,
       rateLimitCost = null, // 新增：速率限制费用字段
@@ -184,6 +185,7 @@ class ApiKeyService {
       rateLimitWindow: String(rateLimitWindow ?? 0),
       rateLimitRequests: String(rateLimitRequests ?? 0),
       rateLimitCost: String(rateLimitCost ?? 0), // 新增：速率限制费用字段
+      rateLimits: JSON.stringify(rateLimits || []), // 多规则速率限制
       isActive: String(isActive),
       claudeAccountId: claudeAccountId || '',
       claudeConsoleAccountId: claudeConsoleAccountId || '',
@@ -257,6 +259,7 @@ class ApiKeyService {
       rateLimitWindow: parseInt(keyData.rateLimitWindow || 0),
       rateLimitRequests: parseInt(keyData.rateLimitRequests || 0),
       rateLimitCost: parseFloat(keyData.rateLimitCost || 0), // 新增：速率限制费用字段
+      rateLimits: JSON.parse(keyData.rateLimits || '[]'), // 多规则速率限制
       isActive: keyData.isActive === 'true',
       claudeAccountId: keyData.claudeAccountId,
       claudeConsoleAccountId: keyData.claudeConsoleAccountId,
@@ -447,6 +450,24 @@ class ApiKeyService {
           rateLimitWindow: parseInt(keyData.rateLimitWindow || 0),
           rateLimitRequests: parseInt(keyData.rateLimitRequests || 0),
           rateLimitCost: parseFloat(keyData.rateLimitCost || 0), // 新增：速率限制费用字段
+          rateLimits: (() => {
+            try {
+              const parsed = keyData.rateLimits ? JSON.parse(keyData.rateLimits) : []
+              if (Array.isArray(parsed) && parsed.length > 0) {
+                return parsed
+              }
+            } catch (e) {
+              // ignore
+            }
+            // 向后兼容：从旧字段构造单条规则
+            const w = parseInt(keyData.rateLimitWindow || 0)
+            const r = parseInt(keyData.rateLimitRequests || 0)
+            const c = parseFloat(keyData.rateLimitCost || 0)
+            if (w > 0 && (r > 0 || c > 0)) {
+              return [{ window: w, requests: r, cost: c }]
+            }
+            return []
+          })(),
           enableModelRestriction: keyData.enableModelRestriction === 'true',
           restrictedModels,
           enableClientRestriction: keyData.enableClientRestriction === 'true',
@@ -578,6 +599,13 @@ class ApiKeyService {
           rateLimitWindow: parseInt(keyData.rateLimitWindow || 0),
           rateLimitRequests: parseInt(keyData.rateLimitRequests || 0),
           rateLimitCost: parseFloat(keyData.rateLimitCost || 0),
+          rateLimits: (() => {
+            try {
+              return keyData.rateLimits ? JSON.parse(keyData.rateLimits) : []
+            } catch (e) {
+              return []
+            }
+          })(),
           enableModelRestriction: keyData.enableModelRestriction === 'true',
           restrictedModels,
           enableClientRestriction: keyData.enableClientRestriction === 'true',
@@ -789,6 +817,11 @@ class ApiKeyService {
         key.rateLimitWindow = parseInt(key.rateLimitWindow || 0)
         key.rateLimitRequests = parseInt(key.rateLimitRequests || 0)
         key.rateLimitCost = parseFloat(key.rateLimitCost || 0) // 新增：速率限制费用字段
+        try {
+          key.rateLimits = key.rateLimits ? JSON.parse(key.rateLimits) : []
+        } catch (e) {
+          key.rateLimits = []
+        }
         key.currentConcurrency = await redis.getConcurrency(key.id)
         key.isActive = key.isActive === 'true'
         key.enableModelRestriction = key.enableModelRestriction === 'true'
@@ -1037,6 +1070,11 @@ class ApiKeyService {
         key.rateLimitWindow = parseInt(key.rateLimitWindow) || 0
         key.rateLimitRequests = parseInt(key.rateLimitRequests) || 0
         key.rateLimitCost = parseFloat(key.rateLimitCost) || 0
+        try {
+          key.rateLimits = key.rateLimits ? JSON.parse(key.rateLimits) : []
+        } catch (e) {
+          key.rateLimits = []
+        }
         key.dailyCostLimit = parseFloat(key.dailyCostLimit) || 0
         key.totalCostLimit = parseFloat(key.totalCostLimit) || 0
         key.weeklyOpusCostLimit = parseFloat(key.weeklyOpusCostLimit) || 0
@@ -1209,6 +1247,7 @@ class ApiKeyService {
         'rateLimitWindow',
         'rateLimitRequests',
         'rateLimitCost', // 新增：速率限制费用字段
+        'rateLimits', // 多规则速率限制
         'isActive',
         'claudeAccountId',
         'claudeConsoleAccountId',
@@ -1247,7 +1286,8 @@ class ApiKeyService {
             field === 'restrictedModels' ||
             field === 'allowedClients' ||
             field === 'tags' ||
-            field === 'serviceRates'
+            field === 'serviceRates' ||
+            field === 'rateLimits'
           ) {
             // 特殊处理数组/对象字段
             updatedData[field] = JSON.stringify(value || (field === 'serviceRates' ? {} : []))

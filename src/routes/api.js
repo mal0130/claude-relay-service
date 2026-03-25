@@ -295,8 +295,15 @@ async function handleMessagesRequest(req, res) {
       const sessionHash = sessionHelper.generateSessionHash(req.body)
 
       const _userInput = extractUserInput(req.body, 'anthropic')
+      logger.info(
+        `🔍 api.js stream body_keys=${Object.keys(req.body || {})}, session_id=${req.body?.session_id}, metadata=${JSON.stringify(req.body?.metadata)}`
+      )
       const _usageExtra = {
         sessionId: sessionHash || null,
+        rawSessionId:
+          req.headers['session_id'] ||
+          claudeRelayConfigService.extractOriginalSessionId(req.body) ||
+          null,
         userInput: _userInput,
         projectType: classifyProjectType(req.body, 'anthropic')
       }
@@ -989,8 +996,15 @@ async function handleMessagesRequest(req, res) {
       const sessionHash = sessionHelper.generateSessionHash(req.body)
 
       const _userInputNonStream = extractUserInput(req.body, 'anthropic')
+      logger.info(
+        `🔍 api.js non-stream session_id header=${req.headers['session_id']}, metadata_user_id=${req.body?.metadata?.user_id}`
+      )
       const _usageExtraNonStream = {
         sessionId: sessionHash || null,
+        rawSessionId:
+          req.headers['session_id'] ||
+          claudeRelayConfigService.extractOriginalSessionId(req.body) ||
+          null,
         userInput: _userInputNonStream,
         projectType: classifyProjectType(req.body, 'anthropic')
       }

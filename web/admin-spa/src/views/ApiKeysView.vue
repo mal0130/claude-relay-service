@@ -642,16 +642,7 @@
                       <!-- 限制 -->
                       <td class="px-2 py-2" style="font-size: 12px">
                         <div class="flex flex-col gap-2">
-                          <!-- 加载中状态 - 骨架屏（仅在有费用限制配置时显示） -->
-                          <template
-                            v-if="
-                              isStatsLoading(key.id) &&
-                              (key.weeklyOpusCostLimit > 0 ||
-                                key.dailyCostLimit > 0 ||
-                                key.totalCostLimit > 0 ||
-                                (key.rateLimitWindow > 0 && key.rateLimitCost > 0))
-                            "
-                          >
+                          <template v-if="isStatsLoading(key.id) && hasConfiguredLimits(key)">
                             <div class="space-y-2">
                               <div
                                 class="h-4 w-full animate-pulse rounded bg-gradient-to-r from-gray-200 via-gray-300 to-gray-200 dark:from-gray-700 dark:via-gray-600 dark:to-gray-700"
@@ -661,94 +652,42 @@
                               />
                             </div>
                           </template>
-                          <!-- 已加载状态 -->
                           <template v-else>
-                            <!-- Claude 周额度限制 - 独立显示 -->
-                            <LimitProgressBar
-                              v-if="key.weeklyOpusCostLimit > 0"
-                              :current="getCachedStats(key.id)?.weeklyOpusCost || 0"
-                              label="Claude 周限制"
-                              :limit="key.weeklyOpusCostLimit"
-                              type="opus"
-                              variant="compact"
-                            />
-
-                            <!-- 每日费用限制进度条 -->
-                            <LimitProgressBar
-                              v-if="key.dailyCostLimit > 0"
-                              :current="getCachedStats(key.id)?.dailyCost || 0"
-                              label="每日限制"
-                              :limit="key.dailyCostLimit"
-                              type="daily"
-                              variant="compact"
-                            />
-
-                            <!-- 总费用限制进度条（无每日限制时展示） -->
-                            <LimitProgressBar
-                              v-else-if="key.totalCostLimit > 0"
-                              :current="getCachedStats(key.id)?.allTimeCost || 0"
-                              label="总费用限制"
-                              :limit="key.totalCostLimit"
-                              type="total"
-                              variant="compact"
-                            />
-
-                            <!-- 时间窗口费用限制（无每日和总费用限制时展示） -->
                             <div
-                              v-else-if="
-                                key.rateLimitWindow > 0 &&
-                                key.rateLimitCost > 0 &&
-                                (!key.dailyCostLimit || key.dailyCostLimit === 0) &&
-                                (!key.totalCostLimit || key.totalCostLimit === 0)
-                              "
-                              class="space-y-1.5"
+                              v-if="getLimitSummary(key) === 'unlimited'"
+                              class="flex items-center gap-2"
                             >
-                              <!-- 费用进度条 -->
-                              <LimitProgressBar
-                                :current="getCachedStats(key.id)?.currentWindowCost || 0"
-                                label="窗口费用"
-                                :limit="key.rateLimitCost"
-                                type="window"
-                                variant="compact"
-                              />
-                              <!-- 重置倒计时 -->
-                              <div class="flex items-center justify-between text-[10px]">
-                                <div class="flex items-center gap-1 text-sky-600 dark:text-sky-300">
-                                  <i class="fas fa-clock text-[10px]" />
-                                  <span class="font-medium">{{ key.rateLimitWindow }}分钟窗口</span>
-                                </div>
-                                <span
-                                  class="font-bold"
-                                  :class="
-                                    (getCachedStats(key.id)?.windowRemainingSeconds || 0) > 0
-                                      ? 'text-sky-700 dark:text-sky-300'
-                                      : 'text-gray-400 dark:text-gray-500'
+                              <span
+                                class="inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-semibold"
+                                :class="getLimitSummaryClass(key)"
+                              >
+                                无限制
+                              </span>
+                            </div>
+                            <template v-else>
+                              <div
+                                v-for="(status, idx) in getLimitStatuses(key)"
+                                :key="idx"
+                                class="rounded-lg bg-gray-50 p-1.5 dark:bg-gray-700/70"
+                              >
+                                <LimitProgressBar
+                                  :current="status.current || 0"
+                                  :label="status.label"
+                                  :limit="status.limit"
+                                  :type="getLimitProgressType(status)"
+                                  :unit="status.unit || 'usd'"
+                                  variant="compact"
+                                />
+                                <div
+                                  v-if="
+                                    status.remainingSeconds != null && status.remainingSeconds > 0
                                   "
+                                  class="mt-0.5 text-[10px] text-gray-500 dark:text-gray-400"
                                 >
-                                  {{
-                                    (getCachedStats(key.id)?.windowRemainingSeconds || 0) > 0
-                                      ? formatWindowTime(
-                                          getCachedStats(key.id)?.windowRemainingSeconds || 0
-                                        )
-                                      : '未激活'
-                                  }}
-                                </span>
+                                  重置剩余 {{ formatWindowTime(status.remainingSeconds) }}
+                                </div>
                               </div>
-                            </div>
-
-                            <!-- 如果没有任何限制 -->
-                            <div
-                              v-if="
-                                !(key.weeklyOpusCostLimit > 0) &&
-                                !(key.dailyCostLimit > 0) &&
-                                !(key.totalCostLimit > 0) &&
-                                !(key.rateLimitWindow > 0 && key.rateLimitCost > 0)
-                              "
-                              class="flex items-center justify-center gap-1.5 py-2 text-gray-500 dark:text-gray-400"
-                            >
-                              <i class="fas fa-infinity text-base" />
-                              <span class="text-xs font-medium">无限制</span>
-                            </div>
+                            </template>
                           </template>
                         </div>
                       </td>
@@ -1497,15 +1436,7 @@
 
                 <!-- 限制进度条 -->
                 <div class="space-y-2">
-                  <!-- 加载中状态 - 骨架屏（仅在有费用限制配置时显示） -->
-                  <template
-                    v-if="
-                      isStatsLoading(key.id) &&
-                      (key.dailyCostLimit > 0 ||
-                        key.totalCostLimit > 0 ||
-                        (key.rateLimitWindow > 0 && key.rateLimitCost > 0))
-                    "
-                  >
+                  <template v-if="isStatsLoading(key.id) && hasConfiguredLimits(key)">
                     <div class="space-y-2">
                       <div
                         class="h-4 w-full animate-pulse rounded bg-gradient-to-r from-gray-200 via-gray-300 to-gray-200 dark:from-gray-700 dark:via-gray-600 dark:to-gray-700"
@@ -1515,79 +1446,40 @@
                       />
                     </div>
                   </template>
-                  <!-- 已加载状态 -->
                   <template v-else>
-                    <!-- 每日费用限制 -->
-                    <LimitProgressBar
-                      v-if="key.dailyCostLimit > 0"
-                      :current="getCachedStats(key.id)?.dailyCost || 0"
-                      label="每日限制"
-                      :limit="key.dailyCostLimit"
-                      type="daily"
-                      variant="compact"
-                    />
-
-                    <!-- 总费用限制（无每日限制时展示） -->
-                    <LimitProgressBar
-                      v-else-if="key.totalCostLimit > 0"
-                      :current="getCachedStats(key.id)?.allTimeCost || 0"
-                      label="总费用限制"
-                      :limit="key.totalCostLimit"
-                      type="total"
-                      variant="compact"
-                    />
-
-                    <!-- 时间窗口费用限制（无每日和总费用限制时展示） -->
                     <div
-                      v-else-if="
-                        key.rateLimitWindow > 0 &&
-                        key.rateLimitCost > 0 &&
-                        (!key.dailyCostLimit || key.dailyCostLimit === 0) &&
-                        (!key.totalCostLimit || key.totalCostLimit === 0)
-                      "
-                      class="space-y-2"
+                      v-if="getLimitSummary(key) === 'unlimited'"
+                      class="flex items-center gap-2"
                     >
-                      <!-- 费用进度条 -->
-                      <LimitProgressBar
-                        :current="getCachedStats(key.id)?.currentWindowCost || 0"
-                        label="窗口费用"
-                        :limit="key.rateLimitCost"
-                        type="window"
-                        variant="compact"
-                      />
-                      <!-- 重置倒计时 -->
-                      <div class="flex items-center justify-between text-xs">
-                        <div class="flex items-center gap-1.5 text-sky-600 dark:text-sky-300">
-                          <i class="fas fa-clock text-xs" />
-                          <span class="font-medium">{{ key.rateLimitWindow }}分钟窗口</span>
-                        </div>
-                        <span
-                          class="font-bold"
-                          :class="
-                            (getCachedStats(key.id)?.windowRemainingSeconds || 0) > 0
-                              ? 'text-sky-700 dark:text-sky-300'
-                              : 'text-gray-400 dark:text-gray-500'
-                          "
+                      <span
+                        class="inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-semibold"
+                        :class="getLimitSummaryClass(key)"
+                      >
+                        无限制
+                      </span>
+                    </div>
+                    <template v-else>
+                      <div
+                        v-for="(status, idx) in getLimitStatuses(key)"
+                        :key="idx"
+                        class="rounded-lg bg-gray-50 p-1.5 dark:bg-gray-700/70"
+                      >
+                        <LimitProgressBar
+                          :current="status.current || 0"
+                          :label="status.label"
+                          :limit="status.limit"
+                          :type="getLimitProgressType(status)"
+                          :unit="status.unit || 'usd'"
+                          variant="compact"
+                        />
+                        <div
+                          v-if="status.remainingSeconds != null && status.remainingSeconds > 0"
+                          class="mt-0.5 text-[10px] text-gray-500 dark:text-gray-400"
                         >
-                          {{
-                            (getCachedStats(key.id)?.windowRemainingSeconds || 0) > 0
-                              ? formatWindowTime(
-                                  getCachedStats(key.id)?.windowRemainingSeconds || 0
-                                )
-                              : '未激活'
-                          }}
-                        </span>
+                          重置剩余 {{ formatWindowTime(status.remainingSeconds) }}
+                        </div>
                       </div>
-                    </div>
-
-                    <!-- 无限制显示 -->
-                    <div
-                      v-else
-                      class="flex items-center justify-center gap-1.5 py-2 text-gray-500 dark:text-gray-400"
-                    >
-                      <i class="fas fa-infinity text-base" />
-                      <span class="text-xs font-medium">无限制</span>
-                    </div>
+                    </template>
                   </template>
                 </div>
               </div>
@@ -2813,6 +2705,75 @@ const loadPageStats = async () => {
 const getCachedStats = (keyId) => {
   const cached = statsCache.value.get(keyId)
   return cached?.stats || null
+}
+
+const parseKeyRateLimits = (rateLimits) => {
+  if (!rateLimits) return []
+
+  let parsed = rateLimits
+  if (typeof parsed === 'string') {
+    try {
+      parsed = JSON.parse(parsed)
+    } catch {
+      return []
+    }
+  }
+
+  return Array.isArray(parsed) ? parsed : []
+}
+
+const hasConfiguredLimits = (key) => {
+  if (!key) return false
+
+  if (
+    Number(key.weeklyOpusCostLimit || 0) > 0 ||
+    Number(key.dailyCostLimit || 0) > 0 ||
+    Number(key.totalCostLimit || 0) > 0
+  ) {
+    return true
+  }
+
+  const rateLimits = parseKeyRateLimits(key.rateLimits)
+  if (rateLimits.some((rule) => Number(rule?.window || 0) > 0)) {
+    return true
+  }
+
+  return (
+    Number(key.rateLimitWindow || 0) > 0 &&
+    (Number(key.rateLimitRequests || 0) > 0 || Number(key.rateLimitCost || 0) > 0)
+  )
+}
+
+const getLimitStatuses = (key) => {
+  return getCachedStats(key.id)?.limitStatuses || []
+}
+
+const getLimitSummary = (key) => {
+  const stats = getCachedStats(key.id)
+  if (stats?.limitSummary) {
+    return stats.limitSummary
+  }
+
+  return hasConfiguredLimits(key) ? 'normal' : 'unlimited'
+}
+
+const getLimitSummaryClass = (key) => {
+  const summary = getLimitSummary(key)
+  if (summary === 'reached') {
+    return 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300'
+  }
+  if (summary === 'normal') {
+    return 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300'
+  }
+  return 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300'
+}
+
+const getLimitProgressType = (status) => {
+  if (!status) return 'daily'
+  if (status.key === 'weekly_opus_cost') return 'opus'
+  if (status.key === 'daily_cost') return 'daily'
+  if (status.key === 'total_cost') return 'total'
+  return 'window'
 }
 
 // 检查是否正在加载统计

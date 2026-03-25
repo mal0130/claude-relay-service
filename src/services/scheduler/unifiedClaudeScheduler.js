@@ -737,6 +737,15 @@ class UnifiedClaudeScheduler {
           continue
         }
 
+        // 主动检查是否该重置额度（即使账户被停用也要检查）
+        const shouldSkipDueToQuota = await claudeConsoleAccountService.isAccountQuotaExceeded(
+          currentAccount.id
+        )
+        if (shouldSkipDueToQuota) {
+          logger.debug(`💰 Account ${currentAccount.name} still quota exceeded, skipping`)
+          continue
+        }
+
         // 主动触发一次额度检查，确保状态即时生效
         try {
           await claudeConsoleAccountService.checkQuotaUsage(currentAccount.id)

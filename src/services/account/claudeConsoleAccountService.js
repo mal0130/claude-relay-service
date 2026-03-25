@@ -697,8 +697,9 @@ class ClaudeConsoleAccountService {
   // 🔍 判断是否应该重置账户额度
   _shouldResetQuota(account) {
     // 与 Redis 统计一致：按配置时区判断“今天”与时间点
-    const tzNow = redis.getDateInTimezone(new Date())
-    const today = redis.getDateStringInTimezone(tzNow)
+    const now = new Date()
+    const tzNow = redis.getDateInTimezone(now)
+    const today = redis.getDateStringInTimezone(now)
 
     // 如果已经是今天重置过的，不需要重置
     if (account.lastResetDate === today) {
@@ -1334,13 +1335,14 @@ class ClaudeConsoleAccountService {
 
       // 解析额度配置，确保数值有效
       const dailyQuota = parseFloat(accountData.dailyQuota || '0')
+
       if (isNaN(dailyQuota) || dailyQuota <= 0) {
-        // 没有设置有效额度，无需检查
         return
       }
 
-      // 检查是否已经因额度停用（避免重复操作）
-      if (accountData.quotaStoppedAt) {
+      // 检查是否应该重置（到了新的重置时间点）
+      if (this._shouldResetQuota(accountData)) {
+        await this.resetDailyUsage(accountId)
         return
       }
 
@@ -1392,7 +1394,7 @@ class ClaudeConsoleAccountService {
         `💰 Quota check for account ${accountId}: $${currentDailyCost.toFixed(4)} / $${dailyQuota.toFixed(2)}`
       )
     } catch (error) {
-      logger.error('Failed to check quota usage:', error)
+      logger.error(`Failed to check quota usage for account ${accountId}:`, error)
     }
   }
 
@@ -1415,12 +1417,8 @@ class ClaudeConsoleAccountService {
       if (accountData.quotaStoppedAt) {
         updates.errorMessage = ''
         updates.quotaStoppedAt = ''
-
-        // 只恢复因额度超限而自动停止的账户
-        if (accountData.quotaAutoStopped === 'true') {
-          updates.schedulable = true
-          updates.quotaAutoStopped = ''
-        }
+        updates.schedulable = true
+        updates.quotaAutoStopped = ''
 
         logger.info(`✅ Restored account ${accountId} after daily quota reset`)
       }

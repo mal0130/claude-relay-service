@@ -7,6 +7,17 @@ function toNumber(value) {
   return Number.isFinite(num) ? num : 0
 }
 
+// 更新单条规则的限流计数器
+async function updateSingleRateLimitCounters(client, info, totalTokens, ratedCost) {
+  if (totalTokens > 0 && info.tokenCountKey) {
+    await client.incrby(info.tokenCountKey, Math.round(totalTokens))
+  }
+
+  if (ratedCost > 0 && info.costCountKey) {
+    await client.incrbyfloat(info.costCountKey, ratedCost)
+  }
+}
+
 // keyId 和 accountType 用于计算倍率成本
 // preCalculatedCost: 可选的 { realCost, ratedCost }，由调用方提供以避免重复计算
 async function updateRateLimitCounters(
@@ -32,10 +43,6 @@ async function updateRateLimitCounters(
   const cacheReadTokens = toNumber(usageSummary.cacheReadTokens)
 
   const totalTokens = inputTokens + outputTokens + cacheCreateTokens + cacheReadTokens
-
-  if (totalTokens > 0 && rateLimitInfo.tokenCountKey) {
-    await client.incrby(rateLimitInfo.tokenCountKey, Math.round(totalTokens))
-  }
 
   let totalCost = 0
   let ratedCost = 0
@@ -103,8 +110,13 @@ async function updateRateLimitCounters(
     }
   }
 
-  if (ratedCost > 0 && rateLimitInfo.costCountKey) {
-    await client.incrbyfloat(rateLimitInfo.costCountKey, ratedCost)
+  // 支持数组格式（多规则）和对象格式（向后兼容）
+  if (Array.isArray(rateLimitInfo)) {
+    for (const info of rateLimitInfo) {
+      await updateSingleRateLimitCounters(client, info, totalTokens, ratedCost)
+    }
+  } else {
+    await updateSingleRateLimitCounters(client, rateLimitInfo, totalTokens, ratedCost)
   }
 
   return { totalTokens, totalCost, ratedCost }

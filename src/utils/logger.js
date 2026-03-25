@@ -5,6 +5,7 @@ const { formatDateWithTimezone } = require('../utils/dateHelper')
 const path = require('path')
 const fs = require('fs')
 const os = require('os')
+const { getReqId } = require('./requestContext')
 
 // 安全的 JSON 序列化函数，处理循环引用和特殊字符
 const safeStringify = (obj, maxDepth = Infinity) => {
@@ -129,7 +130,8 @@ const createConsoleFormat = () =>
       // 时间戳只取时分秒
       const shortTime = timestamp ? timestamp.split(' ').pop() : ''
 
-      let logMessage = `${shortTime} ${message}`
+      const reqId = getReqId()
+      let logMessage = reqId ? `[${reqId}] ${shortTime} ${message}` : `${shortTime} ${message}`
 
       // 收集要显示的 metadata
       const entries = Object.entries(rest).filter(([k]) => !CONSOLE_SKIP_KEYS.has(k))
@@ -159,6 +161,10 @@ const createFileFormat = () =>
     winston.format.errors({ stack: true }),
     winston.format.printf(({ level, message, timestamp, stack, ...rest }) => {
       const entry = { ts: timestamp, lvl: level, msg: message }
+      const reqId = getReqId()
+      if (reqId) {
+        entry.reqId = reqId
+      }
       // 合并所有 metadata
       for (const [k, v] of Object.entries(rest)) {
         if (k !== 'level' && k !== 'message' && k !== 'timestamp' && k !== 'stack') {

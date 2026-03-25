@@ -1057,134 +1057,136 @@ const authenticateApiKey = async (req, res, next) => {
       }
     }
 
-    // 检查时间窗口限流
-    const rateLimitWindow = validation.keyData.rateLimitWindow || 0
-    const rateLimitRequests = validation.keyData.rateLimitRequests || 0
-    const rateLimitCost = validation.keyData.rateLimitCost || 0 // 新增：费用限制
+    // 检查时间窗口限流（支持多规则）
+    const rateLimits = validation.keyData.rateLimits || []
 
-    // 兼容性检查：如果tokenLimit仍有值，使用tokenLimit；否则使用rateLimitCost
-    const hasRateLimits =
-      rateLimitWindow > 0 &&
-      (rateLimitRequests > 0 || validation.keyData.tokenLimit > 0 || rateLimitCost > 0)
-
-    if (hasRateLimits) {
-      const windowStartKey = `rate_limit:window_start:${validation.keyData.id}`
-      const requestCountKey = `rate_limit:requests:${validation.keyData.id}`
-      const tokenCountKey = `rate_limit:tokens:${validation.keyData.id}`
-      const costCountKey = `rate_limit:cost:${validation.keyData.id}` // 新增：费用计数器
-
+    if (rateLimits.length > 0) {
       const now = Date.now()
-      const windowDuration = rateLimitWindow * 60 * 1000 // 转换为毫秒
+      const rateLimitInfoList = []
 
-      // 获取窗口开始时间
-      let windowStart = await redis.getClient().get(windowStartKey)
+      for (let i = 0; i < rateLimits.length; i++) {
+        const rule = rateLimits[i]
+        const ruleWindow = rule.window || 0
+        const ruleRequests = rule.requests || 0
+        const ruleCost = rule.cost || 0
 
-      if (!windowStart) {
-        // 第一次请求，设置窗口开始时间
-        await redis.getClient().set(windowStartKey, now, 'PX', windowDuration)
-        await redis.getClient().set(requestCountKey, 0, 'PX', windowDuration)
-        await redis.getClient().set(tokenCountKey, 0, 'PX', windowDuration)
-        await redis.getClient().set(costCountKey, 0, 'PX', windowDuration) // 新增：重置费用
-        windowStart = now
-      } else {
-        windowStart = parseInt(windowStart)
+        if (ruleWindow <= 0 || (ruleRequests <= 0 && ruleCost <= 0)) {
+          continue
+        }
 
-        // 检查窗口是否已过期
-        if (now - windowStart >= windowDuration) {
-          // 窗口已过期，重置
+        const suffix = rateLimits.length === 1 ? '' : `:${i}`
+        const windowStartKey = `rate_limit:window_start:${validation.keyData.id}${suffix}`
+        const requestCountKey = `rate_limit:requests:${validation.keyData.id}${suffix}`
+        const tokenCountKey = `rate_limit:tokens:${validation.keyData.id}${suffix}`
+        const costCountKey = `rate_limit:cost:${validation.keyData.id}${suffix}`
+
+        const windowDuration = ruleWindow * 60 * 1000
+
+        let windowStart = await redis.getClient().get(windowStartKey)
+
+        if (!windowStart) {
           await redis.getClient().set(windowStartKey, now, 'PX', windowDuration)
           await redis.getClient().set(requestCountKey, 0, 'PX', windowDuration)
           await redis.getClient().set(tokenCountKey, 0, 'PX', windowDuration)
-          await redis.getClient().set(costCountKey, 0, 'PX', windowDuration) // 新增：重置费用
+          await redis.getClient().set(costCountKey, 0, 'PX', windowDuration)
           windowStart = now
+        } else {
+          windowStart = parseInt(windowStart)
+
+          if (now - windowStart >= windowDuration) {
+            await redis.getClient().set(windowStartKey, now, 'PX', windowDuration)
+            await redis.getClient().set(requestCountKey, 0, 'PX', windowDuration)
+            await redis.getClient().set(tokenCountKey, 0, 'PX', windowDuration)
+            await redis.getClient().set(costCountKey, 0, 'PX', windowDuration)
+            windowStart = now
+          }
         }
-      }
 
-      // 获取当前计数
-      const currentRequests = parseInt((await redis.getClient().get(requestCountKey)) || '0')
-      const currentTokens = parseInt((await redis.getClient().get(tokenCountKey)) || '0')
-      const currentCost = parseFloat((await redis.getClient().get(costCountKey)) || '0') // 新增：当前费用
+        const currentRequests = parseInt((await redis.getClient().get(requestCountKey)) || '0')
+        const currentTokens = parseInt((await redis.getClient().get(tokenCountKey)) || '0')
+        const currentCost = parseFloat((await redis.getClient().get(costCountKey)) || '0')
 
-      // 检查请求次数限制
-      if (rateLimitRequests > 0 && currentRequests >= rateLimitRequests) {
-        const resetTime = new Date(windowStart + windowDuration)
-        const remainingMinutes = Math.ceil((resetTime - now) / 60000)
+        // 检查请求次数限制
+        if (ruleRequests > 0 && currentRequests >= ruleRequests) {
+          const resetTime = new Date(windowStart + windowDuration)
+          const remainingMinutes = Math.ceil((resetTime - now) / 60000)
 
-        logger.security(
-          `🚦 Rate limit exceeded (requests) for key: ${validation.keyData.id} (${validation.keyData.name}), requests: ${currentRequests}/${rateLimitRequests}`
-        )
+          logger.security(
+            `🚦 Rate limit exceeded (requests, rule ${i}) for key: ${validation.keyData.id} (${validation.keyData.name}), requests: ${currentRequests}/${ruleRequests}, window: ${ruleWindow}min`
+          )
 
-        return res.status(429).json({
-          error: 'Rate limit exceeded',
-          message: `已达到请求次数限制 (${rateLimitRequests} 次)，将在 ${remainingMinutes} 分钟后重置`,
-          currentRequests,
-          requestLimit: rateLimitRequests,
-          resetAt: resetTime.toISOString(),
-          remainingMinutes
+          return res.status(429).json({
+            error: 'Rate limit exceeded',
+            message: `已达到请求次数限制 (${ruleRequests} 次/${ruleWindow}分钟)，将在 ${remainingMinutes} 分钟后重置`,
+            currentRequests,
+            requestLimit: ruleRequests,
+            resetAt: resetTime.toISOString(),
+            remainingMinutes
+          })
+        }
+
+        // 兼容性检查：优先使用Token限制（历史数据），否则使用费用限制
+        const tokenLimit = parseInt(validation.keyData.tokenLimit)
+        if (i === 0 && tokenLimit > 0) {
+          if (currentTokens >= tokenLimit) {
+            const resetTime = new Date(windowStart + windowDuration)
+            const remainingMinutes = Math.ceil((resetTime - now) / 60000)
+
+            logger.security(
+              `🚦 Rate limit exceeded (tokens) for key: ${validation.keyData.id} (${validation.keyData.name}), tokens: ${currentTokens}/${tokenLimit}`
+            )
+
+            return res.status(429).json({
+              error: 'Rate limit exceeded',
+              message: `已达到 Token 使用限制 (${tokenLimit} tokens)，将在 ${remainingMinutes} 分钟后重置`,
+              currentTokens,
+              tokenLimit,
+              resetAt: resetTime.toISOString(),
+              remainingMinutes
+            })
+          }
+        } else if (ruleCost > 0) {
+          if (currentCost >= ruleCost) {
+            const resetTime = new Date(windowStart + windowDuration)
+            const remainingMinutes = Math.ceil((resetTime - now) / 60000)
+
+            logger.security(
+              `💰 Rate limit exceeded (cost, rule ${i}) for key: ${validation.keyData.id} (${
+                validation.keyData.name
+              }), cost: $${currentCost.toFixed(2)}/$${ruleCost}, window: ${ruleWindow}min`
+            )
+
+            return res.status(429).json({
+              error: 'Rate limit exceeded',
+              message: `已达到费用限制 ($${ruleCost}/${ruleWindow}分钟)，将在 ${remainingMinutes} 分钟后重置`,
+              currentCost,
+              costLimit: ruleCost,
+              resetAt: resetTime.toISOString(),
+              remainingMinutes
+            })
+          }
+        }
+
+        // 增加请求计数
+        await redis.getClient().incr(requestCountKey)
+
+        rateLimitInfoList.push({
+          windowStart,
+          windowDuration,
+          requestCountKey,
+          tokenCountKey,
+          costCountKey,
+          currentRequests: currentRequests + 1,
+          currentTokens,
+          currentCost,
+          rateLimitRequests: ruleRequests,
+          tokenLimit: i === 0 ? parseInt(validation.keyData.tokenLimit) : 0,
+          rateLimitCost: ruleCost
         })
       }
 
-      // 兼容性检查：优先使用Token限制（历史数据），否则使用费用限制
-      const tokenLimit = parseInt(validation.keyData.tokenLimit)
-      if (tokenLimit > 0) {
-        // 使用Token限制（向后兼容）
-        if (currentTokens >= tokenLimit) {
-          const resetTime = new Date(windowStart + windowDuration)
-          const remainingMinutes = Math.ceil((resetTime - now) / 60000)
-
-          logger.security(
-            `🚦 Rate limit exceeded (tokens) for key: ${validation.keyData.id} (${validation.keyData.name}), tokens: ${currentTokens}/${tokenLimit}`
-          )
-
-          return res.status(429).json({
-            error: 'Rate limit exceeded',
-            message: `已达到 Token 使用限制 (${tokenLimit} tokens)，将在 ${remainingMinutes} 分钟后重置`,
-            currentTokens,
-            tokenLimit,
-            resetAt: resetTime.toISOString(),
-            remainingMinutes
-          })
-        }
-      } else if (rateLimitCost > 0) {
-        // 使用费用限制（新功能）
-        if (currentCost >= rateLimitCost) {
-          const resetTime = new Date(windowStart + windowDuration)
-          const remainingMinutes = Math.ceil((resetTime - now) / 60000)
-
-          logger.security(
-            `💰 Rate limit exceeded (cost) for key: ${validation.keyData.id} (${
-              validation.keyData.name
-            }), cost: $${currentCost.toFixed(2)}/$${rateLimitCost}`
-          )
-
-          return res.status(429).json({
-            error: 'Rate limit exceeded',
-            message: `已达到费用限制 ($${rateLimitCost})，将在 ${remainingMinutes} 分钟后重置`,
-            currentCost,
-            costLimit: rateLimitCost,
-            resetAt: resetTime.toISOString(),
-            remainingMinutes
-          })
-        }
-      }
-
-      // 增加请求计数
-      await redis.getClient().incr(requestCountKey)
-
-      // 存储限流信息到请求对象
-      req.rateLimitInfo = {
-        windowStart,
-        windowDuration,
-        requestCountKey,
-        tokenCountKey,
-        costCountKey, // 新增：费用计数器
-        currentRequests: currentRequests + 1,
-        currentTokens,
-        currentCost, // 新增：当前费用
-        rateLimitRequests,
-        tokenLimit,
-        rateLimitCost // 新增：费用限制
-      }
+      // 存储限流信息到请求对象（数组格式）
+      req.rateLimitInfo = rateLimitInfoList
     }
 
     // 检查每日费用限制

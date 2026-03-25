@@ -190,65 +190,92 @@
             </div>
           </div>
 
-          <!-- 速率限制设置 -->
+          <!-- 速率限制设置（多规则） -->
           <div
             class="rounded-lg border border-blue-200 bg-blue-50 p-3 dark:border-blue-700 dark:bg-blue-900/20"
           >
-            <div class="mb-2 flex items-center gap-2">
-              <div
-                class="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded bg-blue-500"
-              >
-                <i class="fas fa-tachometer-alt text-xs text-white" />
+            <div class="mb-2 flex items-center justify-between">
+              <div class="flex items-center gap-2">
+                <div
+                  class="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded bg-blue-500"
+                >
+                  <i class="fas fa-tachometer-alt text-xs text-white" />
+                </div>
+                <h4 class="text-sm font-semibold text-gray-800 dark:text-gray-200">
+                  速率限制设置 (可选)
+                </h4>
               </div>
-              <h4 class="text-sm font-semibold text-gray-800 dark:text-gray-200">
-                速率限制设置 (可选)
-              </h4>
+              <button
+                class="rounded-lg bg-blue-500 px-2 py-1 text-xs text-white transition-colors hover:bg-blue-600"
+                type="button"
+                @click="addRateLimitRule"
+              >
+                <i class="fas fa-plus mr-1" />添加规则
+              </button>
             </div>
 
             <div class="space-y-2">
-              <div class="grid grid-cols-1 gap-2 lg:grid-cols-3">
-                <div>
-                  <label class="mb-1 block text-xs font-medium text-gray-700 dark:text-gray-300"
-                    >时间窗口 (分钟)</label
-                  >
-                  <input
-                    v-model="form.rateLimitWindow"
-                    class="form-input w-full border-gray-300 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200 dark:placeholder-gray-400"
-                    min="1"
-                    placeholder="无限制"
-                    type="number"
-                  />
-                  <p class="ml-2 mt-0.5 text-xs text-gray-500 dark:text-gray-400">时间段单位</p>
-                </div>
+              <div
+                v-for="(rule, index) in form.rateLimits"
+                :key="index"
+                class="relative rounded-lg border border-gray-200 bg-white p-2 dark:border-gray-600 dark:bg-gray-700"
+              >
+                <div class="grid grid-cols-1 gap-2 pr-7 lg:grid-cols-3">
+                  <div>
+                    <label class="mb-1 block text-xs font-medium text-gray-700 dark:text-gray-300"
+                      >时间窗口 (分钟)</label
+                    >
+                    <input
+                      v-model="rule.window"
+                      class="form-input w-full border-gray-300 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200 dark:placeholder-gray-400"
+                      min="1"
+                      placeholder="必填"
+                      type="number"
+                    />
+                  </div>
 
-                <div>
-                  <label class="mb-1 block text-xs font-medium text-gray-700 dark:text-gray-300"
-                    >请求次数限制</label
-                  >
-                  <input
-                    v-model="form.rateLimitRequests"
-                    class="form-input w-full border-gray-300 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200 dark:placeholder-gray-400"
-                    min="1"
-                    placeholder="无限制"
-                    type="number"
-                  />
-                  <p class="ml-2 mt-0.5 text-xs text-gray-500 dark:text-gray-400">窗口内最大请求</p>
-                </div>
+                  <div>
+                    <label class="mb-1 block text-xs font-medium text-gray-700 dark:text-gray-300"
+                      >请求次数限制</label
+                    >
+                    <input
+                      v-model="rule.requests"
+                      class="form-input w-full border-gray-300 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200 dark:placeholder-gray-400"
+                      min="0"
+                      placeholder="无限制"
+                      type="number"
+                    />
+                  </div>
 
-                <div>
-                  <label class="mb-1 block text-xs font-medium text-gray-700 dark:text-gray-300"
-                    >费用限制 (美元)</label
-                  >
-                  <input
-                    v-model="form.rateLimitCost"
-                    class="form-input w-full border-gray-300 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200 dark:placeholder-gray-400"
-                    min="0"
-                    placeholder="无限制"
-                    step="0.01"
-                    type="number"
-                  />
-                  <p class="ml-2 mt-0.5 text-xs text-gray-500 dark:text-gray-400">窗口内最大费用</p>
+                  <div>
+                    <label class="mb-1 block text-xs font-medium text-gray-700 dark:text-gray-300"
+                      >费用限制 (美元)</label
+                    >
+                    <input
+                      v-model="rule.cost"
+                      class="form-input w-full border-gray-300 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200 dark:placeholder-gray-400"
+                      min="0"
+                      placeholder="无限制"
+                      step="0.01"
+                      type="number"
+                    />
+                  </div>
                 </div>
+                <button
+                  class="absolute right-1.5 top-1.5 rounded p-1 text-gray-400 transition-colors hover:bg-red-50 hover:text-red-500 dark:hover:bg-red-900/30"
+                  title="删除此规则"
+                  type="button"
+                  @click="removeRateLimitRule(index)"
+                >
+                  <i class="fas fa-times text-xs" />
+                </button>
+              </div>
+
+              <div
+                v-if="form.rateLimits.length === 0"
+                class="py-2 text-center text-xs text-gray-400 dark:text-gray-500"
+              >
+                未设置速率限制，点击"添加规则"开始配置
               </div>
 
               <!-- 示例说明 -->
@@ -257,12 +284,11 @@
                   💡 使用示例
                 </h5>
                 <div class="space-y-0.5 text-xs text-blue-700 dark:text-blue-300">
+                  <div><strong>示例1:</strong> 窗口=60，请求=1000 → 每60分钟最多1000次请求</div>
+                  <div><strong>示例2:</strong> 窗口=300，费用=10 → 每5小时最多$10费用</div>
                   <div>
-                    <strong>示例1:</strong> 时间窗口=60，请求次数=1000 → 每60分钟最多1000次请求
-                  </div>
-                  <div><strong>示例2:</strong> 时间窗口=1，费用=0.1 → 每分钟最多$0.1费用</div>
-                  <div>
-                    <strong>示例3:</strong> 窗口=30，请求=50，费用=5 → 每30分钟50次请求且不超$5费用
+                    <strong>示例3:</strong>
+                    添加多条规则实现组合限制，如：每小时100次 + 每周不超$50
                   </div>
                 </div>
               </div>
@@ -862,19 +888,6 @@ const confirmModalConfig = ref({
 })
 const confirmResolve = ref(null)
 
-const showConfirm = (
-  title,
-  message,
-  confirmText = '确认',
-  cancelText = '取消',
-  type = 'primary'
-) => {
-  return new Promise((resolve) => {
-    confirmModalConfig.value = { title, message, confirmText, cancelText, type }
-    confirmResolve.value = resolve
-    showConfirmModal.value = true
-  })
-}
 const handleConfirmModal = () => {
   showConfirmModal.value = false
   confirmResolve.value?.(true)
@@ -928,9 +941,7 @@ const form = reactive({
   name: '',
   serviceRates: {}, // API Key 级别服务倍率
   tokenLimit: '', // 保留用于检测历史数据
-  rateLimitWindow: '',
-  rateLimitRequests: '',
-  rateLimitCost: '', // 新增：费用限制
+  rateLimits: [], // 多规则速率限制 [{window, requests, cost}, ...]
   concurrencyLimit: '',
   dailyCostLimit: '',
   totalCostLimit: '',
@@ -953,6 +964,28 @@ const form = reactive({
   ownerId: '' // 新增：所有者ID
 })
 
+const normalizeRateLimits = (rateLimits) => {
+  let parsed = rateLimits
+
+  if (typeof parsed === 'string') {
+    try {
+      parsed = JSON.parse(parsed)
+    } catch {
+      parsed = []
+    }
+  }
+
+  if (!Array.isArray(parsed)) {
+    return []
+  }
+
+  return parsed.map((rule) => ({
+    window: rule?.window ?? '',
+    requests: rule?.requests ?? '',
+    cost: rule?.cost ?? ''
+  }))
+}
+
 // 更新权限（数组格式，空数组=全部服务）
 const updatePermissions = () => {
   // form.permissions 已经是数组，由 v-model 自动管理
@@ -969,6 +1002,15 @@ const addRestrictedModel = () => {
 // 移除限制的模型
 const removeRestrictedModel = (index) => {
   form.restrictedModels.splice(index, 1)
+}
+
+// 速率限制规则管理
+const addRateLimitRule = () => {
+  form.rateLimits.push({ window: '', requests: '', cost: '' })
+}
+
+const removeRateLimitRule = (index) => {
+  form.rateLimits.splice(index, 1)
 }
 
 // 常用模型列表
@@ -1009,20 +1051,6 @@ const removeTag = (index) => {
 
 // 更新 API Key
 const updateApiKey = async () => {
-  // 检查是否设置了时间窗口但费用限制为0
-  if (form.rateLimitWindow && (!form.rateLimitCost || parseFloat(form.rateLimitCost) === 0)) {
-    const confirmed = await showConfirm(
-      '费用限制提醒',
-      '您设置了时间窗口但费用限制为0，这意味着不会有费用限制。\n\n是否继续？',
-      '继续保存',
-      '返回修改',
-      'warning'
-    )
-    if (!confirmed) {
-      return
-    }
-  }
-
   loading.value = true
 
   try {
@@ -1037,22 +1065,23 @@ const updateApiKey = async () => {
       }
     }
 
+    // 处理多规则速率限制
+    const rateLimits = form.rateLimits
+      .filter((rule) => rule.window && Number(rule.window) > 0)
+      .map((rule) => ({
+        window: parseInt(rule.window),
+        requests: rule.requests ? parseInt(rule.requests) : 0,
+        cost: rule.cost ? parseFloat(rule.cost) : 0
+      }))
+
     const data = {
       name: form.name, // 添加名称字段
       serviceRates: filteredServiceRates,
       tokenLimit: 0, // 清除历史token限制
-      rateLimitWindow:
-        form.rateLimitWindow !== '' && form.rateLimitWindow !== null
-          ? parseInt(form.rateLimitWindow)
-          : 0,
-      rateLimitRequests:
-        form.rateLimitRequests !== '' && form.rateLimitRequests !== null
-          ? parseInt(form.rateLimitRequests)
-          : 0,
-      rateLimitCost:
-        form.rateLimitCost !== '' && form.rateLimitCost !== null
-          ? parseFloat(form.rateLimitCost)
-          : 0,
+      rateLimitWindow: 0, // 清零旧字段，使用 rateLimits
+      rateLimitRequests: 0,
+      rateLimitCost: 0,
+      rateLimits,
       concurrencyLimit:
         form.concurrencyLimit !== '' && form.concurrencyLimit !== null
           ? parseInt(form.concurrencyLimit)
@@ -1377,18 +1406,26 @@ onMounted(async () => {
   form.serviceRates = props.apiKey.serviceRates || {}
   enableServiceRates.value = Object.keys(form.serviceRates).length > 0
 
-  // 处理速率限制迁移：如果有tokenLimit且没有rateLimitCost，提示用户
+  // 处理速率限制迁移
   form.tokenLimit = props.apiKey.tokenLimit || ''
-  form.rateLimitCost = props.apiKey.rateLimitCost || ''
 
-  // 如果有历史tokenLimit但没有rateLimitCost，提示用户需要重新设置
-  if (props.apiKey.tokenLimit > 0 && !props.apiKey.rateLimitCost) {
-    // 可以根据需要添加提示，或者自动迁移（这里选择让用户手动设置）
-    // console.log('检测到历史Token限制，请考虑设置费用限制')
+  // 初始化多规则速率限制（兼容字符串、数组和旧字段）
+  const parsedRateLimits = normalizeRateLimits(props.apiKey.rateLimits)
+  if (parsedRateLimits.length > 0) {
+    form.rateLimits = parsedRateLimits
+  } else if (props.apiKey.rateLimitWindow > 0) {
+    // 兼容旧数据：从单字段构造
+    form.rateLimits = [
+      {
+        window: props.apiKey.rateLimitWindow,
+        requests: props.apiKey.rateLimitRequests || '',
+        cost: props.apiKey.rateLimitCost || ''
+      }
+    ]
+  } else {
+    form.rateLimits = []
   }
 
-  form.rateLimitWindow = props.apiKey.rateLimitWindow || ''
-  form.rateLimitRequests = props.apiKey.rateLimitRequests || ''
   form.concurrencyLimit = props.apiKey.concurrencyLimit || ''
   form.dailyCostLimit = props.apiKey.dailyCostLimit || ''
   form.totalCostLimit = props.apiKey.totalCostLimit || ''

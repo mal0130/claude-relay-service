@@ -1062,10 +1062,112 @@ router.post('/api-keys/batch-stats', authenticateAdmin, async (req, res) => {
  * @param {string} endDate - 结束日期 (custom 模式)
  * @returns {Object} 统计数据
  */
+function parseRateLimits(rateLimits) {
+  if (!rateLimits) {
+    return []
+  }
+
+  let parsed = rateLimits
+  if (typeof parsed === 'string') {
+    try {
+      parsed = JSON.parse(parsed)
+    } catch {
+      return []
+    }
+  }
+
+  return Array.isArray(parsed) ? parsed : []
+}
+
+function buildLimitStatuses(apiKey, limitData) {
+  if (!apiKey) {
+    return { limitStatuses: [], limitSummary: 'unlimited' }
+  }
+
+  const statuses = []
+  const {
+    dailyCost = 0,
+    weeklyOpusCost = 0,
+    allTimeCost = 0,
+    rateLimitStatuses = []
+  } = limitData || {}
+
+  const dailyCostLimit = parseFloat(apiKey.dailyCostLimit || 0)
+  const totalCostLimit = parseFloat(apiKey.totalCostLimit || 0)
+  const weeklyOpusCostLimit = parseFloat(apiKey.weeklyOpusCostLimit || 0)
+
+  if (weeklyOpusCostLimit > 0) {
+    statuses.push({
+      key: 'weekly_opus_cost',
+      label: 'Claude 周限制',
+      current: weeklyOpusCost,
+      limit: weeklyOpusCostLimit,
+      unit: 'usd',
+      reached: weeklyOpusCost >= weeklyOpusCostLimit,
+      status: weeklyOpusCost >= weeklyOpusCostLimit ? 'reached' : 'normal'
+    })
+  }
+
+  if (dailyCostLimit > 0) {
+    statuses.push({
+      key: 'daily_cost',
+      label: '每日限制',
+      current: dailyCost,
+      limit: dailyCostLimit,
+      unit: 'usd',
+      reached: dailyCost >= dailyCostLimit,
+      status: dailyCost >= dailyCostLimit ? 'reached' : 'normal'
+    })
+  }
+
+  if (totalCostLimit > 0) {
+    statuses.push({
+      key: 'total_cost',
+      label: '总费用限制',
+      current: allTimeCost,
+      limit: totalCostLimit,
+      unit: 'usd',
+      reached: allTimeCost >= totalCostLimit,
+      status: allTimeCost >= totalCostLimit ? 'reached' : 'normal'
+    })
+  }
+
+  if (Array.isArray(rateLimitStatuses) && rateLimitStatuses.length > 0) {
+    statuses.push(...rateLimitStatuses)
+  }
+
+  const limitSummary =
+    statuses.length === 0 ? 'unlimited' : statuses.some((s) => s.reached) ? 'reached' : 'normal'
+
+  return { limitStatuses: statuses, limitSummary }
+}
+
 async function calculateKeyStats(keyId, timeRange, startDate, endDate) {
   const client = redis.getClientSafe()
   const tzDate = redis.getDateInTimezone()
   const today = redis.getDateStringInTimezone()
+  let apiKey = null
+  const baseLimitInfo = { limitStatuses: [], limitSummary: 'unlimited' }
+  const getLimitInfo = () => buildLimitStatuses(apiKey, limitData)
+  let limitData = null
+  let limitInfo = baseLimitInfo
+  let allTimeCost = 0
+  let dailyCost = 0
+  let weeklyOpusCost = 0
+  let currentWindowCost = 0
+  let currentWindowRequests = 0
+  let currentWindowTokens = 0
+  let windowRemainingSeconds = null
+  let windowStartTime = null
+  let windowEndTime = null
+
+  try {
+    apiKey = await redis.getApiKey(keyId)
+  } catch (error) {
+    logger.warn(`⚠️ 获取 API Key 配置失败 (key: ${keyId}):`, error.message)
+  }
+
+  limitInfo = getLimitInfo()
 
   // 构建搜索模式
   const searchPatterns = []
@@ -1112,76 +1214,7 @@ async function calculateKeyStats(keyId, timeRange, startDate, endDate) {
   const uniqueKeys = [...new Set(allKeys)]
 
   // 获取实时限制数据（窗口数据不受时间范围筛选影响，始终获取当前窗口状态）
-  let dailyCost = 0
-  let weeklyOpusCost = 0 // 字段名沿用 weeklyOpusCost*，语义为"Claude 周费用"
-  let currentWindowCost = 0
-  let currentWindowRequests = 0 // 当前窗口请求次数
-  let currentWindowTokens = 0 // 当前窗口 Token 使用量
-  let windowRemainingSeconds = null
-  let windowStartTime = null
-  let windowEndTime = null
-  let allTimeCost = 0
-
-  try {
-    // 先获取 API Key 配置，判断是否需要查询限制相关数据
-    const apiKey = await redis.getApiKey(keyId)
-    const rateLimitWindow = parseInt(apiKey?.rateLimitWindow) || 0
-    const dailyCostLimit = parseFloat(apiKey?.dailyCostLimit) || 0
-    const weeklyOpusCostLimit = parseFloat(apiKey?.weeklyOpusCostLimit) || 0
-
-    // 只在启用了每日费用限制时查询
-    if (dailyCostLimit > 0) {
-      dailyCost = await redis.getDailyCost(keyId)
-    }
-
-    // 始终查询 allTimeCost（用于展示和限额校验）
-    const totalCostKey = `usage:cost:total:${keyId}`
-    allTimeCost = parseFloat((await client.get(totalCostKey)) || '0')
-
-    // 只在启用了 Claude 周费用限制时查询（字段名沿用 weeklyOpusCostLimit）
-    if (weeklyOpusCostLimit > 0) {
-      const resetDay = parseInt(apiKey?.weeklyResetDay || 1)
-      const resetHour = parseInt(apiKey?.weeklyResetHour || 0)
-      weeklyOpusCost = await redis.getWeeklyOpusCost(keyId, resetDay, resetHour)
-    }
-
-    // 只在启用了窗口限制时查询窗口数据
-    if (rateLimitWindow > 0) {
-      const requestCountKey = `rate_limit:requests:${keyId}`
-      const tokenCountKey = `rate_limit:tokens:${keyId}`
-      const costCountKey = `rate_limit:cost:${keyId}`
-      const windowStartKey = `rate_limit:window_start:${keyId}`
-
-      currentWindowRequests = parseInt((await client.get(requestCountKey)) || '0')
-      currentWindowTokens = parseInt((await client.get(tokenCountKey)) || '0')
-      currentWindowCost = parseFloat((await client.get(costCountKey)) || '0')
-
-      // 获取窗口开始时间和计算剩余时间
-      const windowStart = await client.get(windowStartKey)
-      if (windowStart) {
-        const now = Date.now()
-        windowStartTime = parseInt(windowStart)
-        const windowDuration = rateLimitWindow * 60 * 1000 // 转换为毫秒
-        windowEndTime = windowStartTime + windowDuration
-
-        // 如果窗口还有效
-        if (now < windowEndTime) {
-          windowRemainingSeconds = Math.max(0, Math.floor((windowEndTime - now) / 1000))
-        } else {
-          // 窗口已过期
-          windowRemainingSeconds = 0
-          currentWindowRequests = 0
-          currentWindowTokens = 0
-          currentWindowCost = 0
-        }
-      }
-    }
-  } catch (error) {
-    logger.warn(`⚠️ 获取实时限制数据失败 (key: ${keyId}):`, error.message)
-  }
-
-  // 构建实时限制数据对象（各分支复用）
-  const limitData = {
+  limitData = {
     dailyCost,
     weeklyOpusCost,
     currentWindowCost,
@@ -1190,10 +1223,153 @@ async function calculateKeyStats(keyId, timeRange, startDate, endDate) {
     windowRemainingSeconds,
     windowStartTime,
     windowEndTime,
-    allTimeCost
+    allTimeCost,
+    rateLimitStatuses: []
   }
 
-  // 如果没有使用数据，返回零值但包含窗口数据
+  // 解析限制配置（在 try 外部，避免后续 Redis 读取失败导致配置丢失）
+  const dailyCostLimit = parseFloat(apiKey?.dailyCostLimit) || 0
+  const weeklyOpusCostLimit = parseFloat(apiKey?.weeklyOpusCostLimit) || 0
+  const normalizedRateLimits = parseRateLimits(apiKey?.rateLimits)
+  logger.debug(
+    `🔍 [LimitDebug] keyId=${keyId}, raw rateLimits=${JSON.stringify(apiKey?.rateLimits)}, parsed=${JSON.stringify(normalizedRateLimits)}`
+  )
+  const effectiveRateLimits =
+    normalizedRateLimits.length > 0
+      ? normalizedRateLimits
+      : (() => {
+          const legacyWindow = parseInt(apiKey?.rateLimitWindow || 0)
+          const legacyRequests = parseInt(apiKey?.rateLimitRequests || 0)
+          const legacyCost = parseFloat(apiKey?.rateLimitCost || 0)
+          if (legacyWindow > 0 && (legacyRequests > 0 || legacyCost > 0)) {
+            return [{ window: legacyWindow, requests: legacyRequests, cost: legacyCost }]
+          }
+          return []
+        })()
+
+  // 获取费用相关数据
+  try {
+    if (dailyCostLimit > 0) {
+      dailyCost = await redis.getDailyCost(keyId)
+    }
+
+    const totalCostKey = `usage:cost:total:${keyId}`
+    allTimeCost = parseFloat((await client.get(totalCostKey)) || '0')
+
+    if (weeklyOpusCostLimit > 0) {
+      const resetDay = parseInt(apiKey?.weeklyResetDay || 1)
+      const resetHour = parseInt(apiKey?.weeklyResetHour || 0)
+      weeklyOpusCost = await redis.getWeeklyOpusCost(keyId, resetDay, resetHour)
+    }
+  } catch (error) {
+    logger.warn(`⚠️ 获取费用限制数据失败 (key: ${keyId}):`, error.message)
+  }
+
+  // 获取速率限制窗口数据（独立 try/catch，避免费用获取失败影响速率限制显示）
+  const rateLimitStatuses = []
+  try {
+    const now = Date.now()
+
+    for (let index = 0; index < effectiveRateLimits.length; index++) {
+      const rule = effectiveRateLimits[index]
+      const windowMinutes = parseInt(rule?.window || 0)
+      const requestsLimit = parseInt(rule?.requests || 0)
+      const costLimit = parseFloat(rule?.cost || 0)
+
+      if (windowMinutes <= 0 || (requestsLimit <= 0 && costLimit <= 0)) {
+        continue
+      }
+
+      const suffix = effectiveRateLimits.length === 1 ? '' : `:${index}`
+      const requestCountKey = `rate_limit:requests:${keyId}${suffix}`
+      const tokenCountKey = `rate_limit:tokens:${keyId}${suffix}`
+      const costCountKey = `rate_limit:cost:${keyId}${suffix}`
+      const windowStartKey = `rate_limit:window_start:${keyId}${suffix}`
+
+      let ruleCurrentRequests = parseInt((await client.get(requestCountKey)) || '0')
+      let ruleCurrentTokens = parseInt((await client.get(tokenCountKey)) || '0')
+      let ruleCurrentCost = parseFloat((await client.get(costCountKey)) || '0')
+      let ruleWindowRemainingSeconds = null
+      let ruleWindowStartTime = null
+      let ruleWindowEndTime = null
+
+      const windowStart = await client.get(windowStartKey)
+      if (windowStart) {
+        ruleWindowStartTime = parseInt(windowStart)
+        const windowDuration = windowMinutes * 60 * 1000
+        ruleWindowEndTime = ruleWindowStartTime + windowDuration
+
+        if (now < ruleWindowEndTime) {
+          ruleWindowRemainingSeconds = Math.max(0, Math.floor((ruleWindowEndTime - now) / 1000))
+        } else {
+          ruleWindowRemainingSeconds = 0
+          ruleCurrentRequests = 0
+          ruleCurrentTokens = 0
+          ruleCurrentCost = 0
+        }
+      }
+
+      if (index === 0) {
+        currentWindowRequests = ruleCurrentRequests
+        currentWindowTokens = ruleCurrentTokens
+        currentWindowCost = ruleCurrentCost
+        windowRemainingSeconds = ruleWindowRemainingSeconds
+        windowStartTime = ruleWindowStartTime
+        windowEndTime = ruleWindowEndTime
+      }
+
+      if (requestsLimit > 0) {
+        rateLimitStatuses.push({
+          key: 'rate_limit',
+          ruleId: `rate_limit_requests_${index}`,
+          label: `${windowMinutes}分钟请求限制`,
+          current: ruleCurrentRequests,
+          limit: requestsLimit,
+          unit: 'requests',
+          windowMinutes,
+          remainingSeconds: ruleWindowRemainingSeconds,
+          reached: ruleCurrentRequests >= requestsLimit,
+          status: ruleCurrentRequests >= requestsLimit ? 'reached' : 'normal'
+        })
+      }
+
+      if (costLimit > 0) {
+        rateLimitStatuses.push({
+          key: 'rate_limit',
+          ruleId: `rate_limit_cost_${index}`,
+          label: `${windowMinutes}分钟费用限制`,
+          current: ruleCurrentCost,
+          limit: costLimit,
+          unit: 'usd',
+          windowMinutes,
+          remainingSeconds: ruleWindowRemainingSeconds,
+          reached: ruleCurrentCost >= costLimit,
+          status: ruleCurrentCost >= costLimit ? 'reached' : 'normal'
+        })
+      }
+    }
+  } catch (error) {
+    logger.warn(`⚠️ 获取速率限制窗口数据失败 (key: ${keyId}):`, error.message)
+  }
+
+  limitData.rateLimitStatuses = rateLimitStatuses
+  logger.debug(
+    `🔍 [LimitDebug] keyId=${keyId}, effectiveRules=${effectiveRateLimits.length}, rateLimitStatuses=${JSON.stringify(rateLimitStatuses)}`
+  )
+  limitData.dailyCost = dailyCost
+  limitData.weeklyOpusCost = weeklyOpusCost
+  limitData.currentWindowCost = currentWindowCost
+  limitData.currentWindowRequests = currentWindowRequests
+  limitData.currentWindowTokens = currentWindowTokens
+  limitData.windowRemainingSeconds = windowRemainingSeconds
+  limitData.windowStartTime = windowStartTime
+  limitData.windowEndTime = windowEndTime
+  limitData.allTimeCost = allTimeCost
+
+  limitInfo = getLimitInfo()
+  logger.debug(
+    `🔍 [LimitDebug] keyId=${keyId}, final limitStatuses count=${limitInfo.limitStatuses?.length}, summary=${limitInfo.limitSummary}`
+  )
   if (uniqueKeys.length === 0) {
     return {
       requests: 0,
@@ -1205,7 +1381,8 @@ async function calculateKeyStats(keyId, timeRange, startDate, endDate) {
       cost: 0,
       realCost: 0,
       formattedCost: '$0.00',
-      ...limitData
+      ...limitData,
+      ...limitInfo
     }
   }
 
@@ -1362,7 +1539,8 @@ async function calculateKeyStats(keyId, timeRange, startDate, endDate) {
     cost: totalRatedCost,
     realCost: totalRealCost,
     formattedCost: CostCalculator.formatCost(totalRatedCost),
-    ...limitData
+    ...limitData,
+    ...limitInfo
   }
 }
 
@@ -1479,6 +1657,7 @@ router.post('/api-keys', authenticateAdmin, async (req, res) => {
       rateLimitWindow,
       rateLimitRequests,
       rateLimitCost,
+      rateLimits,
       enableModelRestriction,
       restrictedModels,
       enableClientRestriction,
@@ -1542,6 +1721,42 @@ router.post('/api-keys', authenticateAdmin, async (req, res) => {
       (!Number.isInteger(Number(rateLimitRequests)) || Number(rateLimitRequests) < 1)
     ) {
       return res.status(400).json({ error: 'Rate limit requests must be a positive integer' })
+    }
+
+    // 验证多规则速率限制
+    if (rateLimits !== undefined && rateLimits !== null) {
+      if (!Array.isArray(rateLimits)) {
+        return res.status(400).json({ error: 'Rate limits must be an array' })
+      }
+      for (let i = 0; i < rateLimits.length; i++) {
+        const rule = rateLimits[i]
+        if (!rule || typeof rule !== 'object') {
+          return res.status(400).json({ error: `Rate limit rule ${i} must be an object` })
+        }
+        if (!rule.window || !Number.isInteger(Number(rule.window)) || Number(rule.window) < 1) {
+          return res
+            .status(400)
+            .json({ error: `Rate limit rule ${i}: window must be a positive integer (minutes)` })
+        }
+        if (
+          rule.requests !== undefined &&
+          rule.requests !== 0 &&
+          (!Number.isInteger(Number(rule.requests)) || Number(rule.requests) < 0)
+        ) {
+          return res
+            .status(400)
+            .json({ error: `Rate limit rule ${i}: requests must be a non-negative integer` })
+        }
+        if (
+          rule.cost !== undefined &&
+          rule.cost !== 0 &&
+          (isNaN(Number(rule.cost)) || Number(rule.cost) < 0)
+        ) {
+          return res
+            .status(400)
+            .json({ error: `Rate limit rule ${i}: cost must be a non-negative number` })
+        }
+      }
     }
 
     // 验证模型限制字段
@@ -1658,6 +1873,7 @@ router.post('/api-keys', authenticateAdmin, async (req, res) => {
       rateLimitWindow,
       rateLimitRequests,
       rateLimitCost,
+      rateLimits,
       enableModelRestriction,
       restrictedModels,
       enableClientRestriction,
@@ -1709,6 +1925,7 @@ router.post('/api-keys/batch', authenticateAdmin, async (req, res) => {
       rateLimitWindow,
       rateLimitRequests,
       rateLimitCost,
+      rateLimits,
       enableModelRestriction,
       restrictedModels,
       enableClientRestriction,
@@ -1774,6 +1991,7 @@ router.post('/api-keys/batch', authenticateAdmin, async (req, res) => {
           rateLimitWindow,
           rateLimitRequests,
           rateLimitCost,
+          rateLimits,
           enableModelRestriction,
           restrictedModels,
           enableClientRestriction,
@@ -1911,6 +2129,9 @@ router.put('/api-keys/batch', authenticateAdmin, async (req, res) => {
         }
         if (updates.rateLimitRequests !== undefined) {
           finalUpdates.rateLimitRequests = updates.rateLimitRequests
+        }
+        if (updates.rateLimits !== undefined) {
+          finalUpdates.rateLimits = updates.rateLimits
         }
         if (updates.dailyCostLimit !== undefined) {
           finalUpdates.dailyCostLimit = updates.dailyCostLimit
@@ -2067,6 +2288,7 @@ router.put('/api-keys/:keyId', authenticateAdmin, async (req, res) => {
       rateLimitWindow,
       rateLimitRequests,
       rateLimitCost,
+      rateLimits,
       isActive,
       claudeAccountId,
       claudeConsoleAccountId,
@@ -2141,6 +2363,46 @@ router.put('/api-keys/:keyId', authenticateAdmin, async (req, res) => {
         return res.status(400).json({ error: 'Rate limit cost must be a non-negative number' })
       }
       updates.rateLimitCost = cost
+    }
+
+    // 验证并更新多规则速率限制
+    if (rateLimits !== undefined) {
+      if (rateLimits === null || (Array.isArray(rateLimits) && rateLimits.length === 0)) {
+        updates.rateLimits = []
+      } else if (Array.isArray(rateLimits)) {
+        for (let i = 0; i < rateLimits.length; i++) {
+          const rule = rateLimits[i]
+          if (!rule || typeof rule !== 'object') {
+            return res.status(400).json({ error: `Rate limit rule ${i} must be an object` })
+          }
+          if (!rule.window || !Number.isInteger(Number(rule.window)) || Number(rule.window) < 1) {
+            return res.status(400).json({
+              error: `Rate limit rule ${i}: window must be a positive integer (minutes)`
+            })
+          }
+          if (
+            rule.requests !== undefined &&
+            rule.requests !== 0 &&
+            (!Number.isInteger(Number(rule.requests)) || Number(rule.requests) < 0)
+          ) {
+            return res.status(400).json({
+              error: `Rate limit rule ${i}: requests must be a non-negative integer`
+            })
+          }
+          if (
+            rule.cost !== undefined &&
+            rule.cost !== 0 &&
+            (isNaN(Number(rule.cost)) || Number(rule.cost) < 0)
+          ) {
+            return res.status(400).json({
+              error: `Rate limit rule ${i}: cost must be a non-negative number`
+            })
+          }
+        }
+        updates.rateLimits = rateLimits
+      } else {
+        return res.status(400).json({ error: 'Rate limits must be an array' })
+      }
     }
 
     if (claudeAccountId !== undefined) {

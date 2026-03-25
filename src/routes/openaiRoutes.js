@@ -636,6 +636,7 @@ const handleResponses = async (req, res) => {
           const _userInput = extractUserInput(req.body, 'openai')
           const _usageExtra = {
             sessionId: sessionHash || null,
+            rawSessionId: sessionId || null,
             userInput: _userInput,
             projectType: classifyProjectType(req.body, 'openai')
           }
@@ -763,6 +764,7 @@ const handleResponses = async (req, res) => {
           const _userInput = extractUserInput(req.body, 'openai')
           const _usageExtra = {
             sessionId: sessionHash || null,
+            rawSessionId: sessionId || null,
             userInput: _userInput,
             projectType: classifyProjectType(req.body, 'openai')
           }

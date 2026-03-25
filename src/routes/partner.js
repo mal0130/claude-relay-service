@@ -628,7 +628,8 @@ router.post('/api-key/create', authenticatePartner, async (req, res) => {
       openai_account_id,
       claude_rate,
       openai_rate,
-      rate
+      rate,
+      rateLimits
     } = req.body
 
     const resolvedClaudeRate = resolveClaudeRate(claude_rate, rate)
@@ -679,6 +680,57 @@ router.post('/api-key/create', authenticatePartner, async (req, res) => {
         msg: openaiRateError,
         data: null
       })
+    }
+
+    if (rateLimits !== undefined && rateLimits !== null && rateLimits !== '') {
+      if (!Array.isArray(rateLimits)) {
+        return res.status(400).json({
+          code: 1001,
+          msg: 'rateLimits must be an array',
+          data: null
+        })
+      }
+      for (let i = 0; i < rateLimits.length; i++) {
+        const rule = rateLimits[i]
+        if (!rule || typeof rule !== 'object') {
+          return res.status(400).json({
+            code: 1001,
+            msg: `rateLimits[${i}] must be an object`,
+            data: null
+          })
+        }
+        if (!Number.isInteger(rule.window) || rule.window <= 0) {
+          return res.status(400).json({
+            code: 1001,
+            msg: `rateLimits[${i}].window must be a positive integer (minutes)`,
+            data: null
+          })
+        }
+        if (rule.requests === undefined && rule.cost === undefined) {
+          return res.status(400).json({
+            code: 1001,
+            msg: `rateLimits[${i}] must have at least one of: requests, cost`,
+            data: null
+          })
+        }
+        if (
+          rule.requests !== undefined &&
+          (!Number.isInteger(rule.requests) || rule.requests <= 0)
+        ) {
+          return res.status(400).json({
+            code: 1001,
+            msg: `rateLimits[${i}].requests must be a positive integer`,
+            data: null
+          })
+        }
+        if (rule.cost !== undefined && (Number.isNaN(Number(rule.cost)) || Number(rule.cost) < 0)) {
+          return res.status(400).json({
+            code: 1001,
+            msg: `rateLimits[${i}].cost must be a non-negative number`,
+            data: null
+          })
+        }
+      }
     }
 
     logger.info(`🔑 Partner creating API Key: name=${name}`)
@@ -738,6 +790,10 @@ router.post('/api-key/create', authenticatePartner, async (req, res) => {
 
     if (Object.keys(createServiceRates).length > 0) {
       createParams.serviceRates = createServiceRates
+    }
+
+    if (rateLimits && rateLimits.length > 0) {
+      createParams.rateLimits = rateLimits
     }
 
     // 调用 apiKeyService 创建 API Key
