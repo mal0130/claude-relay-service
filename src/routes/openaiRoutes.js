@@ -15,7 +15,7 @@ const ProxyHelper = require('../utils/proxyHelper')
 const { updateRateLimitCounters } = require('../utils/rateLimitHelper')
 const { IncrementalSSEParser } = require('../utils/sseParser')
 const { getSafeMessage } = require('../utils/errorSanitizer')
-const { extractUserInput, classifyProjectType } = require('../utils/userInputExtractor')
+const { buildUsageMetadata } = require('../utils/userInputExtractor')
 
 // Codex CLI 系统提示词（非 Codex CLI 客户端请求时注入，统一端点也使用）
 const CODEX_CLI_INSTRUCTIONS =
@@ -633,13 +633,15 @@ const handleResponses = async (req, res) => {
           // 计算实际输入token（总输入减去缓存部分）
           const actualInputTokens = Math.max(0, totalInputTokens - cacheReadTokens)
 
-          const _userInput = extractUserInput(req.body, 'openai')
-          const _usageExtra = {
+          const _usageExtra = buildUsageMetadata({
+            body: req.body,
+            format: 'openai',
+            headers: req.headers,
+            requestIp: req,
             sessionId: sessionHash || null,
             rawSessionId: sessionId || null,
-            userInput: _userInput,
-            projectType: classifyProjectType(req.body, 'openai')
-          }
+            assistantContent: responseData?.choices?.[0]?.message || undefined
+          })
 
           const nonStreamCosts = await apiKeyService.recordUsage(
             apiKeyData.id,
@@ -688,9 +690,26 @@ const handleResponses = async (req, res) => {
 
     // 使用增量 SSE 解析器
     const sseParser = new IncrementalSSEParser()
+    const streamedOutputText = []
 
     // 处理解析出的事件
     const processSSEEvent = (eventData) => {
+      if (eventData.type === 'response.output_text.delta' && typeof eventData.delta === 'string') {
+        streamedOutputText.push(eventData.delta)
+      }
+
+      if (eventData.type === 'response.output_text.done' && typeof eventData.text === 'string') {
+        streamedOutputText.push(eventData.text)
+      }
+
+      if (
+        eventData.type === 'response.content_part.added' &&
+        eventData.part?.type === 'output_text' &&
+        typeof eventData.part?.text === 'string'
+      ) {
+        streamedOutputText.push(eventData.part.text)
+      }
+
       // 检查是否是 response.completed 事件
       if (eventData.type === 'response.completed' && eventData.response) {
         // 从响应中获取真实的 model
@@ -761,13 +780,21 @@ const handleResponses = async (req, res) => {
           // 使用响应中的真实 model，如果没有则使用请求中的 model，最后回退到默认值
           const modelToRecord = actualModel || requestedModel || 'gpt-4'
 
-          const _userInput = extractUserInput(req.body, 'openai')
-          const _usageExtra = {
+          const assistantText = streamedOutputText.join('')
+          const _usageExtra = buildUsageMetadata({
+            body: req.body,
+            format: 'openai',
+            headers: req.headers,
+            requestIp: req,
             sessionId: sessionHash || null,
             rawSessionId: sessionId || null,
-            userInput: _userInput,
-            projectType: classifyProjectType(req.body, 'openai')
-          }
+            assistantContent: assistantText
+              ? {
+                  role: 'assistant',
+                  content: assistantText
+                }
+              : undefined
+          })
 
           const streamCosts = await apiKeyService.recordUsage(
             apiKeyData.id,

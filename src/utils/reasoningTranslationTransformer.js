@@ -91,9 +91,9 @@ function applyReasoningTranslation(res, options = {}) {
     return `data: ${JSON.stringify(payload)}\n\n`
   }
 
-
   function startTranslation() {
-    translator.flush()
+    translator
+      .flush()
       .then(() => {
         const usage = translator.usage
         if (usage.trans_total_tokens > 0) {

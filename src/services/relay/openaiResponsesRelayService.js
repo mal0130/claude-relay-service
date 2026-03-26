@@ -10,7 +10,7 @@ const crypto = require('crypto')
 const LRUCache = require('../../utils/lruCache')
 const upstreamErrorHelper = require('../../utils/upstreamErrorHelper')
 const webhookService = require('../webhookService')
-const { extractUserInput, classifyProjectType } = require('../../utils/userInputExtractor')
+const { buildUsageMetadata } = require('../../utils/userInputExtractor')
 
 // lastUsedAt 更新节流（每账户 60 秒内最多更新一次，使用 LRU 防止内存泄漏）
 const lastUsedAtThrottle = new LRUCache(1000) // 最多缓存 1000 个账户
@@ -538,6 +538,7 @@ class OpenAIResponsesRelayService {
     let rateLimitDetected = false
     let rateLimitResetsInSeconds = null
     let streamEnded = false
+    let streamedOutputText = ''
 
     // 解析 SSE 事件以捕获 usage 数据和 model
     const parseSSEForUsage = (data) => {
@@ -552,6 +553,11 @@ class OpenAIResponsesRelayService {
             }
 
             const eventData = JSON.parse(jsonStr)
+
+            // 捕获流式输出文本
+            if (eventData.type === 'response.output_text.delta' && eventData.delta) {
+              streamedOutputText += eventData.delta
+            }
 
             // 检查是否是 response.completed 事件（OpenAI-Responses 格式）
             if (eventData.type === 'response.completed' && eventData.response) {
@@ -660,12 +666,15 @@ class OpenAIResponsesRelayService {
             req.body?.prompt_cache_key ||
             req.body?.previous_response_id ||
             null
-          const _usageExtra = {
+          const _usageExtra = buildUsageMetadata({
+            body: req.body,
+            format: 'openai',
+            headers: req.headers,
+            requestIp: req,
             sessionId: _usageSessionId || null,
             rawSessionId: _usageSessionId || null,
-            userInput: extractUserInput(req.body, 'openai'),
-            projectType: classifyProjectType(req.body, 'openai')
-          }
+            assistantContent: streamedOutputText || undefined
+          })
           await apiKeyService.recordUsage(
             apiKeyData.id,
             actualInputTokens, // 传递实际输入（不含缓存）
@@ -817,12 +826,14 @@ class OpenAIResponsesRelayService {
           req.body?.prompt_cache_key ||
           req.body?.previous_response_id ||
           null
-        const _usageExtra = {
+        const _usageExtra = buildUsageMetadata({
+          body: req.body,
+          format: 'openai',
+          headers: req.headers,
           sessionId: _usageSessionId || null,
           rawSessionId: _usageSessionId || null,
-          userInput: extractUserInput(req.body, 'openai'),
-          projectType: classifyProjectType(req.body, 'openai')
-        }
+          assistantContent: responseData?.output || responseData?.response?.output || undefined
+        })
         await apiKeyService.recordUsage(
           apiKeyData.id,
           actualInputTokens, // 传递实际输入（不含缓存）

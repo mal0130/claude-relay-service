@@ -52,7 +52,7 @@ const {
   dumpAntigravityStreamEvent,
   dumpAntigravityStreamSummary
 } = require('../utils/antigravityUpstreamResponseDump')
-const { extractUserInput, classifyProjectType } = require('../utils/userInputExtractor')
+const { buildUsageMetadata } = require('../utils/userInputExtractor')
 
 // ============================================================================
 // 常量定义
@@ -2138,12 +2138,29 @@ async function handleAnthropicMessagesToGemini(req, res, { vendor, baseModel }) 
         ? 'tool_use'
         : mapGeminiFinishReasonToAnthropicStopReason(finishReason)
 
-      if (req.apiKey?.id && (inputTokens > 0 || outputTokens > 0)) {
-        const _usageExtra = {
-          sessionId: sessionHash || null,
-          userInput: extractUserInput(req.body, 'anthropic'),
-          projectType: classifyProjectType(req.body, 'anthropic')
+      const responseBody = {
+        id: `msg_${crypto.randomBytes(12).toString('hex')}`,
+        type: 'message',
+        role: 'assistant',
+        model: req.body.model || effectiveModel,
+        content,
+        stop_reason: stopReason,
+        stop_sequence: null,
+        usage: {
+          input_tokens: inputTokens,
+          output_tokens: outputTokens
         }
+      }
+
+      if (req.apiKey?.id && (inputTokens > 0 || outputTokens > 0)) {
+        const _usageExtra = buildUsageMetadata({
+          body: req.body,
+          format: 'anthropic',
+          headers: req.headers,
+          requestIp: req,
+          sessionId: sessionHash || null,
+          assistantContent: responseBody.content
+        })
         const bridgeCosts = await apiKeyService.recordUsage(
           req.apiKey.id,
           inputTokens,
@@ -2165,20 +2182,6 @@ async function handleAnthropicMessagesToGemini(req, res, { vendor, baseModel }) 
           req.apiKey?.id,
           bridgeCosts
         )
-      }
-
-      const responseBody = {
-        id: `msg_${crypto.randomBytes(12).toString('hex')}`,
-        type: 'message',
-        role: 'assistant',
-        model: req.body.model || effectiveModel,
-        content,
-        stop_reason: stopReason,
-        stop_sequence: null,
-        usage: {
-          input_tokens: inputTokens,
-          output_tokens: outputTokens
-        }
       }
 
       dumpAnthropicNonStreamResponse(req, 200, responseBody, {
@@ -2397,7 +2400,52 @@ async function handleAnthropicMessagesToGemini(req, res, { vendor, baseModel }) 
     let emittedText = ''
     let emittedThinking = ''
     let emittedThoughtSignature = ''
+    const finalAssistantContent = []
     let finished = false
+
+    const ensureFinalContentBlock = (index, factory) => {
+      if (!Number.isInteger(index) || index < 0) {
+        return null
+      }
+      if (!finalAssistantContent[index]) {
+        finalAssistantContent[index] = factory()
+      }
+      return finalAssistantContent[index]
+    }
+
+    const compactAssistantContent = () => finalAssistantContent.filter(Boolean)
+
+    const appendTextDelta = (index, delta) => {
+      if (!delta) {
+        return
+      }
+      const block = ensureFinalContentBlock(index, () => ({ type: 'text', text: '' }))
+      if (block && block.type === 'text') {
+        block.text += delta
+      }
+    }
+
+    const appendThinkingDelta = (index, delta) => {
+      if (!delta) {
+        return
+      }
+      const block = ensureFinalContentBlock(index, () => ({ type: 'thinking', thinking: '' }))
+      if (block && block.type === 'thinking') {
+        block.thinking += delta
+      }
+    }
+
+    const appendSignatureDelta = (index, delta) => {
+      if (!delta) {
+        return
+      }
+      const block = ensureFinalContentBlock(index, () => ({ type: 'thinking', thinking: '' }))
+      if (block && block.type === 'thinking') {
+        block.signature = `${block.signature || ''}${delta}`
+      }
+    }
+
+    const buildStreamAssistantContent = () => compactAssistantContent()
     let usageMetadata = null
     let finishReason = null
     let emittedAnyToolUse = false
@@ -2483,11 +2531,27 @@ async function handleAnthropicMessagesToGemini(req, res, { vendor, baseModel }) 
       currentIndex += 1
       const toolIndex = currentIndex
 
+      const toolBlock = ensureFinalContentBlock(toolIndex, () => ({
+        type: 'tool_use',
+        id: toolUseId,
+        name,
+        input: {}
+      }))
+      if (toolBlock && toolBlock.type === 'tool_use') {
+        toolBlock.id = toolUseId
+        toolBlock.name = name
+        toolBlock.input = args || {}
+      }
+
       writeAnthropicSseEvent(res, 'content_block_start', {
         type: 'content_block_start',
         index: toolIndex,
         content_block: { type: 'tool_use', id: toolUseId, name, input: {} }
       })
+
+      if (toolBlock && toolBlock.type === 'tool_use') {
+        toolBlock.input = args || {}
+      }
 
       writeAnthropicSseEvent(res, 'content_block_delta', {
         type: 'content_block_delta',
@@ -2705,11 +2769,14 @@ async function handleAnthropicMessagesToGemini(req, res, { vendor, baseModel }) 
       }
 
       if (req.apiKey?.id && (inputTokens > 0 || outputTokens > 0)) {
-        const _streamUsageExtra = {
+        const _streamUsageExtra = buildUsageMetadata({
+          body: req.body,
+          format: 'anthropic',
+          headers: req.headers,
+          requestIp: req,
           sessionId: sessionHash || null,
-          userInput: extractUserInput(req.body, 'anthropic'),
-          projectType: classifyProjectType(req.body, 'anthropic')
-        }
+          assistantContent: buildStreamAssistantContent()
+        })
         const bridgeStreamCosts = await apiKeyService.recordUsage(
           req.apiKey.id,
           inputTokens,
@@ -2802,6 +2869,7 @@ async function handleAnthropicMessagesToGemini(req, res, { vendor, baseModel }) 
             }
             if (delta) {
               switchBlockType('thinking')
+              appendSignatureDelta(currentIndex, delta)
               writeAnthropicSseEvent(res, 'content_block_delta', {
                 type: 'content_block_delta',
                 index: currentIndex,
@@ -2821,6 +2889,7 @@ async function handleAnthropicMessagesToGemini(req, res, { vendor, baseModel }) 
             if (delta) {
               switchBlockType('thinking')
               emittedThinking = fullThoughtForToolOrdering
+              appendThinkingDelta(currentIndex, delta)
               writeAnthropicSseEvent(res, 'content_block_delta', {
                 type: 'content_block_delta',
                 index: currentIndex,
@@ -2931,6 +3000,7 @@ async function handleAnthropicMessagesToGemini(req, res, { vendor, baseModel }) 
           if (delta) {
             switchBlockType('text')
             emittedText = fullText
+            appendTextDelta(currentIndex, delta)
             writeAnthropicSseEvent(res, 'content_block_delta', {
               type: 'content_block_delta',
               index: currentIndex,

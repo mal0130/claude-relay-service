@@ -165,6 +165,16 @@ const getApiKeyName = async (keyId) => {
   }
 }
 
+const normalizeUsageRecordMetadata = (record) => ({
+  sessionId: record.sessionId || null,
+  rawSessionId: record.rawSessionId || null,
+  userInput: record.userInput || null,
+  userIp: record.userIp || null,
+  processType: record.processType || null,
+  projectType: record.projectType || null,
+  assistantContent: record.assistantContent || null
+})
+
 // 📊 账户使用统计
 
 // 获取所有账户的使用统计
@@ -2971,6 +2981,7 @@ router.get('/api-keys/:keyId/usage-records', authenticateAdmin, async (req, res)
 
       const accountInfo = await resolveAccountInfo(record.accountId, record.accountType)
       const resolvedAccountType = accountInfo?.type || record.accountType || 'unknown'
+      const metadata = normalizeUsageRecordMetadata(record)
 
       enrichedRecords.push({
         timestamp: record.timestamp,
@@ -3000,7 +3011,8 @@ router.get('/api-keys/:keyId/usage-records', authenticateAdmin, async (req, res)
             cacheRead: costData?.costs?.cacheRead || 0,
             total: costData?.costs?.total || computedCost
           },
-        responseTime: record.responseTime || null
+        responseTime: record.responseTime || null,
+        ...metadata
       })
     }
 
@@ -3299,6 +3311,8 @@ router.get('/accounts/:accountId/usage-records', authenticateAdmin, async (req, 
           usage.cache_creation_input_tokens +
           usage.cache_read_input_tokens
 
+      const metadata = normalizeUsageRecordMetadata(record)
+
       enrichedRecords.push({
         timestamp: record.timestamp,
         model: record.model || 'unknown',
@@ -3328,7 +3342,8 @@ router.get('/accounts/:accountId/usage-records', authenticateAdmin, async (req, 
             cacheRead: costData?.costs?.cacheRead || 0,
             total: costData?.costs?.total || computedCost
           },
-        responseTime: record.responseTime || null
+        responseTime: record.responseTime || null,
+        ...metadata
       })
     }
 

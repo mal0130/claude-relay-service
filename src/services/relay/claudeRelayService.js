@@ -2503,6 +2503,7 @@ class ClaudeRelayService {
         let buffer = ''
         const allUsageData = [] // 收集所有的usage事件
         let currentUsageData = {} // 当前正在收集的usage数据
+        let responseText = ''
         let rateLimitDetected = false // 限流检测标志
 
         // 监听数据块，解析SSE并寻找usage信息
@@ -2572,6 +2573,10 @@ class ClaudeRelayService {
                 }
                 try {
                   const data = JSON.parse(jsonStr)
+
+                  if (data.type === 'content_block_delta' && data.delta?.text) {
+                    responseText += data.delta.text
+                  }
 
                   // 收集来自不同事件的usage数据
                   if (data.type === 'message_start' && data.message && data.message.usage) {
@@ -2774,7 +2779,15 @@ class ClaudeRelayService {
 
             // 调用一次usageCallback记录合并后的数据
             if (usageCallback && typeof usageCallback === 'function') {
-              usageCallback(finalUsage)
+              usageCallback({
+                ...finalUsage,
+                assistantContent: responseText
+                  ? {
+                      role: 'assistant',
+                      content: responseText
+                    }
+                  : undefined
+              })
             }
           }
 
