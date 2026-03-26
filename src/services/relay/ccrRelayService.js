@@ -760,6 +760,7 @@ class CcrRelayService {
 
           // 处理流数据和使用统计收集
           let rawBuffer = ''
+          let responseText = ''
           const collectedUsage = {}
 
           response.data.on('data', (chunk) => {
@@ -781,6 +782,17 @@ class CcrRelayService {
                   const usageData = this._parseSSELineForUsage(line)
                   if (usageData) {
                     Object.assign(collectedUsage, usageData)
+                  }
+
+                  if (line.startsWith('data: ')) {
+                    try {
+                      const parsed = JSON.parse(line.substring(6).trim())
+                      if (parsed.type === 'content_block_delta' && parsed.delta?.text) {
+                        responseText += parsed.delta.text
+                      }
+                    } catch (_parseError) {
+                      // 忽略非 JSON 或不完整的 SSE 行
+                    }
                   }
 
                   // 应用流转换器（如果提供）
@@ -815,8 +827,18 @@ class CcrRelayService {
             if (usageCallback && Object.keys(collectedUsage).length > 0) {
               try {
                 logger.debug(`📊 Collected usage data: ${JSON.stringify(collectedUsage)}`)
-                // 在 usage 回调中包含模型信息
-                usageCallback({ ...collectedUsage, accountId, model: body.model })
+                // 在 usage 回调中包含模型信息和流式回复内容
+                usageCallback({
+                  ...collectedUsage,
+                  accountId,
+                  model: body.model,
+                  assistantContent: responseText
+                    ? {
+                        role: 'assistant',
+                        content: responseText
+                      }
+                    : undefined
+                })
               } catch (err) {
                 logger.error('❌ Error in usage callback:', err)
               }

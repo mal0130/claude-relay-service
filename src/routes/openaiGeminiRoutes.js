@@ -7,7 +7,7 @@ const unifiedGeminiScheduler = require('../services/scheduler/unifiedGeminiSched
 const { getAvailableModels } = require('../services/relay/geminiRelayService')
 const crypto = require('crypto')
 const apiKeyService = require('../services/apiKeyService')
-const { extractUserInput, classifyProjectType } = require('../utils/userInputExtractor')
+const { buildUsageMetadata } = require('../utils/userInputExtractor')
 
 // 生成会话哈希
 function generateSessionHash(req) {
@@ -293,12 +293,16 @@ router.post('/v1/chat/completions', authenticateApiKey, async (req, res) => {
     // 生成会话哈希用于粘性会话
     sessionHash = generateSessionHash(req)
 
-    const _userInput = extractUserInput(req.body, 'openai')
-    const _usageExtra = {
+    const rawSessionId =
+      req.headers['session_id'] || req.headers['x-session-id'] || req.body?.session_id || null
+    const _usageExtra = buildUsageMetadata({
+      body: req.body,
+      format: 'openai',
+      headers: req.headers,
+      requestIp: req,
       sessionId: sessionHash || null,
-      userInput: _userInput,
-      projectType: classifyProjectType(_userInput)
-    }
+      rawSessionId: rawSessionId || null
+    })
 
     // 选择可用的 Gemini 账户
     try {

@@ -18,7 +18,7 @@ const sessionHelper = require('../utils/sessionHelper')
 const { updateRateLimitCounters } = require('../utils/rateLimitHelper')
 const pricingService = require('../services/pricingService')
 const { getEffectiveModel } = require('../utils/modelHelper')
-const { extractUserInput, classifyProjectType } = require('../utils/userInputExtractor')
+const { buildUsageMetadata } = require('../utils/userInputExtractor')
 
 // 🔧 辅助函数：检查 API Key 权限
 function checkPermissions(apiKeyData, requiredPermission = 'claude') {
@@ -255,14 +255,63 @@ async function handleChatCompletion(req, res, apiKeyData) {
     })
 
     // 构建 extra 信息用于 usage 记录
-    const _userInput = extractUserInput(req.body, 'openai')
-    const _usageExtra = {
-      sessionId: sessionHash || null,
-      rawSessionId:
-        req.headers['session_id'] || req.headers['x-session-id'] || req.body?.session_id || null,
-      userInput: _userInput,
-      projectType: classifyProjectType(req.body, 'openai')
+    const rawSessionId =
+      req.headers['session_id'] || req.headers['x-session-id'] || req.body?.session_id || null
+    const streamedAssistantText = []
+    let transformedStreamBuffer = ''
+
+    const collectStreamAssistantContent = (transformedChunk) => {
+      if (typeof transformedChunk !== 'string' || !transformedChunk) {
+        return
+      }
+
+      transformedStreamBuffer += transformedChunk
+      const lines = transformedStreamBuffer.split('\n')
+      transformedStreamBuffer = lines.pop() || ''
+
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) {
+          continue
+        }
+
+        const payload = line.slice(6).trim()
+        if (!payload || payload === '[DONE]') {
+          continue
+        }
+
+        try {
+          const parsed = JSON.parse(payload)
+          const content = parsed.choices?.[0]?.delta?.content
+          if (typeof content === 'string' && content) {
+            streamedAssistantText.push(content)
+          }
+        } catch (_error) {
+          // 忽略不完整 chunk，后续 buffer 会继续拼接
+        }
+      }
     }
+
+    const buildStreamUsageExtra = () =>
+      buildUsageMetadata({
+        body: req.body,
+        format: 'openai',
+        headers: req.headers,
+        requestIp: req,
+        sessionId: sessionHash || null,
+        rawSessionId: rawSessionId || null,
+        assistantContent: streamedAssistantText.join('') || undefined
+      })
+
+    const buildNonStreamUsageExtra = (assistantContent) =>
+      buildUsageMetadata({
+        body: req.body,
+        format: 'openai',
+        headers: req.headers,
+        requestIp: req,
+        sessionId: sessionHash || null,
+        rawSessionId: rawSessionId || null,
+        assistantContent
+      })
 
     // 处理流式请求
     if (claudeRequest.stream) {
@@ -317,7 +366,7 @@ async function handleChatCompletion(req, res, apiKeyData) {
               model,
               accountId,
               accountType,
-              _usageExtra
+              buildStreamUsageExtra()
             )
             .then((costs) => {
               queueRateLimitUpdate(
@@ -356,8 +405,11 @@ async function handleChatCompletion(req, res, apiKeyData) {
 
       // 创建流转换器
       const sessionId = `chatcmpl-${Math.random().toString(36).substring(2, 15)}${Math.random().toString(36).substring(2, 15)}`
-      const streamTransformer = (chunk) =>
-        openaiToClaude.convertStreamChunk(chunk, req.body.model, sessionId)
+      const streamTransformer = (chunk) => {
+        const transformedChunk = openaiToClaude.convertStreamChunk(chunk, req.body.model, sessionId)
+        collectStreamAssistantContent(transformedChunk)
+        return transformedChunk
+      }
 
       // 根据账户类型选择转发服务
       if (accountType === 'claude-console') {
@@ -442,6 +494,7 @@ async function handleChatCompletion(req, res, apiKeyData) {
 
       // 转换为 OpenAI 格式
       const openaiResponse = openaiToClaude.convertResponse(claudeData, req.body.model)
+      const usageExtra = buildNonStreamUsageExtra(openaiResponse?.choices?.[0]?.message)
 
       // 记录使用统计
       if (claudeData.usage) {
@@ -471,7 +524,7 @@ async function handleChatCompletion(req, res, apiKeyData) {
             claudeRequest.model,
             accountId,
             accountType,
-            _usageExtra
+            usageExtra
           )
           .then((costs) => {
             queueRateLimitUpdate(

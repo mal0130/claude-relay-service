@@ -34,6 +34,21 @@
 - **Content-Type**: `application/json`
 - **功能说明**: 批量更新 API Key 的配置信息，包括 Claude/OpenAI 服务倍率及绑定账户
 
+
+### 5. 更新 API Key
+
+- **接口地址**: `POST /partner/api-key/:keyId/update`
+- **认证方式**: SHA256 签名验证
+- **Content-Type**: `application/json`
+- **功能说明**: 更新单个 API Key 的配置，支持与创建时相同的所有参数
+
+### 6. 更新 API Key 过期时间
+
+- **接口地址**: `POST /partner/api-key/:keyId/expiration`
+- **认证方式**: SHA256 签名验证
+- **Content-Type**: `application/json`
+- **功能说明**: 更新单个 API Key 的过期时间，或手动激活 activation 模式的 API Key
+
 ## 验签机制
 
 ### 签名算法
@@ -88,6 +103,12 @@ SHA256: abc123...
   "openai_account_id": "responses:openai-responses-account-uuid",
   "claude_rate": 2.1,
   "openai_rate": 1.8,
+  "rateLimits": [
+    { "window": 300, "cost": 500 },
+    { "window": 3000, "cost": 5000 }
+  ],
+  "expirationMode": "fixed",
+  "expiresAt": "2026-12-31T23:59:59.000Z",
   "sign": "ABC123..."
 }
 ```
@@ -101,7 +122,27 @@ SHA256: abc123...
 | claude_rate       | number | 否   | Claude 服务倍率，内部映射到 `serviceRates.claude`                                                 |
 | openai_rate       | number | 否   | OpenAI/Codex 服务倍率，内部映射到 `serviceRates.codex`                                            |
 | rate              | number | 否   | 兼容旧参数，等同于 `claude_rate`；若同时提供则 `claude_rate` 优先                                 |
+| rateLimits        | array  | 否   | 多窗口速率限制配置；每项至少包含 `window`，并提供 `requests` 或 `cost` 之一                       |
+| expirationMode    | string | 否   | 过期模式，支持 `fixed`（固定时间）或 `activation`（首次使用后激活）                               |
+| expiresAt         | string | 否   | 固定过期时间，ISO 8601 格式；`expirationMode=fixed` 时可传                                         |
+| activationDays    | number | 否   | `activation` 模式下的有效时长数值，必须为正整数                                                   |
+| activationUnit    | string | 否   | `activation` 模式下的时间单位，支持 `hours` 或 `days`                                             |
 | sign              | string | 是   | SHA256 签名（大写十六进制）                                                                       |
+
+**rateLimits 字段说明**
+
+| 字段     | 类型   | 必填 | 说明                                   |
+| -------- | ------ | ---- | -------------------------------------- |
+| window   | number | 是   | 限制窗口，单位：分钟                   |
+| requests | number | 否   | 窗口内请求次数限制，正整数             |
+| cost     | number | 否   | 窗口内费用限制，单位：美元，非负数字   |
+
+示例说明：
+
+- `rateLimits` 支持配置多条窗口规则，例如 `300` 分钟限制 `500` 美元、`3000` 分钟限制 `5000` 美元
+- `expirationMode=fixed` 时可直接传 `expiresAt`
+- `expirationMode=activation` 时需传 `activationDays` 与 `activationUnit`，且不能同时传 `expiresAt`
+- 所有新增参数在传入时也必须参与签名计算
 
 示例说明：
 
@@ -194,13 +235,40 @@ SHA256: abc123...
       "keyId": "xxx-xxx-xxx",
       "keyName": "MyApp",
       "totalCost": 12.34,
-      "totalCostLimit": 100.0
+      "totalCostLimit": 100.0,
+      "windowLimits": [
+        {
+          "windowMinutes": 300,
+          "windowStartTime": 1760000000000,
+          "windowEndTime": 1760018000000,
+          "remainingSeconds": 3600,
+          "requests": null,
+          "cost": {
+            "current": 123.45,
+            "limit": 500,
+            "percentage": 24.69
+          }
+        },
+        {
+          "windowMinutes": 3000,
+          "windowStartTime": 1759900000000,
+          "windowEndTime": 1760080000000,
+          "remainingSeconds": 86400,
+          "requests": null,
+          "cost": {
+            "current": 987.65,
+            "limit": 5000,
+            "percentage": 19.75
+          }
+        }
+      ]
     },
     "yyy-yyy-yyy": {
       "keyId": "yyy-yyy-yyy",
       "keyName": "MyApp2",
       "totalCost": 5.67,
-      "totalCostLimit": 50.0
+      "totalCostLimit": 50.0,
+      "windowLimits": []
     }
   }
 }
@@ -208,15 +276,36 @@ SHA256: abc123...
 
 ### 响应字段说明
 
-| 字段                       | 类型   | 说明                                      |
-| -------------------------- | ------ | ----------------------------------------- |
-| code                       | number | 状态码，0表示成功，其他值表示错误         |
-| msg                        | string | 消息，成功时为"success"，失败时为错误信息 |
-| data                       | object | 业务数据，key 为 API Key ID               |
-| data[keyId].keyId          | string | API Key ID                                |
-| data[keyId].keyName        | string | API Key 名称                              |
-| data[keyId].totalCost      | number | 总费用（美元）                            |
-| data[keyId].totalCostLimit | number | 总费用限制（美元）                        |
+| 字段                                          | 类型   | 说明                                           |
+| --------------------------------------------- | ------ | ---------------------------------------------- |
+| code                                          | number | 状态码，0表示成功，其他值表示错误              |
+| msg                                           | string | 消息，成功时为"success"，失败时为错误信息    |
+| data                                          | object | 业务数据，key 为 API Key ID                    |
+| data[keyId].keyId                             | string | API Key ID                                     |
+| data[keyId].keyName                           | string | API Key 名称                                   |
+| data[keyId].totalCost                         | number | 总费用（美元）                                 |
+| data[keyId].totalCostLimit                    | number | 总费用限制（美元）                             |
+| data[keyId].windowLimits                      | array  | 多窗口限制的当前用量信息；未配置时为空数组     |
+| data[keyId].windowLimits[].windowMinutes      | number | 限制窗口，单位：分钟                           |
+| data[keyId].windowLimits[].windowStartTime    | number | 当前窗口开始时间（毫秒时间戳），无窗口时为 null |
+| data[keyId].windowLimits[].windowEndTime      | number | 当前窗口结束时间（毫秒时间戳），无窗口时为 null |
+| data[keyId].windowLimits[].remainingSeconds   | number | 当前窗口剩余秒数；窗口未开始时可能为 null      |
+| data[keyId].windowLimits[].requests           | object | 请求数限制详情；未配置请求限制时为 null        |
+| data[keyId].windowLimits[].requests.current   | number | 当前窗口内已使用请求数                         |
+| data[keyId].windowLimits[].requests.limit     | number | 当前窗口请求数总限制                           |
+| data[keyId].windowLimits[].requests.percentage| number | 当前窗口请求数已用百分比                       |
+| data[keyId].windowLimits[].cost               | object | 费用限制详情；未配置费用限制时为 null          |
+| data[keyId].windowLimits[].cost.current       | number | 当前窗口内已使用费用（美元）                   |
+| data[keyId].windowLimits[].cost.limit         | number | 当前窗口费用总限制（美元）                     |
+| data[keyId].windowLimits[].cost.percentage    | number | 当前窗口费用已用百分比                         |
+
+**说明**
+
+- `windowLimits` 按 API Key 上配置的 `rateLimits` 顺序返回
+- 例如配置 `300` 分钟限制 `500` 美元、`3000` 分钟限制 `5000` 美元时，会返回两条窗口记录
+- 你可以直接使用 `windowLimits[].cost.percentage` 或 `windowLimits[].requests.percentage` 计算使用进度
+- 窗口已过期但 Redis 尚未清理时，接口会按 `0` 已用量返回
+- 同时兼容新版 `rateLimits` 多规则和旧版单窗口 `rateLimitWindow/rateLimitCost/rateLimitRequests`
 
 **错误响应**
 
@@ -230,7 +319,7 @@ SHA256: abc123...
 
 ---
 
-### 接口 2: 查询 API Key 用量明细
+### 接口 3: 查询 API Key 用量明细
 
 #### 请求参数
 
@@ -537,6 +626,205 @@ SHA256: abc123...
 4. **账户/分组验证**: 确保绑定的账户或分组存在且可用
 5. **错误隔离**: 单个更新失败不影响其他更新操作
 6. **审计日志**: 记录所有配置更新操作，便于追溯
+
+---
+
+### 接口 5: 更新 API Key
+
+#### 请求参数
+
+**路径参数**
+
+| 参数  | 类型   | 必填 | 说明       |
+| ----- | ------ | ---- | ---------- |
+| keyId | string | 是   | API Key ID |
+
+**请求体**
+
+```json
+{
+  "name": "MyApp Updated",
+  "totalCostLimit": 200.0,
+  "claude_account_id": "group:381cb540-f33e-49d1-8fda-80348f8c456f",
+  "openai_account_id": "responses:openai-responses-account-uuid",
+  "claude_rate": 2.5,
+  "openai_rate": 2.0,
+  "rateLimits": [
+    { "window": 300, "cost": 600 },
+    { "window": 3000, "cost": 6000 }
+  ],
+  "expirationMode": "fixed",
+  "expiresAt": "2027-12-31T23:59:59.000Z",
+  "sign": "ABC123..."
+}
+```
+
+| 参数              | 类型   | 必填 | 说明                                                                                              |
+| ----------------- | ------ | ---- | ------------------------------------------------------------------------------------------------- |
+| name              | string | 否   | API Key 的名称                                                                                    |
+| totalCostLimit    | number | 否   | 总费用限制（美元）                                                                                |
+| claude_account_id | string | 否   | 绑定的 Claude 账户 ID；普通 ID 写入 `claudeConsoleAccountId`，`group:` 格式写入 `claudeAccountId` |
+| openai_account_id | string | 否   | 绑定的 OpenAI 账户 ID；支持普通 ID、`group:...`、`responses:...`，内部映射到 `openaiAccountId`    |
+| claude_rate       | number | 否   | Claude 服务倍率，内部映射到 `serviceRates.claude`                                                 |
+| openai_rate       | number | 否   | OpenAI/Codex 服务倍率，内部映射到 `serviceRates.codex`                                            |
+| rate              | number | 否   | 兼容旧参数，等同于 `claude_rate`；若同时提供则 `claude_rate` 优先                                 |
+| rateLimits        | array  | 否   | 多窗口速率限制配置；每项至少包含 `window`，并提供 `requests` 或 `cost` 之一                       |
+| expirationMode    | string | 否   | 过期模式，支持 `fixed`（固定时间）或 `activation`（首次使用后激活）                               |
+| expiresAt         | string | 否   | 固定过期时间，ISO 8601 格式；`expirationMode=fixed` 时可传                                         |
+| activationDays    | number | 否   | `activation` 模式下的有效时长数值，必须为正整数                                                   |
+| activationUnit    | string | 否   | `activation` 模式下的时间单位，支持 `hours` 或 `days`                                             |
+| sign              | string | 是   | SHA256 签名（大写十六进制）                                                                       |
+
+#### 响应格式
+
+**成功响应**
+
+```json
+{
+  "code": 0,
+  "msg": "success",
+  "data": {
+    "keyId": "xxx-xxx-xxx",
+    "keyName": "MyApp Updated"
+  }
+}
+```
+
+**错误响应**
+
+```json
+{
+  "code": 1004,
+  "msg": "API Key not found",
+  "data": null
+}
+```
+
+**说明**
+
+- 所有参数均为可选，仅更新提供的字段
+- 参数验证规则与创建接口一致
+- 更新账户绑定时会自动更新权限列表
+
+---
+
+### 接口 6: 更新 API Key 过期时间
+
+#### 请求参数
+
+**路径参数**
+
+| 参数  | 类型   | 必填 | 说明       |
+| ----- | ------ | ---- | ---------- |
+| keyId | string | 是   | API Key ID |
+
+**请求体**
+
+设置固定过期时间：
+
+```json
+{
+  "expiresAt": "2026-12-31T23:59:59.000Z",
+  "sign": "ABC123..."
+}
+```
+
+手动激活 activation 模式的 key：
+
+```json
+{
+  "activateNow": true,
+  "sign": "ABC123..."
+}
+```
+
+清空过期时间（永不过期）：
+
+```json
+{
+  "expiresAt": "",
+  "sign": "ABC123..."
+}
+```
+
+| 参数        | 类型    | 必填 | 说明                                                     |
+| ----------- | ------- | ---- | -------------------------------------------------------- |
+| expiresAt   | string  | 否   | 目标过期时间，ISO 8601 格式；传空字符串表示清空过期时间  |
+| activateNow | boolean | 否   | 传 `true` 时手动激活 activation 模式且尚未激活的 API Key |
+| sign        | string  | 是   | SHA256 签名（大写十六进制）                              |
+
+**参数验证规则**
+
+1. `keyId`: 必填，必须是有效的 API Key ID
+2. `expiresAt`: 可选，提供时必须是合法日期字符串；传空字符串表示清空过期时间
+3. `activateNow`: 可选，仅支持 `true`；且目标 key 必须是 `activation` 模式且尚未激活
+4. `activateNow` 为 `true` 时，不处理 `expiresAt`
+
+#### 响应格式
+
+**成功响应**
+
+```json
+{
+  "code": 0,
+  "msg": "success",
+  "data": {
+    "keyId": "xxx-xxx-xxx",
+    "keyName": "MyApp"
+  }
+}
+```
+
+**响应字段说明**
+
+| 字段         | 类型   | 说明                              |
+| ------------ | ------ | --------------------------------- |
+| code         | number | 状态码，0表示成功，其他值表示错误 |
+| msg          | string | 消息，成功时为"success"          |
+| data         | object | 业务数据                          |
+| data.keyId   | string | API Key ID                        |
+| data.keyName | string | API Key 名称                      |
+
+**错误响应**
+
+```json
+{
+  "code": 1004,
+  "msg": "API Key not found",
+  "data": null
+}
+```
+
+```json
+{
+  "code": 1001,
+  "msg": "invalid expiration date format",
+  "data": null
+}
+```
+
+```json
+{
+  "code": 1001,
+  "msg": "Key is either already activated or not in activation mode",
+  "data": null
+}
+```
+
+#### 业务逻辑说明
+
+1. **定位 Key**: 根据路径参数 `keyId` 查询目标 API Key
+2. **手动激活**: 当 `activateNow=true` 时，仅 activation 模式且未激活的 key 可执行激活
+3. **设置过期时间**: 传 `expiresAt` 时写入新的过期时间，并在未激活时自动补充激活状态
+4. **清空过期时间**: 传空字符串时清空 `expiresAt`，表示永不过期
+5. **返回结果**: 成功时返回与创建接口一致的 `keyId`、`keyName`
+
+#### 安全考虑
+
+1. **权限验证**: 通过 SHA256 签名验证请求合法性
+2. **参数验证**: 严格校验 `keyId`、`expiresAt` 和 `activateNow`
+3. **状态约束**: 手动激活仅允许对 activation 模式且未激活的 key 生效
+4. **审计日志**: 记录 partner 侧对 API Key 过期时间的修改操作
 
 ---
 

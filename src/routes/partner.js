@@ -32,18 +32,110 @@ async function findApiKey(keyId, keyName) {
   return null
 }
 
+function parseRateLimits(rateLimits) {
+  if (!rateLimits) {
+    return []
+  }
+
+  let parsed = rateLimits
+  if (typeof rateLimits === 'string') {
+    try {
+      parsed = JSON.parse(rateLimits)
+    } catch (_error) {
+      return []
+    }
+  }
+
+  return Array.isArray(parsed) ? parsed : []
+}
+
 // Helper: Get usage summary for a key
 async function getUsageSummary(apiKey) {
   const client = redis.getClientSafe()
   const keyId = apiKey.id
   const totalCostKey = `usage:cost:total:${keyId}`
   const totalCost = parseFloat((await client.get(totalCostKey)) || '0')
+  const normalizedRateLimits = parseRateLimits(apiKey.rateLimits)
+  const effectiveRateLimits =
+    normalizedRateLimits.length > 0
+      ? normalizedRateLimits
+      : (() => {
+        const legacyWindow = parseInt(apiKey.rateLimitWindow || 0)
+        const legacyRequests = parseInt(apiKey.rateLimitRequests || 0)
+        const legacyCost = parseFloat(apiKey.rateLimitCost || 0)
+        if (legacyWindow > 0 && (legacyRequests > 0 || legacyCost > 0)) {
+          return [{ window: legacyWindow, requests: legacyRequests, cost: legacyCost }]
+        }
+        return []
+      })()
+
+  const windowLimits = []
+  const now = Date.now()
+
+  for (let index = 0; index < effectiveRateLimits.length; index++) {
+    const rule = effectiveRateLimits[index]
+    const windowMinutes = parseInt(rule?.window || 0)
+    const requestsLimit = parseInt(rule?.requests || 0)
+    const costLimit = parseFloat(rule?.cost || 0)
+
+    if (windowMinutes <= 0 || (requestsLimit <= 0 && costLimit <= 0)) {
+      continue
+    }
+
+    const suffix = effectiveRateLimits.length === 1 ? '' : `:${index}`
+    const requestCountKey = `rate_limit:requests:${keyId}${suffix}`
+    const costCountKey = `rate_limit:cost:${keyId}${suffix}`
+    const windowStartKey = `rate_limit:window_start:${keyId}${suffix}`
+
+    let currentRequests = parseInt((await client.get(requestCountKey)) || '0')
+    let currentCost = parseFloat((await client.get(costCountKey)) || '0')
+    let windowStartTime = null
+    let windowEndTime = null
+    let remainingSeconds = null
+
+    const windowStart = await client.get(windowStartKey)
+    if (windowStart) {
+      windowStartTime = parseInt(windowStart)
+      const windowDuration = windowMinutes * 60 * 1000
+      windowEndTime = windowStartTime + windowDuration
+
+      if (now < windowEndTime) {
+        remainingSeconds = Math.max(0, Math.floor((windowEndTime - now) / 1000))
+      } else {
+        remainingSeconds = 0
+        currentRequests = 0
+        currentCost = 0
+      }
+    }
+
+    windowLimits.push({
+      windowMinutes,
+      windowStartTime,
+      windowEndTime,
+      remainingSeconds,
+      requests: requestsLimit > 0
+        ? {
+          current: currentRequests,
+          limit: requestsLimit,
+          percentage: requestsLimit > 0 ? Number(((currentRequests / requestsLimit) * 100).toFixed(2)) : 0
+        }
+        : null,
+      cost: costLimit > 0
+        ? {
+          current: Number(currentCost.toFixed(6)),
+          limit: costLimit,
+          percentage: costLimit > 0 ? Number(((currentCost / costLimit) * 100).toFixed(2)) : 0
+        }
+        : null
+    })
+  }
 
   return {
     keyId: apiKey.id,
     keyName: apiKey.name,
     totalCost: parseFloat(totalCost.toFixed(4)),
-    totalCostLimit: parseFloat(apiKey.totalCostLimit || 0)
+    totalCostLimit: parseFloat(apiKey.totalCostLimit || 0),
+    windowLimits
   }
 }
 
@@ -91,7 +183,7 @@ async function resolveClaudeBindingFields(claudeAccountId) {
   const claudeConsoleAccountService = require('../services/account/claudeConsoleAccountService')
   const account = await claudeConsoleAccountService.getAccount(claudeAccountId)
 
-  if (!account || !account.isActive) {
+  if (!account) {
     throw new Error('Claude account not found or inactive')
   }
 
@@ -113,11 +205,11 @@ async function validateOpenAIBinding(openaiAccountId) {
   if (openaiAccountId.startsWith('responses:')) {
     const accountId = openaiAccountId.substring('responses:'.length)
     const account = await openaiResponsesAccountService.getAccount(accountId)
-    return !!account && account.isActive === 'true'
+    return !!account
   }
 
   const account = await openaiAccountService.getAccount(openaiAccountId)
-  return !!account && account.isActive === 'true'
+  return !!account
 }
 
 function normalizePermissionList(permissions) {
@@ -629,7 +721,11 @@ router.post('/api-key/create', authenticatePartner, async (req, res) => {
       claude_rate,
       openai_rate,
       rate,
-      rateLimits
+      rateLimits,
+      expiresAt,
+      expirationMode,
+      activationDays,
+      activationUnit
     } = req.body
 
     const resolvedClaudeRate = resolveClaudeRate(claude_rate, rate)
@@ -660,6 +756,53 @@ router.post('/api-key/create', authenticatePartner, async (req, res) => {
       return res.status(400).json({
         code: 1001,
         msg: 'totalCostLimit must be a non-negative number',
+        data: null
+      })
+    }
+
+    if (expirationMode && !['fixed', 'activation'].includes(expirationMode)) {
+      return res.status(400).json({
+        code: 1001,
+        msg: 'expirationMode must be either "fixed" or "activation"',
+        data: null
+      })
+    }
+
+    if (expirationMode === 'activation') {
+      if (!activationUnit || !['hours', 'days'].includes(activationUnit)) {
+        return res.status(400).json({
+          code: 1001,
+          msg: 'activationUnit must be either "hours" or "days" when using activation mode',
+          data: null
+        })
+      }
+
+      if (
+        !activationDays ||
+        !Number.isInteger(Number(activationDays)) ||
+        Number(activationDays) < 1
+      ) {
+        const unitText = activationUnit === 'hours' ? 'hours' : 'days'
+        return res.status(400).json({
+          code: 1001,
+          msg: `activation ${unitText} must be a positive integer when using activation mode`,
+          data: null
+        })
+      }
+
+      if (expiresAt) {
+        return res.status(400).json({
+          code: 1001,
+          msg: 'cannot set fixed expiration date when using activation mode',
+          data: null
+        })
+      }
+    }
+
+    if (expiresAt && Number.isNaN(new Date(expiresAt).getTime())) {
+      return res.status(400).json({
+        code: 1001,
+        msg: 'invalid expiration date format',
         data: null
       })
     }
@@ -796,6 +939,22 @@ router.post('/api-key/create', authenticatePartner, async (req, res) => {
       createParams.rateLimits = rateLimits
     }
 
+    if (expiresAt) {
+      createParams.expiresAt = new Date(expiresAt).toISOString()
+    }
+
+    if (expirationMode) {
+      createParams.expirationMode = expirationMode
+    }
+
+    if (activationDays !== undefined && activationDays !== null && activationDays !== '') {
+      createParams.activationDays = Number(activationDays)
+    }
+
+    if (activationUnit) {
+      createParams.activationUnit = activationUnit
+    }
+
     // 调用 apiKeyService 创建 API Key
     const newKey = await apiKeyService.generateApiKey(createParams)
 
@@ -813,6 +972,384 @@ router.post('/api-key/create', authenticatePartner, async (req, res) => {
     })
   } catch (error) {
     logger.error('❌ Partner create API Key error:', error)
+    return res.status(500).json({
+      code: 1003,
+      msg: error.message || 'Internal server error',
+      data: null
+    })
+  }
+})
+
+// 🔄 更新 API Key
+router.post('/api-key/:keyId/update', authenticatePartner, async (req, res) => {
+  try {
+    const { keyId } = req.params
+    const {
+      name,
+      totalCostLimit,
+      claude_account_id,
+      openai_account_id,
+      claude_rate,
+      openai_rate,
+      rate,
+      rateLimits,
+      expiresAt,
+      expirationMode,
+      activationDays,
+      activationUnit
+    } = req.body
+
+    const keyData = await findApiKey(keyId, null)
+    if (!keyData) {
+      return res.status(404).json({
+        code: 1004,
+        msg: 'API Key not found',
+        data: null
+      })
+    }
+
+    const resolvedClaudeRate = resolveClaudeRate(claude_rate, rate)
+
+    if (name !== undefined && (typeof name !== 'string' || name.trim().length === 0)) {
+      return res.status(400).json({
+        code: 1001,
+        msg: 'name must be a non-empty string',
+        data: null
+      })
+    }
+
+    if (name && name.length > 100) {
+      return res.status(400).json({
+        code: 1001,
+        msg: 'name must be less than 100 characters',
+        data: null
+      })
+    }
+
+    if (
+      totalCostLimit !== undefined &&
+      totalCostLimit !== null &&
+      totalCostLimit !== '' &&
+      (Number.isNaN(Number(totalCostLimit)) || Number(totalCostLimit) < 0)
+    ) {
+      return res.status(400).json({
+        code: 1001,
+        msg: 'totalCostLimit must be a non-negative number',
+        data: null
+      })
+    }
+
+    if (expirationMode && !['fixed', 'activation'].includes(expirationMode)) {
+      return res.status(400).json({
+        code: 1001,
+        msg: 'expirationMode must be either "fixed" or "activation"',
+        data: null
+      })
+    }
+
+    if (expirationMode === 'activation') {
+      if (!activationUnit || !['hours', 'days'].includes(activationUnit)) {
+        return res.status(400).json({
+          code: 1001,
+          msg: 'activationUnit must be either "hours" or "days" when using activation mode',
+          data: null
+        })
+      }
+
+      if (
+        !activationDays ||
+        !Number.isInteger(Number(activationDays)) ||
+        Number(activationDays) < 1
+      ) {
+        const unitText = activationUnit === 'hours' ? 'hours' : 'days'
+        return res.status(400).json({
+          code: 1001,
+          msg: `activation ${unitText} must be a positive integer when using activation mode`,
+          data: null
+        })
+      }
+
+      if (expiresAt) {
+        return res.status(400).json({
+          code: 1001,
+          msg: 'cannot set fixed expiration date when using activation mode',
+          data: null
+        })
+      }
+    }
+
+    if (expiresAt && Number.isNaN(new Date(expiresAt).getTime())) {
+      return res.status(400).json({
+        code: 1001,
+        msg: 'invalid expiration date format',
+        data: null
+      })
+    }
+
+    const claudeRateError = validateRate(resolvedClaudeRate, 'claude_rate')
+    if (claudeRateError) {
+      return res.status(400).json({
+        code: 1001,
+        msg: claudeRateError,
+        data: null
+      })
+    }
+
+    const openaiRateError = validateRate(openai_rate, 'openai_rate')
+    if (openaiRateError) {
+      return res.status(400).json({
+        code: 1001,
+        msg: openaiRateError,
+        data: null
+      })
+    }
+
+    if (rateLimits !== undefined && rateLimits !== null && rateLimits !== '') {
+      if (!Array.isArray(rateLimits)) {
+        return res.status(400).json({
+          code: 1001,
+          msg: 'rateLimits must be an array',
+          data: null
+        })
+      }
+      for (let i = 0; i < rateLimits.length; i++) {
+        const rule = rateLimits[i]
+        if (!rule || typeof rule !== 'object') {
+          return res.status(400).json({
+            code: 1001,
+            msg: `rateLimits[${i}] must be an object`,
+            data: null
+          })
+        }
+        if (!Number.isInteger(rule.window) || rule.window <= 0) {
+          return res.status(400).json({
+            code: 1001,
+            msg: `rateLimits[${i}].window must be a positive integer (minutes)`,
+            data: null
+          })
+        }
+        if (rule.requests === undefined && rule.cost === undefined) {
+          return res.status(400).json({
+            code: 1001,
+            msg: `rateLimits[${i}] must have at least one of: requests, cost`,
+            data: null
+          })
+        }
+        if (
+          rule.requests !== undefined &&
+          (!Number.isInteger(rule.requests) || rule.requests <= 0)
+        ) {
+          return res.status(400).json({
+            code: 1001,
+            msg: `rateLimits[${i}].requests must be a positive integer`,
+            data: null
+          })
+        }
+        if (rule.cost !== undefined && (Number.isNaN(Number(rule.cost)) || Number(rule.cost) < 0)) {
+          return res.status(400).json({
+            code: 1001,
+            msg: `rateLimits[${i}].cost must be a non-negative number`,
+            data: null
+          })
+        }
+      }
+    }
+
+    logger.info(`🔄 Partner updating API Key: ${keyId} (${keyData.name})`)
+
+    const updates = {}
+
+    if (name !== undefined) {
+      updates.name = name.trim()
+    }
+
+    if (totalCostLimit !== undefined && totalCostLimit !== null && totalCostLimit !== '') {
+      updates.totalCostLimit = Number(totalCostLimit)
+    }
+
+    if (claude_account_id) {
+      try {
+        const claudeBindingFields = await resolveClaudeBindingFields(claude_account_id)
+        Object.assign(updates, claudeBindingFields)
+      } catch (error) {
+        return res.status(400).json({
+          code: 1001,
+          msg: error.message,
+          data: null
+        })
+      }
+    }
+
+    if (openai_account_id && !(await validateOpenAIBinding(openai_account_id))) {
+      return res.status(400).json({
+        code: 1001,
+        msg: 'OpenAI account not found or inactive',
+        data: null
+      })
+    }
+
+    if (openai_account_id) {
+      updates.openaiAccountId = openai_account_id
+    }
+
+    if (resolvedClaudeRate !== undefined || openai_rate !== undefined) {
+      const serviceRates = buildServiceRates(
+        keyData.serviceRates || {},
+        resolvedClaudeRate,
+        openai_rate
+      )
+      if (Object.keys(serviceRates).length > 0) {
+        updates.serviceRates = serviceRates
+      }
+    }
+
+    if (claude_account_id || openai_account_id) {
+      const permissions = new Set(normalizePermissionList(keyData.permissions))
+      permissions.add('claude')
+      if (openai_account_id) {
+        permissions.add('openai')
+      }
+      updates.permissions = Array.from(permissions)
+    }
+
+    if (rateLimits !== undefined && rateLimits !== null && rateLimits !== '') {
+      updates.rateLimits = rateLimits
+    }
+
+    if (expiresAt !== undefined) {
+      if (expiresAt) {
+        updates.expiresAt = new Date(expiresAt).toISOString()
+        if (keyData.isActivated !== 'true') {
+          updates.isActivated = 'true'
+          updates.activatedAt = new Date().toISOString()
+        }
+      } else {
+        updates.expiresAt = ''
+      }
+    }
+
+    if (expirationMode !== undefined) {
+      updates.expirationMode = expirationMode
+    }
+
+    if (activationDays !== undefined && activationDays !== null && activationDays !== '') {
+      updates.activationDays = Number(activationDays)
+    }
+
+    if (activationUnit !== undefined) {
+      updates.activationUnit = activationUnit
+    }
+
+    if (Object.keys(updates).length === 0) {
+      return res.status(400).json({
+        code: 1001,
+        msg: 'No valid updates provided',
+        data: null
+      })
+    }
+
+    await apiKeyService.updateApiKey(keyId, updates)
+
+    logger.success(`✅ Partner updated API Key: ${keyId} (${keyData.name})`)
+
+    return res.json({
+      code: 0,
+      msg: 'success',
+      data: {
+        keyId,
+        keyName: updates.name || keyData.name
+      }
+    })
+  } catch (error) {
+    logger.error('❌ Partner update API Key error:', error)
+    return res.status(500).json({
+      code: 1003,
+      msg: error.message || 'Internal server error',
+      data: null
+    })
+  }
+})
+
+// ⏰ 更新 API Key 过期时间（支持手动激活）
+router.post('/api-key/:keyId/expiration', authenticatePartner, async (req, res) => {
+  try {
+    const { keyId } = req.params
+    const { expiresAt, activateNow } = req.body
+
+    const keyData = await findApiKey(keyId, null)
+    if (!keyData) {
+      return res.status(404).json({
+        code: 1004,
+        msg: 'API Key not found',
+        data: null
+      })
+    }
+
+    const updates = {}
+
+    if (activateNow === true) {
+      if (keyData.expirationMode === 'activation' && keyData.isActivated !== 'true') {
+        const now = new Date()
+        const activationDays = parseInt(keyData.activationDays || 30)
+        const newExpiresAt = new Date(now.getTime() + activationDays * 24 * 60 * 60 * 1000)
+
+        updates.isActivated = 'true'
+        updates.activatedAt = now.toISOString()
+        updates.expiresAt = newExpiresAt.toISOString()
+
+        logger.success(
+          `🔓 API key manually activated by partner: ${keyId} (${keyData.name}), expires at ${newExpiresAt.toISOString()}`
+        )
+      } else {
+        return res.status(400).json({
+          code: 1001,
+          msg: 'Key is either already activated or not in activation mode',
+          data: null
+        })
+      }
+    }
+
+    if (expiresAt !== undefined && activateNow !== true) {
+      if (expiresAt && Number.isNaN(Date.parse(expiresAt))) {
+        return res.status(400).json({
+          code: 1001,
+          msg: 'invalid expiration date format',
+          data: null
+        })
+      }
+
+      if (expiresAt) {
+        updates.expiresAt = new Date(expiresAt).toISOString()
+        if (keyData.isActivated !== 'true') {
+          updates.isActivated = 'true'
+          updates.activatedAt = new Date().toISOString()
+        }
+      } else {
+        updates.expiresAt = ''
+      }
+    }
+
+    if (Object.keys(updates).length === 0) {
+      return res.status(400).json({
+        code: 1001,
+        msg: 'No valid updates provided',
+        data: null
+      })
+    }
+
+    await apiKeyService.updateApiKey(keyId, updates)
+
+    logger.success(`📝 Partner updated API key expiration: ${keyId} (${keyData.name})`)
+    return res.json({
+      code: 0,
+      msg: 'success',
+      data: {
+        keyId,
+        keyName: keyData.name
+      }
+    })
+  } catch (error) {
+    logger.error('❌ Partner update API key expiration error:', error)
     return res.status(500).json({
       code: 1003,
       msg: error.message || 'Internal server error',

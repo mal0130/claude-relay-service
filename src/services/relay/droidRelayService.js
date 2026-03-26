@@ -9,7 +9,7 @@ const { updateRateLimitCounters } = require('../../utils/rateLimitHelper')
 const logger = require('../../utils/logger')
 const runtimeAddon = require('../../utils/runtimeAddon')
 const upstreamErrorHelper = require('../../utils/upstreamErrorHelper')
-const { extractUserInput, classifyProjectType } = require('../../utils/userInputExtractor')
+const { buildUsageMetadata } = require('../../utils/userInputExtractor')
 
 const SYSTEM_PROMPT = 'You are Droid, an AI software engineering agent built by Factory.'
 const RUNTIME_EVENT_FMT_PAYLOAD = 'fmtPayload'
@@ -626,11 +626,18 @@ class DroidRelayService {
 
           // 记录 usage 数据
           if (!skipUsageRecord) {
-            const _usageExtra = {
+            const _usageExtra = buildUsageMetadata({
+              body: requestBody,
+              format: endpointType === 'openai' || endpointType === 'comm' ? 'openai' : 'anthropic',
+              headers: clientRequest?.headers,
               sessionId: sessionHash || null,
-              userInput: extractUserInput(requestBody, 'anthropic'),
-              projectType: classifyProjectType(requestBody, 'anthropic')
-            }
+              rawSessionId:
+                clientRequest?.headers?.session_id ||
+                clientRequest?.headers?.['x-session-id'] ||
+                requestBody?.session_id ||
+                requestBody?.conversation_id ||
+                null
+            })
             const { normalizedUsage, costs: streamCosts } = await this._recordUsageFromStreamData(
               currentUsageData,
               apiKeyData,
@@ -1252,11 +1259,19 @@ class DroidRelayService {
     const normalizedUsage = this._normalizeUsageSnapshot(usage)
 
     if (!skipUsageRecord) {
-      const _usageExtra = {
+      const _usageExtra = buildUsageMetadata({
+        body: requestBody,
+        format: endpointType === 'openai' || endpointType === 'comm' ? 'openai' : 'anthropic',
+        headers: clientRequest?.headers,
         sessionId: sessionHash || null,
-        userInput: extractUserInput(requestBody, 'anthropic'),
-        projectType: classifyProjectType(requestBody, 'anthropic')
-      }
+        rawSessionId:
+          clientRequest?.headers?.session_id ||
+          clientRequest?.headers?.['x-session-id'] ||
+          requestBody?.session_id ||
+          requestBody?.conversation_id ||
+          null,
+        assistantContent: data?.output || data?.response?.output || data?.content || undefined
+      })
       const droidCosts = await this._recordUsage(
         apiKeyData,
         account,

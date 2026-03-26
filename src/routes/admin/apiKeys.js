@@ -1707,20 +1707,20 @@ router.post('/api-keys', authenticateAdmin, async (req, res) => {
       rateLimitWindow !== undefined &&
       rateLimitWindow !== null &&
       rateLimitWindow !== '' &&
-      (!Number.isInteger(Number(rateLimitWindow)) || Number(rateLimitWindow) < 1)
+      (!Number.isInteger(Number(rateLimitWindow)) || Number(rateLimitWindow) < 0)
     ) {
       return res
         .status(400)
-        .json({ error: 'Rate limit window must be a positive integer (minutes)' })
+        .json({ error: 'Rate limit window must be a non-negative integer (minutes)' })
     }
 
     if (
       rateLimitRequests !== undefined &&
       rateLimitRequests !== null &&
       rateLimitRequests !== '' &&
-      (!Number.isInteger(Number(rateLimitRequests)) || Number(rateLimitRequests) < 1)
+      (!Number.isInteger(Number(rateLimitRequests)) || Number(rateLimitRequests) < 0)
     ) {
-      return res.status(400).json({ error: 'Rate limit requests must be a positive integer' })
+      return res.status(400).json({ error: 'Rate limit requests must be a non-negative integer' })
     }
 
     // 验证多规则速率限制

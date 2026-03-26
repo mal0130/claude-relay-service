@@ -26,7 +26,7 @@ const {
   handleAnthropicCountTokensToGemini
 } = require('../services/anthropicGeminiBridgeService')
 const webhookService = require('../services/webhookService')
-const { extractUserInput, classifyProjectType } = require('../utils/userInputExtractor')
+const { buildUsageMetadata } = require('../utils/userInputExtractor')
 const router = express.Router()
 
 // 每日通知缓存：apiKeyName -> 日期
@@ -294,19 +294,22 @@ async function handleMessagesRequest(req, res) {
       // 生成会话哈希用于sticky会话
       const sessionHash = sessionHelper.generateSessionHash(req.body)
 
-      const _userInput = extractUserInput(req.body, 'anthropic')
       logger.info(
         `🔍 api.js stream body_keys=${Object.keys(req.body || {})}, session_id=${req.body?.session_id}, metadata=${JSON.stringify(req.body?.metadata)}`
       )
-      const _usageExtra = {
-        sessionId: sessionHash || null,
-        rawSessionId:
-          req.headers['session_id'] ||
-          claudeRelayConfigService.extractOriginalSessionId(req.body) ||
-          null,
-        userInput: _userInput,
-        projectType: classifyProjectType(req.body, 'anthropic')
-      }
+      const buildStreamUsageExtra = (assistantContent) =>
+        buildUsageMetadata({
+          body: req.body,
+          format: 'anthropic',
+          headers: req.headers,
+          requestIp: req,
+          sessionId: sessionHash || null,
+          rawSessionId:
+            req.headers['session_id'] ||
+            claudeRelayConfigService.extractOriginalSessionId(req.body) ||
+            null,
+          assistantContent
+        })
 
       // 🔒 全局会话绑定验证
       let forcedAccount = null
@@ -524,7 +527,7 @@ async function handleMessagesRequest(req, res) {
                   model,
                   usageAccountId,
                   accountType,
-                  _usageExtra
+                  buildStreamUsageExtra(usageData.assistantContent || usageData.content)
                 )
                 .then((costs) => {
                   queueRateLimitUpdate(
@@ -657,7 +660,7 @@ async function handleMessagesRequest(req, res) {
                   model,
                   usageAccountId,
                   'claude-console',
-                  _usageExtra
+                  buildStreamUsageExtra(usageData.assistantContent || usageData.content)
                 )
                 .then((costs) => {
                   queueRateLimitUpdate(
@@ -741,7 +744,7 @@ async function handleMessagesRequest(req, res) {
                 'bedrock',
                 null,
                 null,
-                _usageExtra
+                buildStreamUsageExtra()
               )
               .then((costs) => {
                 queueRateLimitUpdate(
@@ -870,7 +873,7 @@ async function handleMessagesRequest(req, res) {
                   model,
                   usageAccountId,
                   'ccr',
-                  _usageExtra
+                  buildStreamUsageExtra(usageData.assistantContent || usageData.content)
                 )
                 .then((costs) => {
                   queueRateLimitUpdate(
@@ -995,19 +998,22 @@ async function handleMessagesRequest(req, res) {
       // 生成会话哈希用于sticky会话
       const sessionHash = sessionHelper.generateSessionHash(req.body)
 
-      const _userInputNonStream = extractUserInput(req.body, 'anthropic')
       logger.info(
         `🔍 api.js non-stream session_id header=${req.headers['session_id']}, metadata_user_id=${req.body?.metadata?.user_id}`
       )
-      const _usageExtraNonStream = {
-        sessionId: sessionHash || null,
-        rawSessionId:
-          req.headers['session_id'] ||
-          claudeRelayConfigService.extractOriginalSessionId(req.body) ||
-          null,
-        userInput: _userInputNonStream,
-        projectType: classifyProjectType(req.body, 'anthropic')
-      }
+      const buildNonStreamUsageExtra = (assistantContent) =>
+        buildUsageMetadata({
+          body: req.body,
+          format: 'anthropic',
+          headers: req.headers,
+          requestIp: req,
+          sessionId: sessionHash || null,
+          rawSessionId:
+            req.headers['session_id'] ||
+            claudeRelayConfigService.extractOriginalSessionId(req.body) ||
+            null,
+          assistantContent
+        })
 
       // 🔒 全局会话绑定验证（非流式）
       let forcedAccountNonStream = null
@@ -1310,7 +1316,9 @@ async function handleMessagesRequest(req, res) {
             model,
             responseAccountId,
             accountType,
-            _usageExtraNonStream
+            buildNonStreamUsageExtra(
+              Array.isArray(jsonData?.content) ? jsonData.content : undefined
+            )
           )
 
           await queueRateLimitUpdate(

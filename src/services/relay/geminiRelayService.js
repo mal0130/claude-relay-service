@@ -3,6 +3,7 @@ const ProxyHelper = require('../../utils/proxyHelper')
 const logger = require('../../utils/logger')
 const config = require('../../../config/config')
 const apiKeyService = require('../apiKeyService')
+const { buildUsageMetadata } = require('../../utils/userInputExtractor')
 
 // Gemini API 配置
 const GEMINI_API_BASE = 'https://cloudcode.googleapis.com/v1'
@@ -113,6 +114,10 @@ async function* handleStreamResponse(response, model, apiKeyId, accountId = null
     candidatesTokenCount: 0,
     totalTokenCount: 0
   }
+  const usageExtra =
+    extra && typeof extra === 'object' && !Array.isArray(extra) && extra.body
+      ? buildUsageMetadata(extra)
+      : extra
 
   try {
     for await (const chunk of response.data) {
@@ -167,7 +172,7 @@ async function* handleStreamResponse(response, model, apiKeyId, accountId = null
                   'gemini',
                   null,
                   null,
-                  extra
+                  usageExtra
                 )
                 .catch((error) => {
                   logger.error('❌ Failed to record Gemini usage:', error)
@@ -305,9 +310,13 @@ async function sendGeminiRequest({
   try {
     logger.debug('Sending request to Gemini API')
     const response = await axios(axiosConfig)
+    const usageExtra =
+      extra && typeof extra === 'object' && !Array.isArray(extra) && extra.body
+        ? buildUsageMetadata(extra)
+        : extra
 
     if (stream) {
-      return handleStreamResponse(response, model, apiKeyId, accountId, extra)
+      return handleStreamResponse(response, model, apiKeyId, accountId, usageExtra)
     } else {
       // 非流式响应
       const openaiResponse = convertGeminiResponse(response.data, model, false)
@@ -326,7 +335,7 @@ async function sendGeminiRequest({
             'gemini',
             null,
             null,
-            extra
+            usageExtra
           )
           .catch((error) => {
             logger.error('❌ Failed to record Gemini usage:', error)
