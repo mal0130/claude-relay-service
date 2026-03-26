@@ -13,8 +13,8 @@ const axios = require('axios')
 const config = require('../../config/config')
 const logger = require('../utils/logger')
 
-const MIN_CHUNK = 40   // 触发翻译的最小字符数
-const MAX_CHUNK = 400  // 强制切分的最大字符数
+const MIN_CHUNK = 40 // 触发翻译的最小字符数
+const MAX_CHUNK = 400 // 强制切分的最大字符数
 const CHINESE_CHAR_RE = /[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]/
 
 /** 在 text 中找句子边界，返回切分位置；未找到返回 -1 */
@@ -101,9 +101,9 @@ function createReasoningTranslator(onToken) {
               const parsed = JSON.parse(jsonStr)
               result += parsed.choices?.[0]?.delta?.content || ''
               if (parsed.usage) {
-                tokenUsage.prompt     += parsed.usage.prompt_tokens     ?? 0
+                tokenUsage.prompt += parsed.usage.prompt_tokens ?? 0
                 tokenUsage.completion += parsed.usage.completion_tokens ?? 0
-                tokenUsage.total      += parsed.usage.total_tokens      ?? 0
+                tokenUsage.total += parsed.usage.total_tokens ?? 0
               }
             } catch {
               // 忽略无效 JSON
@@ -153,9 +153,9 @@ function createReasoningTranslator(onToken) {
 
     get usage() {
       return {
-        trans_prompt_tokens:     tokenUsage.prompt,
+        trans_prompt_tokens: tokenUsage.prompt,
         trans_completion_tokens: tokenUsage.completion,
-        trans_total_tokens:      tokenUsage.total
+        trans_total_tokens: tokenUsage.total
       }
     }
   }

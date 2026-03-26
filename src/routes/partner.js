@@ -60,14 +60,14 @@ async function getUsageSummary(apiKey) {
     normalizedRateLimits.length > 0
       ? normalizedRateLimits
       : (() => {
-        const legacyWindow = parseInt(apiKey.rateLimitWindow || 0)
-        const legacyRequests = parseInt(apiKey.rateLimitRequests || 0)
-        const legacyCost = parseFloat(apiKey.rateLimitCost || 0)
-        if (legacyWindow > 0 && (legacyRequests > 0 || legacyCost > 0)) {
-          return [{ window: legacyWindow, requests: legacyRequests, cost: legacyCost }]
-        }
-        return []
-      })()
+          const legacyWindow = parseInt(apiKey.rateLimitWindow || 0)
+          const legacyRequests = parseInt(apiKey.rateLimitRequests || 0)
+          const legacyCost = parseFloat(apiKey.rateLimitCost || 0)
+          if (legacyWindow > 0 && (legacyRequests > 0 || legacyCost > 0)) {
+            return [{ window: legacyWindow, requests: legacyRequests, cost: legacyCost }]
+          }
+          return []
+        })()
 
   const windowLimits = []
   const now = Date.now()
@@ -113,20 +113,23 @@ async function getUsageSummary(apiKey) {
       windowStartTime,
       windowEndTime,
       remainingSeconds,
-      requests: requestsLimit > 0
-        ? {
-          current: currentRequests,
-          limit: requestsLimit,
-          percentage: requestsLimit > 0 ? Number(((currentRequests / requestsLimit) * 100).toFixed(2)) : 0
-        }
-        : null,
-      cost: costLimit > 0
-        ? {
-          current: Number(currentCost.toFixed(6)),
-          limit: costLimit,
-          percentage: costLimit > 0 ? Number(((currentCost / costLimit) * 100).toFixed(2)) : 0
-        }
-        : null
+      requests:
+        requestsLimit > 0
+          ? {
+              current: currentRequests,
+              limit: requestsLimit,
+              percentage:
+                requestsLimit > 0 ? Number(((currentRequests / requestsLimit) * 100).toFixed(2)) : 0
+            }
+          : null,
+      cost:
+        costLimit > 0
+          ? {
+              current: Number(currentCost.toFixed(6)),
+              limit: costLimit,
+              percentage: costLimit > 0 ? Number(((currentCost / costLimit) * 100).toFixed(2)) : 0
+            }
+          : null
     })
   }
 

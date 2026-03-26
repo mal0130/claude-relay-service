@@ -348,7 +348,7 @@ async function handleChatCompletion(req, res, apiKeyData) {
           const cacheCreateTokens =
             (usage.cache_creation && typeof usage.cache_creation === 'object'
               ? (usage.cache_creation.ephemeral_5m_input_tokens || 0) +
-              (usage.cache_creation.ephemeral_1h_input_tokens || 0)
+                (usage.cache_creation.ephemeral_1h_input_tokens || 0)
               : usage.cache_creation_input_tokens || 0) || 0
           const cacheReadTokens = usage.cache_read_input_tokens || 0
           const usageWithRequestMeta = { ...usage }
@@ -516,7 +516,7 @@ async function handleChatCompletion(req, res, apiKeyData) {
         const cacheCreateTokens =
           (usage.cache_creation && typeof usage.cache_creation === 'object'
             ? (usage.cache_creation.ephemeral_5m_input_tokens || 0) +
-            (usage.cache_creation.ephemeral_1h_input_tokens || 0)
+              (usage.cache_creation.ephemeral_1h_input_tokens || 0)
             : usage.cache_creation_input_tokens || 0) || 0
         const cacheReadTokens = usage.cache_read_input_tokens || 0
         const usageWithRequestMeta = { ...usage }
