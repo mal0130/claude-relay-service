@@ -11,6 +11,8 @@ const claudeRelayConfigService = require('../services/claudeRelayConfigService')
 const { calculateWaitTimeStats } = require('../utils/statsHelper')
 const { isClaudeFamilyModel } = require('../utils/modelHelper')
 
+const subscriptionUrl = 'https://dev.dcloud.net.cn/pages/product-account/product-account?pcd=uni_ai_agent'
+
 // 工具函数
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms))
@@ -1205,7 +1207,7 @@ const authenticateApiKey = async (req, res, next) => {
         return res.status(402).json({
           error: {
             type: 'insufficient_quota',
-            message: `当前 uni-agent 资源包额度已用尽，请购买新资源包，如已购买，请重启 HBuilderX 使新资源包生效。`,
+            message: `您账户中 uni-agent 资源包可用额度已用尽，请前往<a href="${subscriptionUrl}">开发者中心</a>购买资源包，如已购买，可发送“继续”以继续使用。`,
             code: 'daily_cost_limit_exceeded'
           },
           currentCost: dailyCost,
@@ -1238,7 +1240,7 @@ const authenticateApiKey = async (req, res, next) => {
         return res.status(402).json({
           error: {
             type: 'insufficient_quota',
-            message: `当前 uni-agent 资源包额度已用尽，请购买新资源包，如已购买，请重启 HBuilderX 使新资源包生效。`,
+            message: `您账户中 uni-agent 资源包可用额度已用尽，请前往<a href="${subscriptionUrl}">开发者中心</a>购买资源包，如已购买，可发送“继续”以继续使用。`,
             code: 'total_cost_limit_exceeded'
           },
           currentCost: totalCost,
@@ -1280,7 +1282,7 @@ const authenticateApiKey = async (req, res, next) => {
           return res.status(402).json({
             error: {
               type: 'insufficient_quota',
-              message: `当前 uni-agent 资源包额度已用尽，请购买新资源包，如已购买，请重启 HBuilderX 使新资源包生效。`,
+              message: `您账户中 uni-agent 资源包可用额度已用尽，请前往<a href="${subscriptionUrl}">开发者中心</a>购买资源包，如已购买，可发送“继续”以继续使用。`,
               code: 'weekly_opus_cost_limit_exceeded'
             },
             currentCost: weeklyOpusCost,
