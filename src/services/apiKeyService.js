@@ -1397,18 +1397,39 @@ class ApiKeyService {
         logger.warn(`Failed to update API Key index for ${keyId}:`, err.message)
       }
 
-      // 如果 rateLimits 发生变化，重置速率限制窗口
+      // 如果 rateLimits 发生变化，检查是否需要重置速率限制窗口
       if (updates.rateLimits !== undefined) {
         try {
+          const oldRateLimits = JSON.parse(keyData.rateLimits || '[]')
           const newRateLimits = Array.isArray(updates.rateLimits)
             ? updates.rateLimits
             : JSON.parse(updates.rateLimits || '[]')
-          if (newRateLimits.length > 0) {
+
+          // 判断是否需要重置窗口：
+          // 1. 规则数量变化
+          // 2. 窗口时长变化（window 字段）
+          let needReset = oldRateLimits.length !== newRateLimits.length
+
+          if (!needReset && oldRateLimits.length > 0) {
+            for (let i = 0; i < oldRateLimits.length; i++) {
+              const oldWindow = oldRateLimits[i]?.window || 0
+              const newWindow = newRateLimits[i]?.window || 0
+              if (oldWindow !== newWindow) {
+                needReset = true
+                break
+              }
+            }
+          }
+
+          // 只有窗口结构变化时才重置，单纯修改限额不重置
+          if (needReset && newRateLimits.length > 0) {
             await this.initializeRateLimitWindows(keyId, newRateLimits)
-            logger.info(`🔄 Reset rate limit windows for key ${keyId}`)
+            logger.info(`🔄 Reset rate limit windows for key ${keyId} (structure changed)`)
+          } else if (!needReset) {
+            logger.info(`📝 Updated rate limits for key ${keyId} (window preserved)`)
           }
         } catch (err) {
-          logger.warn(`Failed to reset rate limit windows for key ${keyId}:`, err.message)
+          logger.warn(`Failed to process rate limit update for key ${keyId}:`, err.message)
         }
       }
 
