@@ -5278,4 +5278,59 @@ redisClient.cleanupSystemMetrics = async function () {
   return { cleaned: toDelete.length }
 }
 
+// ============================================
+// 🔑 API Key externalUid 索引管理（多 Key 切换）
+// ============================================
+
+/**
+ * 添加 Key 到 externalUid 索引
+ * @param {string} externalUid - 外部用户ID
+ * @param {string} keyId - API Key ID
+ * @returns {Promise<void>}
+ */
+redisClient.addKeyToUidIndex = async function (externalUid, keyId) {
+  if (!externalUid || !keyId) return
+  const key = `uid_keys:${externalUid}`
+  try {
+    await this.client.sadd(key, keyId)
+    logger.debug(`🔗 Added key ${keyId} to uid index ${externalUid}`)
+  } catch (error) {
+    logger.error(`Failed to add key to uid index:`, error)
+  }
+}
+
+/**
+ * 从 externalUid 索引移除 Key
+ * @param {string} externalUid - 外部用户ID
+ * @param {string} keyId - API Key ID
+ * @returns {Promise<void>}
+ */
+redisClient.removeKeyFromUidIndex = async function (externalUid, keyId) {
+  if (!externalUid || !keyId) return
+  const key = `uid_keys:${externalUid}`
+  try {
+    await this.client.srem(key, keyId)
+    logger.debug(`🔗 Removed key ${keyId} from uid index ${externalUid}`)
+  } catch (error) {
+    logger.error(`Failed to remove key from uid index:`, error)
+  }
+}
+
+/**
+ * 获取某个 externalUid 的所有 Key ID
+ * @param {string} externalUid - 外部用户ID
+ * @returns {Promise<string[]>} Key ID 列表
+ */
+redisClient.getKeysByUid = async function (externalUid) {
+  if (!externalUid) return []
+  const key = `uid_keys:${externalUid}`
+  try {
+    const keyIds = await this.client.smembers(key)
+    return keyIds || []
+  } catch (error) {
+    logger.error(`Failed to get keys by uid:`, error)
+    return []
+  }
+}
+
 module.exports = redisClient

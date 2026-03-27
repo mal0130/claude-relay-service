@@ -728,7 +728,9 @@ router.post('/api-key/create', authenticatePartner, async (req, res) => {
       expiresAt,
       expirationMode,
       activationDays,
-      activationUnit
+      activationUnit,
+      user_id,
+      pack_consent
     } = req.body
 
     const resolvedClaudeRate = resolveClaudeRate(claude_rate, rate)
@@ -923,7 +925,7 @@ router.post('/api-key/create', authenticatePartner, async (req, res) => {
     const createParams = {
       name: name.trim(),
       description: 'Created by partner API',
-      tags: ['uni-agent'],
+      tags: pack_consent ? ['uni-agent', 'pack_consent'] : ['uni-agent'],
       totalCostLimit: totalCostLimit ? Number(totalCostLimit) : 0,
       ...claudeBindingFields,
       permissions,
@@ -956,6 +958,10 @@ router.post('/api-key/create', authenticatePartner, async (req, res) => {
 
     if (activationUnit) {
       createParams.activationUnit = activationUnit
+    }
+
+    if (user_id) {
+      createParams.externalUid = user_id
     }
 
     // 调用 apiKeyService 创建 API Key
@@ -999,7 +1005,9 @@ router.post('/api-key/:keyId/update', authenticatePartner, async (req, res) => {
       expiresAt,
       expirationMode,
       activationDays,
-      activationUnit
+      activationUnit,
+      user_id,
+      pack_consent
     } = req.body
 
     const keyData = await findApiKey(keyId, null)
@@ -1241,6 +1249,24 @@ router.post('/api-key/:keyId/update', authenticatePartner, async (req, res) => {
 
     if (activationUnit !== undefined) {
       updates.activationUnit = activationUnit
+    }
+
+    if (user_id !== undefined) {
+      updates.externalUid = user_id || ''
+    }
+
+    if (pack_consent !== undefined) {
+      const currentTags = keyData.tags ? JSON.parse(keyData.tags) : []
+      const hasPackConsent = currentTags.includes('pack_consent')
+
+      if (pack_consent && !hasPackConsent) {
+        currentTags.push('pack_consent')
+        updates.tags = JSON.stringify(currentTags)
+      } else if (!pack_consent && hasPackConsent) {
+        const index = currentTags.indexOf('pack_consent')
+        currentTags.splice(index, 1)
+        updates.tags = JSON.stringify(currentTags)
+      }
     }
 
     if (Object.keys(updates).length === 0) {

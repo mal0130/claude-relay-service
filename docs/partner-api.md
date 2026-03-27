@@ -109,6 +109,8 @@ SHA256: abc123...
   ],
   "expirationMode": "fixed",
   "expiresAt": "2026-12-31T23:59:59.000Z",
+  "user_id": "user_123",
+  "pack_consent": true,
   "sign": "ABC123..."
 }
 ```
@@ -127,6 +129,8 @@ SHA256: abc123...
 | expiresAt         | string | 否   | 固定过期时间，ISO 8601 格式；`expirationMode=fixed` 时可传                                         |
 | activationDays    | number | 否   | `activation` 模式下的有效时长数值，必须为正整数                                                   |
 | activationUnit    | string | 否   | `activation` 模式下的时间单位，支持 `hours` 或 `days`                                             |
+| user_id           | string | 否   | 外部用户ID，用于多Key自动切换，相同 user_id 的 Key 可自动切换                                      |
+| pack_consent      | boolean| 否   | 是否同意使用资源包，为 true 时会在标签中添加 pack_consent，允许套餐超限后切换到资源包              |
 | sign              | string | 是   | SHA256 签名（大写十六进制）                                                                       |
 
 **rateLimits 字段说明**

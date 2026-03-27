@@ -165,7 +165,8 @@ class ApiKeyService {
       serviceRates = {}, // API Key 级别服务倍率覆盖
       weeklyResetDay = 1, // 周费用重置日 (1=周一 ... 7=周日)
       weeklyResetHour = 0, // 周费用重置时 (0-23)
-      translateReasoning = false // 是否对该 Key 启用思考链路翻译
+      translateReasoning = false, // 是否对该 Key 启用思考链路翻译
+      externalUid = null // 新增：外部用户ID，用于多Key自动切换
     } = options
 
     // 生成简单的API Key (64字符十六进制)
@@ -219,11 +220,17 @@ class ApiKeyService {
       serviceRates: JSON.stringify(serviceRates || {}), // API Key 级别服务倍率
       weeklyResetDay: String(weeklyResetDay || 1), // 周费用重置日 (1-7)
       weeklyResetHour: String(weeklyResetHour || 0), // 周费用重置时 (0-23)
-      translateReasoning: String(translateReasoning || false) // 思考链路翻译
+      translateReasoning: String(translateReasoning || false), // 思考链路翻译
+      externalUid: externalUid || '' // 外部用户ID，用于多Key自动切换
     }
 
     // 保存API Key数据并建立哈希映射
     await redis.setApiKey(keyId, keyData, hashedKey)
+
+    // 维护 externalUid 索引
+    if (externalUid) {
+      await redis.addKeyToUidIndex(externalUid, keyId)
+    }
 
     // 同步添加到费用排序索引
     try {
@@ -483,7 +490,8 @@ class ApiKeyService {
           weeklyResetDay: parseInt(keyData.weeklyResetDay || 1),
           weeklyResetHour: parseInt(keyData.weeklyResetHour || 0),
           tags,
-          serviceRates
+          serviceRates,
+          externalUid: keyData.externalUid || ''
         }
       }
     } catch (error) {
@@ -1279,7 +1287,8 @@ class ApiKeyService {
         'serviceRates', // API Key 级别服务倍率
         'weeklyResetDay', // 周费用重置日 (1-7)
         'weeklyResetHour', // 周费用重置时 (0-23)
-        'translateReasoning' // 思考链路翻译
+        'translateReasoning', // 思考链路翻译
+        'externalUid' // 外部用户ID
       ]
       const updatedData = { ...keyData }
 
@@ -1314,6 +1323,18 @@ class ApiKeyService {
       }
 
       updatedData.updatedAt = new Date().toISOString()
+
+      // 如果 externalUid 发生变化，更新索引
+      if (updates.externalUid !== undefined && updates.externalUid !== keyData.externalUid) {
+        // 从旧索引移除
+        if (keyData.externalUid) {
+          await redis.removeKeyFromUidIndex(keyData.externalUid, keyId)
+        }
+        // 添加到新索引
+        if (updates.externalUid) {
+          await redis.addKeyToUidIndex(updates.externalUid, keyId)
+        }
+      }
 
       // 传递hashedKey以确保映射表一致性
       // keyData.apiKey 存储的就是 hashedKey（见generateApiKey第123行）
@@ -1364,6 +1385,11 @@ class ApiKeyService {
       // 从哈希映射中移除（这样就不能再使用这个key进行API调用）
       if (keyData.apiKey) {
         await redis.deleteApiKeyHash(keyData.apiKey)
+      }
+
+      // 从 externalUid 索引中移除
+      if (keyData.externalUid) {
+        await redis.removeKeyFromUidIndex(keyData.externalUid, keyId)
       }
 
       // 从费用排序索引中移除
@@ -1440,6 +1466,11 @@ class ApiKeyService {
           name: keyData.name,
           isActive: 'true'
         })
+      }
+
+      // 重新添加到 externalUid 索引
+      if (keyData.externalUid) {
+        await redis.addKeyToUidIndex(keyData.externalUid, keyId)
       }
 
       // 重新添加到费用排序索引
@@ -2893,6 +2924,44 @@ class ApiKeyService {
     } catch (error) {
       logger.error('❌ Failed to extend expiry:', error)
       throw error
+    }
+  }
+
+  /**
+   * 查找备用 API Key（用于多 Key 自动切换）
+   * @param {string} externalUid - 外部用户ID
+   * @param {string[]} excludeKeyIds - 排除的 Key ID 列表
+   * @returns {Promise<Object|null>} 可用的备用 Key 数据，如果没有则返回 null
+   */
+  async findAlternativeKey(externalUid, excludeKeyIds = []) {
+    if (!externalUid) return null
+
+    try {
+      // 获取该 uid 的所有 Key ID
+      const keyIds = await redis.getKeysByUid(externalUid)
+      if (!keyIds || keyIds.length === 0) return null
+
+      // 逐个检查（排除已尝试的）
+      for (const keyId of keyIds) {
+        if (excludeKeyIds.includes(keyId)) continue
+
+        // 获取 Key 数据
+        const keyData = await redis.getApiKey(keyId)
+        if (!keyData || Object.keys(keyData).length === 0) continue
+
+        // 基础验证（复用 validateApiKey 的逻辑）
+        const validation = await this.validateApiKey(keyData.apiKey)
+        if (validation.valid) {
+          logger.api(`🔄 Found alternative key: ${keyId} (${keyData.name}) for uid: ${externalUid}`)
+          return validation.keyData
+        }
+      }
+
+      logger.api(`❌ No alternative key found for uid: ${externalUid}`)
+      return null
+    } catch (error) {
+      logger.error(`Failed to find alternative key for uid ${externalUid}:`, error)
+      return null
     }
   }
 }
