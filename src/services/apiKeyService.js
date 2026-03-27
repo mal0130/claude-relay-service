@@ -129,6 +129,41 @@ class ApiKeyService {
     this.prefix = config.security.apiKeyPrefix
   }
 
+  /**
+   * 初始化速率限制窗口（购买时立即启动倒计时）
+   * @param {string} keyId - API Key ID
+   * @param {Array} rateLimits - 速率限制规则数组
+   */
+  async initializeRateLimitWindows(keyId, rateLimits) {
+    if (!rateLimits || rateLimits.length === 0) {
+      return
+    }
+
+    const now = Date.now()
+    const client = redis.getClient()
+
+    for (let i = 0; i < rateLimits.length; i++) {
+      const rule = rateLimits[i]
+      const ruleWindow = rule.window || 0
+
+      if (ruleWindow <= 0) continue
+
+      const suffix = rateLimits.length === 1 ? '' : `:${i}`
+      const windowStartKey = `rate_limit:window_start:${keyId}${suffix}`
+      const requestCountKey = `rate_limit:requests:${keyId}${suffix}`
+      const tokenCountKey = `rate_limit:tokens:${keyId}${suffix}`
+      const costCountKey = `rate_limit:cost:${keyId}${suffix}`
+      const windowDuration = ruleWindow * 60 * 1000
+
+      await client.set(windowStartKey, now, 'PX', windowDuration)
+      await client.set(requestCountKey, 0, 'PX', windowDuration)
+      await client.set(tokenCountKey, 0, 'PX', windowDuration)
+      await client.set(costCountKey, 0, 'PX', windowDuration)
+    }
+
+    logger.info(`✅ Initialized rate limit windows for key ${keyId}, ${rateLimits.length} rules`)
+  }
+
   // 🔑 生成新的API Key
   async generateApiKey(options = {}) {
     const {
@@ -254,6 +289,15 @@ class ApiKeyService {
       })
     } catch (err) {
       logger.warn(`Failed to add key ${keyId} to API Key index:`, err.message)
+    }
+
+    // 初始化速率限制窗口（购买时立即启动倒计时）
+    if (rateLimits && rateLimits.length > 0) {
+      try {
+        await this.initializeRateLimitWindows(keyId, rateLimits)
+      } catch (err) {
+        logger.warn(`Failed to initialize rate limit windows for key ${keyId}:`, err.message)
+      }
     }
 
     logger.success(`🔑 Generated new API key: ${name} (${keyId})`)
@@ -1351,6 +1395,21 @@ class ApiKeyService {
         })
       } catch (err) {
         logger.warn(`Failed to update API Key index for ${keyId}:`, err.message)
+      }
+
+      // 如果 rateLimits 发生变化，重置速率限制窗口
+      if (updates.rateLimits !== undefined) {
+        try {
+          const newRateLimits = Array.isArray(updates.rateLimits)
+            ? updates.rateLimits
+            : JSON.parse(updates.rateLimits || '[]')
+          if (newRateLimits.length > 0) {
+            await this.initializeRateLimitWindows(keyId, newRateLimits)
+            logger.info(`🔄 Reset rate limit windows for key ${keyId}`)
+          }
+        } catch (err) {
+          logger.warn(`Failed to reset rate limit windows for key ${keyId}:`, err.message)
+        }
       }
 
       logger.success(`📝 Updated API key: ${keyId}, hashMap updated`)
