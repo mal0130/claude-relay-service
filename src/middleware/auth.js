@@ -11,7 +11,8 @@ const claudeRelayConfigService = require('../services/claudeRelayConfigService')
 const { calculateWaitTimeStats } = require('../utils/statsHelper')
 const { isClaudeFamilyModel } = require('../utils/modelHelper')
 
-const subscriptionUrl = 'https://dev.dcloud.net.cn/pages/product-account/product-account?pcd=uni_ai_agent'
+const subscriptionUrl =
+  'https://dev.dcloud.net.cn/pages/product-account/product-account?pcd=uni_ai_agent'
 
 // 工具函数
 function sleep(ms) {
@@ -330,15 +331,12 @@ async function checkApiKeyLimits(keyData, req) {
     }
   }
 
-  // 2. 获取实时费用统计（直接从 Redis 读取）
-  const today = new Date().toISOString().split('T')[0]
-  const [totalCostStr, dailyCostStr] = await Promise.all([
-    redis.getClient().get(`usage:cost:real:total:${keyData.id}`),
-    redis.getClient().get(`usage:cost:real:daily:${keyData.id}:${today}`)
+  // 2. 获取实时费用统计（使用计费成本，与限额设置口径一致）
+  const [dailyCost, costStats] = await Promise.all([
+    redis.getDailyCost(keyData.id),
+    redis.getCostStats(keyData.id)
   ])
-
-  const totalCost = parseFloat(totalCostStr || 0)
-  const dailyCost = parseFloat(dailyCostStr || 0)
+  const totalCost = costStats?.total || 0
 
   logger.api(
     `🔍 Key ${keyData.id} usage: daily=${dailyCost}/${parseFloat(keyData.dailyCostLimit || 0)}, total=${totalCost}/${parseFloat(keyData.totalCostLimit || 0)}`
@@ -391,7 +389,9 @@ async function checkApiKeyLimits(keyData, req) {
       logger.api(`🔍 Key ${keyData.id} weekly=${weeklyOpusCost}/${weeklyOpusCostLimit}`)
 
       if (weeklyOpusCost >= weeklyOpusCostLimit) {
-        logger.api(`❌ Key ${keyData.id} weekly cost exceeded: ${weeklyOpusCost} >= ${weeklyOpusCostLimit}`)
+        logger.api(
+          `❌ Key ${keyData.id} weekly cost exceeded: ${weeklyOpusCost} >= ${weeklyOpusCostLimit}`
+        )
         return {
           valid: false,
           error: {
@@ -690,9 +690,7 @@ const authenticateApiKey = async (req, res, next) => {
         `🔄 Validation failed: ${validation.error}, externalUid: ${basicValidation.keyData?.externalUid || 'none'}`
       )
       if (basicValidation.keyData?.externalUid) {
-        logger.api(
-          `🔄 Trying alternative keys for uid: ${basicValidation.keyData.externalUid}`
-        )
+        logger.api(`🔄 Trying alternative keys for uid: ${basicValidation.keyData.externalUid}`)
 
         // 获取该 uid 的所有 Key ID
         const keyIds = await redis.getKeysByUid(basicValidation.keyData.externalUid)
@@ -840,7 +838,9 @@ const authenticateApiKey = async (req, res, next) => {
       // 如果切换失败或无 externalUid，返回错误
       if (!validation.valid) {
         const clientIP = req.ip || req.connection?.remoteAddress || 'unknown'
-        logger.security(`API key validation failed: ${JSON.stringify(validation.error)} from ${clientIP}`)
+        logger.security(
+          `API key validation failed: ${JSON.stringify(validation.error)} from ${clientIP}`
+        )
 
         // 如果 error 是对象（新格式），直接返回
         if (typeof validation.error === 'object') {
@@ -945,7 +945,8 @@ const authenticateApiKey = async (req, res, next) => {
         // 3. 排队功能未启用，直接返回 429（保持现有行为）
         if (!queueConfig.concurrentRequestQueueEnabled) {
           logger.security(
-            `🚦 Concurrency limit exceeded for key: ${validation.keyData.id} (${validation.keyData.name
+            `🚦 Concurrency limit exceeded for key: ${validation.keyData.id} (${
+              validation.keyData.name
             }), current: ${currentConcurrency - 1}, limit: ${concurrencyLimit}`
           )
           // 建议客户端在短暂延迟后重试（并发场景下通常很快会有槽位释放）
@@ -977,9 +978,9 @@ const authenticateApiKey = async (req, res, next) => {
           const currentQueueCount = overloadCheck.currentQueueCount || 0
           logger.api(
             `🚨 Queue overloaded for key: ${validation.keyData.id} (${validation.keyData.name}), ` +
-            `P90=${overloadCheck.estimatedWaitMs}ms, timeout=${overloadCheck.timeoutMs}ms, ` +
-            `threshold=${overloadCheck.threshold}, samples=${overloadCheck.sampleCount}, ` +
-            `concurrency=${concurrencyLimit}, queue=${currentQueueCount}/${maxQueueSize}`
+              `P90=${overloadCheck.estimatedWaitMs}ms, timeout=${overloadCheck.timeoutMs}ms, ` +
+              `threshold=${overloadCheck.threshold}, samples=${overloadCheck.sampleCount}, ` +
+              `concurrency=${concurrencyLimit}, queue=${currentQueueCount}/${maxQueueSize}`
           )
           // 记录被拒绝的过载统计
           redis
@@ -1017,7 +1018,7 @@ const authenticateApiKey = async (req, res, next) => {
             queueIncremented = false
             logger.api(
               `🚦 Concurrency queue full for key: ${validation.keyData.id} (${validation.keyData.name}), ` +
-              `queue: ${newQueueCount - 1}, maxQueue: ${maxQueueSize}`
+                `queue: ${newQueueCount - 1}, maxQueue: ${maxQueueSize}`
             )
             // 队列已满，建议客户端在排队超时时间后重试
             const retryAfterSeconds = Math.ceil(queueConfig.concurrentRequestQueueTimeoutMs / 1000)
@@ -1037,7 +1038,7 @@ const authenticateApiKey = async (req, res, next) => {
           // 6. 已成功进入排队，记录统计并开始等待槽位
           logger.api(
             `⏳ Request entering queue for key: ${validation.keyData.id} (${validation.keyData.name}), ` +
-            `queue position: ${newQueueCount}`
+              `queue position: ${newQueueCount}`
           )
           redis
             .incrConcurrencyQueueStats(validation.keyData.id, 'entered')
@@ -1130,7 +1131,7 @@ const authenticateApiKey = async (req, res, next) => {
           // 8. 排队成功，slot.acquired 表示已在 waitForConcurrencySlot 中获取到槽位
           logger.api(
             `✅ Queue wait completed for key: ${validation.keyData.id} (${validation.keyData.name}), ` +
-            `waited: ${slot.waitTimeMs}ms`
+              `waited: ${slot.waitTimeMs}ms`
           )
           hasConcurrencySlot = true
           setTemporaryConcurrencyCleanup()
@@ -1145,8 +1146,8 @@ const authenticateApiKey = async (req, res, next) => {
           if (res.destroyed || res.writableEnded || postQueueSocket?.destroyed) {
             logger.warn(
               `⚠️ Client no longer waiting after queue for key: ${validation.keyData.id} (${validation.keyData.name}), ` +
-              `waited: ${slot.waitTimeMs}ms | destroyed: ${res.destroyed}, ` +
-              `writableEnded: ${res.writableEnded}, socketDestroyed: ${postQueueSocket?.destroyed}`
+                `waited: ${slot.waitTimeMs}ms | destroyed: ${res.destroyed}, ` +
+                `writableEnded: ${res.writableEnded}, socketDestroyed: ${postQueueSocket?.destroyed}`
             )
             // 释放刚获取的槽位
             hasConcurrencySlot = false
@@ -1170,10 +1171,10 @@ const authenticateApiKey = async (req, res, next) => {
           if (socketIdentityChanged) {
             logger.error(
               `❌ [Queue] Socket identity changed during queue wait! ` +
-              `key: ${validation.keyData.id} (${validation.keyData.name}), ` +
-              `waited: ${slot.waitTimeMs}ms | ` +
-              `tokenMatch: ${queueData?.queueToken === savedToken}, ` +
-              `socketMatch: ${queueData?.originalSocket === savedSocket}`
+                `key: ${validation.keyData.id} (${validation.keyData.name}), ` +
+                `waited: ${slot.waitTimeMs}ms | ` +
+                `tokenMatch: ${queueData?.queueToken === savedToken}, ` +
+                `socketMatch: ${queueData?.originalSocket === savedSocket}`
             )
             // 释放刚获取的槽位
             hasConcurrencySlot = false
@@ -1442,7 +1443,8 @@ const authenticateApiKey = async (req, res, next) => {
             const remainingMinutes = Math.ceil((resetTime - now) / 60000)
 
             logger.security(
-              `💰 Rate limit exceeded (cost, rule ${i}) for key: ${validation.keyData.id} (${validation.keyData.name
+              `💰 Rate limit exceeded (cost, rule ${i}) for key: ${validation.keyData.id} (${
+                validation.keyData.name
               }), cost: $${currentCost.toFixed(2)}/$${ruleCost}, window: ${ruleWindow}min`
             )
 
@@ -1486,7 +1488,8 @@ const authenticateApiKey = async (req, res, next) => {
 
       if (dailyCost >= dailyCostLimit) {
         logger.security(
-          `💰 Daily cost limit exceeded for key: ${validation.keyData.id} (${validation.keyData.name
+          `💰 Daily cost limit exceeded for key: ${validation.keyData.id} (${
+            validation.keyData.name
           }), cost: $${dailyCost.toFixed(2)}/$${dailyCostLimit}`
         )
 
@@ -1505,7 +1508,8 @@ const authenticateApiKey = async (req, res, next) => {
 
       // 记录当前费用使用情况
       logger.api(
-        `💰 Cost usage for key: ${validation.keyData.id} (${validation.keyData.name
+        `💰 Cost usage for key: ${validation.keyData.id} (${
+          validation.keyData.name
         }), current: $${dailyCost.toFixed(2)}/$${dailyCostLimit}`
       )
     }
@@ -1517,7 +1521,8 @@ const authenticateApiKey = async (req, res, next) => {
 
       if (totalCost >= totalCostLimit) {
         logger.security(
-          `💰 Total cost limit exceeded for key: ${validation.keyData.id} (${validation.keyData.name
+          `💰 Total cost limit exceeded for key: ${validation.keyData.id} (${
+            validation.keyData.name
           }), cost: $${totalCost.toFixed(2)}/$${totalCostLimit}`
         )
 
@@ -1534,7 +1539,8 @@ const authenticateApiKey = async (req, res, next) => {
       }
 
       logger.api(
-        `💰 Total cost usage for key: ${validation.keyData.id} (${validation.keyData.name
+        `💰 Total cost usage for key: ${validation.keyData.id} (${
+          validation.keyData.name
         }), current: $${totalCost.toFixed(2)}/$${totalCostLimit}`
       )
     }
@@ -1552,7 +1558,8 @@ const authenticateApiKey = async (req, res, next) => {
 
         if (weeklyOpusCost >= weeklyOpusCostLimit) {
           logger.security(
-            `💰 Weekly Claude cost limit exceeded for key: ${validation.keyData.id} (${validation.keyData.name
+            `💰 Weekly Claude cost limit exceeded for key: ${validation.keyData.id} (${
+              validation.keyData.name
             }), cost: $${weeklyOpusCost.toFixed(2)}/$${weeklyOpusCostLimit}`
           )
 
@@ -1576,7 +1583,8 @@ const authenticateApiKey = async (req, res, next) => {
 
         // 记录当前 Claude 费用使用情况
         logger.api(
-          `💰 Claude weekly cost usage for key: ${validation.keyData.id} (${validation.keyData.name
+          `💰 Claude weekly cost usage for key: ${validation.keyData.id} (${
+            validation.keyData.name
           }), current: $${weeklyOpusCost.toFixed(2)}/$${weeklyOpusCostLimit}`
         )
       }
