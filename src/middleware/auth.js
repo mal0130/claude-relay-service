@@ -305,7 +305,7 @@ async function checkApiKeyLimits(keyData, req) {
               valid: false,
               error: {
                 type: 'insufficient_quota',
-                message: `已触发${timeWindowDesc}限额，您可以等待 ${remainingMinutes} 分钟后订阅套餐解封后继续，也可以新购uni-agent资源包继续AI Coding`,
+                message: `已触发${timeWindowDesc}限额，您可以等待 ${remainingMinutes} 分钟后订阅套餐解封后继续，也可以前往<a href="${subscriptionUrl}">开发者中心</a>新购uni-agent资源包继续AI Coding`,
                 code: 'rate_limit_requests_exceeded'
               },
               statusCode: 402
@@ -320,7 +320,7 @@ async function checkApiKeyLimits(keyData, req) {
               valid: false,
               error: {
                 type: 'insufficient_quota',
-                message: `已触发${timeWindowDesc}限额，您可以等待 ${remainingMinutes} 分钟后订阅套餐解封后继续，也可以新购uni-agent资源包继续AI Coding`,
+                message: `已触发${timeWindowDesc}限额，您可以等待 ${remainingMinutes} 分钟后订阅套餐解封后继续，也可以前往<a href="${subscriptionUrl}">开发者中心</a>新购uni-agent资源包继续AI Coding`,
                 code: 'rate_limit_cost_exceeded'
               },
               statusCode: 402
@@ -1408,7 +1408,7 @@ const authenticateApiKey = async (req, res, next) => {
 
           return res.status(429).json({
             error: 'Rate limit exceeded',
-            message: `已达到请求次数限制，将在 ${remainingMinutes} 分钟后重置，您可前往<a href="${subscriptionUrl}">开发者中心</a>购买资源包，如已购买，可发送“继续”以继续使用。`,
+            message: `已达到使用限制，将在 ${remainingMinutes} 分钟后重置，您可前往<a href="${subscriptionUrl}">开发者中心</a>购买资源包，如已购买，可发送“继续”以继续使用。`,
             currentRequests,
             requestLimit: ruleRequests,
             resetAt: resetTime.toISOString(),
@@ -1429,7 +1429,7 @@ const authenticateApiKey = async (req, res, next) => {
 
             return res.status(429).json({
               error: 'Rate limit exceeded',
-              message: `已达到 Token 使用限制，将在 ${remainingMinutes} 分钟后重置，您可前往<a href="${subscriptionUrl}">开发者中心</a>购买资源包，如已购买，可发送“继续”以继续使用。`,
+              message: `已达到使用限制，将在，将在 ${remainingMinutes} 分钟后重置，您可前往<a href="${subscriptionUrl}">开发者中心</a>购买资源包，如已购买，可发送“继续”以继续使用。`,
               currentTokens,
               tokenLimit,
               resetAt: resetTime.toISOString(),
