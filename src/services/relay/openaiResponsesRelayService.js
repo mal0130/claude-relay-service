@@ -65,8 +65,14 @@ class OpenAIResponsesRelayService {
   // 处理请求转发
   async handleRequest(req, res, account, apiKeyData) {
     let abortController = null
-    // 获取会话哈希（如果有的话）
-    const sessionId = req.headers['session_id'] || req.body?.session_id
+    // 获取会话哈希（如果有的话）——来源必须与 openaiRoutes.js handleResponses 保持一致
+    const sessionId =
+      req.headers['session_id'] ||
+      req.headers['x-session-id'] ||
+      req.body?.session_id ||
+      req.body?.conversation_id ||
+      req.body?.prompt_cache_key ||
+      null
     logger.info(
       `🔍 relay sessionId sources: header_session_id=${req.headers['session_id']}, ` +
         `header_x-session-id=${req.headers['x-session-id']}, ` +
@@ -390,7 +396,12 @@ class OpenAIResponsesRelayService {
         abortController.abort()
       }
 
-      // 安全地记录错误，避免循环引用
+      // 客户端主动断开导致的取消，静默退出即可
+      if (axios.isCancel(error) || error.code === 'ERR_CANCELED') {
+        logger.info('🔌 Request canceled due to client disconnect')
+        return
+      }
+
       const errorInfo = {
         message: error.message,
         code: error.code,
