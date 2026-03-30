@@ -45,12 +45,12 @@ function applyReasoningTranslation(res, _options = {}) {
   let pendingReasoningDoneEvents = []
   // 防止 startTranslation() 被重复调用（isResponsesDoneEvent 和 res.end 均可能触发）
   let translationStarted = false
-  // 累积翻译后的 reasoning 文本，用于补发 reasoning_summary_text.done
-  let translatedReasoningAccumulated = ''
-  // 跟踪是否已向客户端发送 reasoning_summary_text.added（上游通常不发此事件需合成）
-  let reasoningAddedSent = false
-  // 跟踪是否已向客户端发送 reasoning_summary_part.added
-  let reasoningPartAddedSent = false
+  // 按 summary_index 累积翻译后的 reasoning 文本，用于补发各自的 done 事件
+  const translatedReasoningBySummary = new Map()
+  // 按 summary_index 跟踪是否已向客户端发送 reasoning_summary_text.added
+  const emittedReasoningTextAdded = new Set()
+  // 按 summary_index 跟踪是否已向客户端发送 reasoning_summary_part.added
+  const emittedReasoningPartAdded = new Set()
 
   let clientSeq = 0
   function logClientReasoningEvent(label, payload) {
@@ -60,56 +60,73 @@ function applyReasoningTranslation(res, _options = {}) {
     )
   }
 
-  const translator = createReasoningTranslator((text) => {
-    const id = chatId || `chatcmpl-translated-${Date.now()}`
-    translatedReasoningAccumulated += text
-    // 在首个翻译 delta 前合成发出 reasoning_summary_part.added 和 reasoning_summary_text.added
-    if (streamFormat === 'responses' && reasoningItemId) {
-      if (!reasoningPartAddedSent) {
-        // output_item.added(reasoning) 必须在 part.added 之前到达客户端，否则 SDK 不认识 item_id
-        for (const ev of pendingReasoningAddedEvents) {
-          try {
-            const p = JSON.parse(ev.replace(/^data: /, '').trim())
-            logClientReasoningEvent('output_item.added(reasoning)', {
-              item_id: p?.item?.id,
-              output_index: p?.output_index,
-              summary_index: p?.summary_index
-            })
-          } catch (_e) {
-            // 忽略
-          }
-          originalWrite(ev)
-        }
-        pendingReasoningAddedEvents = []
+  function appendTranslatedReasoning(summaryIndex, text) {
+    const previous = translatedReasoningBySummary.get(summaryIndex) || ''
+    translatedReasoningBySummary.set(summaryIndex, previous + text)
+  }
 
-        reasoningPartAddedSent = true
-        const partAddedPayload = {
-          type: 'response.reasoning_summary_part.added',
-          item_id: reasoningItemId,
-          output_index: reasoningOutputIndex,
-          summary_index: reasoningSummaryIndex,
-          part: { type: 'summary_text', text: '' }
-        }
-        logClientReasoningEvent('reasoning_summary_part.added', partAddedPayload)
-        originalWrite(`data: ${JSON.stringify(partAddedPayload)}\n\n`)
-      }
-      if (!reasoningAddedSent) {
-        reasoningAddedSent = true
-        const addedPayload = {
-          type: 'response.reasoning_summary_text.added',
-          item_id: reasoningItemId,
-          output_index: reasoningOutputIndex,
-          summary_index: reasoningSummaryIndex
-        }
-        logClientReasoningEvent('reasoning_summary_text.added', addedPayload)
-        originalWrite(`data: ${JSON.stringify(addedPayload)}\n\n`)
-      }
+  function emitReasoningLifecycleIfNeeded(summaryIndex) {
+    if (streamFormat !== 'responses' || !reasoningItemId) {
+      return
     }
+
+    // output_item.added(reasoning) 必须在 part.added 之前到达客户端，否则 SDK 不认识 item_id
+    if (pendingReasoningAddedEvents.length > 0) {
+      for (const ev of pendingReasoningAddedEvents) {
+        try {
+          const p = JSON.parse(ev.replace(/^data: /, '').trim())
+          logClientReasoningEvent('output_item.added(reasoning)', {
+            item_id: p?.item?.id,
+            output_index: p?.output_index,
+            summary_index: p?.summary_index
+          })
+        } catch (_e) {
+          // 忽略
+        }
+        originalWrite(ev)
+      }
+      pendingReasoningAddedEvents = []
+    }
+
+    if (!emittedReasoningPartAdded.has(summaryIndex)) {
+      emittedReasoningPartAdded.add(summaryIndex)
+      const partAddedPayload = {
+        type: 'response.reasoning_summary_part.added',
+        item_id: reasoningItemId,
+        output_index: reasoningOutputIndex,
+        summary_index: summaryIndex,
+        part: { type: 'summary_text', text: '' }
+      }
+      logClientReasoningEvent('reasoning_summary_part.added', partAddedPayload)
+      originalWrite(`data: ${JSON.stringify(partAddedPayload)}\n\n`)
+    }
+
+    if (!emittedReasoningTextAdded.has(summaryIndex)) {
+      emittedReasoningTextAdded.add(summaryIndex)
+      const textAddedPayload = {
+        type: 'response.reasoning_summary_text.added',
+        item_id: reasoningItemId,
+        output_index: reasoningOutputIndex,
+        summary_index: summaryIndex
+      }
+      logClientReasoningEvent('reasoning_summary_text.added', textAddedPayload)
+      originalWrite(`data: ${JSON.stringify(textAddedPayload)}\n\n`)
+    }
+  }
+
+  const translator = createReasoningTranslator((text, meta = {}) => {
+    const id = chatId || `chatcmpl-translated-${Date.now()}`
+    const summaryIndex =
+      typeof meta.summaryIndex === 'number' ? meta.summaryIndex : reasoningSummaryIndex
+
+    appendTranslatedReasoning(summaryIndex, text)
+    emitReasoningLifecycleIfNeeded(summaryIndex)
+
     const deltaPayload = {
       type: 'response.reasoning_summary_text.delta',
       item_id: reasoningItemId,
       output_index: reasoningOutputIndex,
-      summary_index: reasoningSummaryIndex,
+      summary_index: summaryIndex,
       delta: text
     }
     if (streamFormat === 'responses') {
@@ -122,7 +139,7 @@ function applyReasoningTranslation(res, _options = {}) {
         streamFormat,
         reasoningItemId,
         reasoningOutputIndex,
-        reasoningSummaryIndex
+        reasoningSummaryIndex: summaryIndex
       })
     )
   })
@@ -514,28 +531,61 @@ function applyReasoningTranslation(res, _options = {}) {
         maybeLogUsageSummary(usageSummaryFinalized)
 
         logger.info(`🌐 [ReasoningTranslation] ===原文===\n${translator.originalAccumulated}`)
-        logger.info(`🌐 [ReasoningTranslation] ===译文===\n${translatedReasoningAccumulated}`)
-        // 补发 reasoning_summary_text.done 和 reasoning_summary_part.done，完成 reasoning 状态机
-        if (streamFormat === 'responses' && reasoningItemId && translatedReasoningAccumulated) {
-          const donePayload = {
-            type: 'response.reasoning_summary_text.done',
-            item_id: reasoningItemId,
-            output_index: reasoningOutputIndex,
-            summary_index: reasoningSummaryIndex,
-            text: translatedReasoningAccumulated
+        logger.info(
+          `🌐 [ReasoningTranslation] ===译文===\n${Array.from(translatedReasoningBySummary.values()).join('')}`
+        )
+        // 按 summary_index 补发 reasoning_summary_text.done 和 reasoning_summary_part.done
+        if (streamFormat === 'responses' && reasoningItemId) {
+          for (const [summaryIndex, translatedText] of translatedReasoningBySummary.entries()) {
+            if (!translatedText) {
+              continue
+            }
+            emitReasoningLifecycleIfNeeded(summaryIndex)
+            const donePayload = {
+              type: 'response.reasoning_summary_text.done',
+              item_id: reasoningItemId,
+              output_index: reasoningOutputIndex,
+              summary_index: summaryIndex,
+              text: translatedText
+            }
+            logClientReasoningEvent('reasoning_summary_text.done', donePayload)
+            originalWrite(`data: ${JSON.stringify(donePayload)}\n\n`)
+            const partDonePayload = {
+              type: 'response.reasoning_summary_part.done',
+              item_id: reasoningItemId,
+              output_index: reasoningOutputIndex,
+              summary_index: summaryIndex,
+              part: { type: 'summary_text', text: translatedText }
+            }
+            logClientReasoningEvent('reasoning_summary_part.done', partDonePayload)
+            originalWrite(`data: ${JSON.stringify(partDonePayload)}\n\n`)
           }
-          logClientReasoningEvent('reasoning_summary_text.done', donePayload)
-          originalWrite(`data: ${JSON.stringify(donePayload)}\n\n`)
-          const partDonePayload = {
-            type: 'response.reasoning_summary_part.done',
-            item_id: reasoningItemId,
-            output_index: reasoningOutputIndex,
-            summary_index: reasoningSummaryIndex,
-            part: { type: 'summary_text', text: translatedReasoningAccumulated }
-          }
-          logClientReasoningEvent('reasoning_summary_part.done', partDonePayload)
-          originalWrite(`data: ${JSON.stringify(partDonePayload)}\n\n`)
         }
+        // 如果没有任何翻译 delta，但客户端已经看到 reasoning item，也要补齐被压制的 output_item.added/done
+        if (
+          streamFormat === 'responses' &&
+          reasoningItemId &&
+          translatedReasoningBySummary.size === 0
+        ) {
+          emitReasoningLifecycleIfNeeded(reasoningSummaryIndex)
+        }
+        if (pendingReasoningDoneEvents.length > 0) {
+          for (const event of pendingReasoningDoneEvents) {
+            try {
+              const p = JSON.parse(event.replace(/^data: /, '').trim())
+              logClientReasoningEvent('output_item.done(reasoning)', {
+                item_id: p?.item?.id,
+                output_index: p?.output_index,
+                summary_index: p?.summary_index
+              })
+            } catch (_e) {
+              // 忽略
+            }
+            originalWrite(event)
+          }
+          pendingReasoningDoneEvents = []
+        }
+        pendingReasoningAddedEvents = []
         translationDone = true
         flushPending(usage)
         maybeLogUsageSummary(usageSummaryFinalized)
@@ -607,7 +657,7 @@ function applyReasoningTranslation(res, _options = {}) {
         if (!firstReasoningDeltaTime) {
           firstReasoningDeltaTime = Date.now()
         }
-        translator.push(reasoningText)
+        translator.push(reasoningText, { summaryIndex: reasoningSummaryIndex })
       }
       // 无论内容是否为空，reasoning delta 事件一律不转发给客户端
       return

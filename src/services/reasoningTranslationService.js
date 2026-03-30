@@ -55,19 +55,68 @@ function findBoundary(text) {
 /**
  * 创建翻译器实例
  *
- * @param {(text: string) => void} onToken  每个翻译句子完成时回调（按序）
- * @returns {{ push: Function, flush: Function, usage: object }}
+ * @param {(text: string, meta?: object) => void} onToken 每个翻译句子完成时回调（按序）
+ * @returns {{ push: Function, flush: Function, usage: object, originalAccumulated: string }}
  */
 function createReasoningTranslator(onToken) {
   const { apiKey, baseUrl, model, timeout } = config.translation
 
   let buffer = ''
+  let bufferMeta = {}
   let outputChain = Promise.resolve()
   let chunkIndex = 0
   const tokenUsage = { prompt: 0, completion: 0, total: 0 }
   let originalAccumulated = ''
   let firstChunkChecked = false
   let skipAllTranslation = false
+
+  function isSameMeta(a = {}, b = {}) {
+    return a.summaryIndex === b.summaryIndex
+  }
+
+  function dispatch(text, meta = {}) {
+    const idx = ++chunkIndex
+    originalAccumulated += text
+    const promise = translate(text, idx)
+    outputChain = outputChain.then(async () => {
+      const translated = await promise
+      if (translated && translated.trim()) {
+        onToken(restoreWhitespace(text, translated), meta)
+      }
+    })
+  }
+
+  function flushBufferChunk() {
+    if (!buffer) {
+      return
+    }
+    dispatch(buffer, bufferMeta)
+    buffer = ''
+    bufferMeta = {}
+  }
+
+  function appendToBuffer(delta, meta = {}) {
+    if (!buffer) {
+      bufferMeta = meta
+    } else if (!isSameMeta(bufferMeta, meta)) {
+      flushBufferChunk()
+      bufferMeta = meta
+    }
+    buffer += delta
+  }
+
+  function drainBufferByBoundary() {
+    let boundary
+    while ((boundary = findBoundary(buffer)) !== -1) {
+      const chunk = buffer.slice(0, boundary)
+      const meta = bufferMeta
+      buffer = buffer.slice(boundary)
+      if (!buffer) {
+        bufferMeta = {}
+      }
+      dispatch(chunk, meta)
+    }
+  }
 
   async function translate(text, idx) {
     if (!text.trim()) {
@@ -165,36 +214,21 @@ function createReasoningTranslator(onToken) {
     return result
   }
 
-  function dispatch(text) {
-    const idx = ++chunkIndex
-    originalAccumulated += text
-    const promise = translate(text, idx) // 并发启动
-    outputChain = outputChain.then(async () => {
-      const translated = await promise
-      if (translated && translated.trim()) {
-        onToken(restoreWhitespace(text, translated))
-      }
-    })
-  }
-
   return {
-    push(delta) {
+    push(delta, meta = {}) {
       if (!delta) {
         return
       }
-      buffer += delta
-      let boundary
-      while ((boundary = findBoundary(buffer)) !== -1) {
-        const chunk = buffer.slice(0, boundary)
-        buffer = buffer.slice(boundary)
-        dispatch(chunk)
-      }
+      appendToBuffer(delta, meta)
+      drainBufferByBoundary()
     },
 
     async flush() {
       if (buffer.trim()) {
-        dispatch(buffer)
+        flushBufferChunk()
+      } else {
         buffer = ''
+        bufferMeta = {}
       }
       await outputChain
     },
