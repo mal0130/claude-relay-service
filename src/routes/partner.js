@@ -71,6 +71,15 @@ async function getUsageSummary(apiKey) {
 
   const windowLimits = []
   const now = Date.now()
+  let recentUsageRecords = null
+  const loadRecentUsageRecords = async () => {
+    if (recentUsageRecords !== null) {
+      return recentUsageRecords
+    }
+
+    recentUsageRecords = await redis.getUsageRecords(keyId, 200)
+    return recentUsageRecords
+  }
 
   for (let index = 0; index < effectiveRateLimits.length; index++) {
     const rule = effectiveRateLimits[index]
@@ -101,6 +110,24 @@ async function getUsageSummary(apiKey) {
 
       if (now < windowEndTime) {
         remainingSeconds = Math.max(0, Math.floor((windowEndTime - now) / 1000))
+
+        // 兼容历史数据：窗口费用计数器缺失时，用最近 usage 记录回算倍率费用。
+        if (costLimit > 0 && currentCost <= 0) {
+          const usageRecords = await loadRecentUsageRecords()
+          currentCost = Number(
+            usageRecords
+              .filter((record) => {
+                if (!record || typeof record.cost !== 'number') {
+                  return false
+                }
+
+                const timestamp = Date.parse(record.timestamp)
+                return Number.isFinite(timestamp) && timestamp >= windowStartTime
+              })
+              .reduce((sum, record) => sum + record.cost, 0)
+              .toFixed(6)
+          )
+        }
       } else {
         remainingSeconds = 0
         currentRequests = 0
