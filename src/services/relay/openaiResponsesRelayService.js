@@ -11,6 +11,10 @@ const LRUCache = require('../../utils/lruCache')
 const upstreamErrorHelper = require('../../utils/upstreamErrorHelper')
 const webhookService = require('../webhookService')
 const { extractUserInput, classifyProjectType } = require('../../utils/userInputExtractor')
+const {
+  applyReasoningTranslation,
+  shouldTranslateForKey
+} = require('../../utils/reasoningTranslationTransformer')
 
 // lastUsedAt 更新节流（每账户 60 秒内最多更新一次，使用 LRU 防止内存泄漏）
 const lastUsedAtThrottle = new LRUCache(1000) // 最多缓存 1000 个账户
@@ -526,6 +530,23 @@ class OpenAIResponsesRelayService {
     handleClientDisconnect,
     req
   ) {
+    logger.info(
+      `🔍 [ReasoningTranslation] OpenAI-Responses stream entry - key=${apiKeyData?.name}, requestedModel=${requestedModel}, stream=${req.body?.stream}`
+    )
+
+    let reasoningTranslationController = null
+    if (shouldTranslateForKey(apiKeyData?.name)) {
+      logger.info(
+        `🌐 [ReasoningTranslation] 启用翻译 - Key: ${apiKeyData?.name}, 路由: openaiResponsesRelayService`
+      )
+      reasoningTranslationController = applyReasoningTranslation(res, {
+        keyId: apiKeyData?.id,
+        model: config.translation.model
+      })
+    } else {
+      logger.info(`🌐 [ReasoningTranslation] 跳过 - Key: ${apiKeyData?.name} 不在白名单`)
+    }
+
     // 设置 SSE 响应头
     res.setHeader('Content-Type', 'text/event-stream')
     res.setHeader('Cache-Control', 'no-cache')
@@ -564,6 +585,7 @@ class OpenAIResponsesRelayService {
               // 获取 usage 数据 - OpenAI-Responses 格式在 response.usage 下
               if (eventData.response.usage) {
                 usageData = eventData.response.usage
+                reasoningTranslationController?.updateMainUsage(usageData)
                 logger.info('📊 Successfully captured usage data from OpenAI-Responses:', {
                   input_tokens: usageData.input_tokens,
                   output_tokens: usageData.output_tokens,

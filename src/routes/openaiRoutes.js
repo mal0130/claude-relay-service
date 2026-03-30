@@ -16,6 +16,10 @@ const { updateRateLimitCounters } = require('../utils/rateLimitHelper')
 const { IncrementalSSEParser } = require('../utils/sseParser')
 const { getSafeMessage } = require('../utils/errorSanitizer')
 const { extractUserInput, classifyProjectType } = require('../utils/userInputExtractor')
+const {
+  applyReasoningTranslation,
+  shouldTranslateForKey
+} = require('../utils/reasoningTranslationTransformer')
 
 // Codex CLI 系统提示词（非 Codex CLI 客户端请求时注入，统一端点也使用）
 const CODEX_CLI_INSTRUCTIONS =
@@ -578,6 +582,19 @@ const handleResponses = async (req, res) => {
     res.status(upstream.status)
 
     if (isStream) {
+      // 思考链路翻译：Key 名称命中 TRANSLATE_KEY_NAMES 时生效
+      if (shouldTranslateForKey(apiKeyData.name)) {
+        logger.info(
+          `🌐 [ReasoningTranslation] 启用翻译 - Key: ${apiKeyData.name}, 路由: openaiRoutes/handleResponses`
+        )
+        applyReasoningTranslation(res, {
+          keyId: apiKeyData.id,
+          model: config.translation.model
+        })
+      } else {
+        logger.info(`🌐 [ReasoningTranslation] 跳过 - Key: ${apiKeyData.name} 不在白名单`)
+      }
+
       // 流式响应头
       res.setHeader('Content-Type', 'text/event-stream')
       res.setHeader('Cache-Control', 'no-cache')

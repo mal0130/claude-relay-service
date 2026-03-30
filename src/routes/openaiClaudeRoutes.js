@@ -366,11 +366,16 @@ async function handleChatCompletion(req, res, apiKeyData) {
 
       // 思考链路翻译：Key 名称命中 TRANSLATE_KEY_NAMES 时生效
       if (shouldTranslateForKey(apiKeyData.name)) {
+        logger.info(
+          `🌐 [ReasoningTranslation] 启用翻译 - Key: ${apiKeyData.name}, 路由: openaiClaudeRoutes`
+        )
         applyReasoningTranslation(res, {
           keyId: apiKeyData.id,
           model: config.translation.model
         })
         logger.debug(`🌐 [ReasoningTranslation] 已为 API Key "${apiKeyData.name}" 启用思考链路翻译`)
+      } else {
+        logger.info(`🌐 [ReasoningTranslation] 跳过 - Key: ${apiKeyData.name} 不在白名单`)
       }
 
       // 根据账户类型选择转发服务

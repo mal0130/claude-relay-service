@@ -18,13 +18,12 @@ const { createReasoningTranslator } = require('../services/reasoningTranslationS
  * @param {import('express').Response} res
  * @param {{ keyId?: string, model?: string }} [options]
  */
-function applyReasoningTranslation(res, options = {}) {
-  const { keyId, model = config.translation.model } = options
-
+function applyReasoningTranslation(res, _options = {}) {
   const originalWrite = res.write.bind(res)
   const originalEnd = res.end.bind(res)
 
   let contentStarted = false
+  let contentStartedTime = null
   let pendingChunks = []
   let translationDone = false
   let endCalled = false
@@ -32,17 +31,414 @@ function applyReasoningTranslation(res, options = {}) {
   let chatId = null
   let translationUsage = null
   let injectedStandaloneUsage = false
+  let streamFormat = 'chat'
+  let reasoningItemId = null
+  let firstReasoningDeltaTime = null
+  let reasoningOutputIndex = 0
+  let reasoningSummaryIndex = 0
+  let responseObj = null
+  let externalMainUsage = null
+  let usageSummaryFinalized = false
+  let usageSummaryLogged = false
+  // 存储被压制的 reasoning output_item.added/done 事件，翻译完成后在正文前发出
+  let pendingReasoningAddedEvents = []
+  let pendingReasoningDoneEvents = []
+  // 防止 startTranslation() 被重复调用（isResponsesDoneEvent 和 res.end 均可能触发）
+  let translationStarted = false
+  // 累积翻译后的 reasoning 文本，用于补发 reasoning_summary_text.done
+  let translatedReasoningAccumulated = ''
+  // 跟踪是否已向客户端发送 reasoning_summary_text.added（上游通常不发此事件需合成）
+  let reasoningAddedSent = false
+  // 跟踪是否已向客户端发送 reasoning_summary_part.added
+  let reasoningPartAddedSent = false
+
+  let clientSeq = 0
+  function logClientReasoningEvent(label, payload) {
+    clientSeq += 1
+    logger.info(
+      `🧩 [ReasoningClient] #${clientSeq} → ${label} | item_id=${payload.item_id ?? '-'} output_index=${payload.output_index ?? '-'} summary_index=${payload.summary_index ?? '-'}${payload.delta !== undefined ? ` delta(len=${String(payload.delta).length})` : ''}${payload.text !== undefined ? ` text(len=${String(payload.text).length})` : ''}`
+    )
+  }
 
   const translator = createReasoningTranslator((text) => {
     const id = chatId || `chatcmpl-translated-${Date.now()}`
-    originalWrite(buildReasoningEvent(id, text))
+    translatedReasoningAccumulated += text
+    // 在首个翻译 delta 前合成发出 reasoning_summary_part.added 和 reasoning_summary_text.added
+    if (streamFormat === 'responses' && reasoningItemId) {
+      if (!reasoningPartAddedSent) {
+        // output_item.added(reasoning) 必须在 part.added 之前到达客户端，否则 SDK 不认识 item_id
+        for (const ev of pendingReasoningAddedEvents) {
+          try {
+            const p = JSON.parse(ev.replace(/^data: /, '').trim())
+            logClientReasoningEvent('output_item.added(reasoning)', {
+              item_id: p?.item?.id,
+              output_index: p?.output_index,
+              summary_index: p?.summary_index
+            })
+          } catch (_e) {
+            // 忽略
+          }
+          originalWrite(ev)
+        }
+        pendingReasoningAddedEvents = []
+
+        reasoningPartAddedSent = true
+        const partAddedPayload = {
+          type: 'response.reasoning_summary_part.added',
+          item_id: reasoningItemId,
+          output_index: reasoningOutputIndex,
+          summary_index: reasoningSummaryIndex,
+          part: { type: 'summary_text', text: '' }
+        }
+        logClientReasoningEvent('reasoning_summary_part.added', partAddedPayload)
+        originalWrite(`data: ${JSON.stringify(partAddedPayload)}\n\n`)
+      }
+      if (!reasoningAddedSent) {
+        reasoningAddedSent = true
+        const addedPayload = {
+          type: 'response.reasoning_summary_text.added',
+          item_id: reasoningItemId,
+          output_index: reasoningOutputIndex,
+          summary_index: reasoningSummaryIndex
+        }
+        logClientReasoningEvent('reasoning_summary_text.added', addedPayload)
+        originalWrite(`data: ${JSON.stringify(addedPayload)}\n\n`)
+      }
+    }
+    const deltaPayload = {
+      type: 'response.reasoning_summary_text.delta',
+      item_id: reasoningItemId,
+      output_index: reasoningOutputIndex,
+      summary_index: reasoningSummaryIndex,
+      delta: text
+    }
+    if (streamFormat === 'responses') {
+      logClientReasoningEvent('reasoning_summary_text.delta', deltaPayload)
+    }
+    originalWrite(
+      buildReasoningEvent({
+        id,
+        text,
+        streamFormat,
+        reasoningItemId,
+        reasoningOutputIndex,
+        reasoningSummaryIndex
+      })
+    )
   })
 
+  function markResponsesFormat(parsed) {
+    if (parsed?.type && String(parsed.type).startsWith('response.')) {
+      streamFormat = 'responses'
+    }
+    if (parsed?.response) {
+      responseObj = parsed.response
+    }
+    // 只从 reasoning 类型的 item 捕获 ID 和索引，避免被后续 message/function_call item 污染
+    if (parsed?.item?.id && parsed?.item?.type === 'reasoning') {
+      reasoningItemId = parsed.item.id
+    }
+    // reasoning_summary_text.* 事件用顶层 item_id 字段，作为 fallback 兜底
+    if (parsed?.item_id && !reasoningItemId) {
+      reasoningItemId = parsed.item_id
+    }
+    // output_index/summary_index 仅从 reasoning 相关事件更新
+    const type = String(parsed?.type || '')
+    if (parsed?.item?.type === 'reasoning' || type.includes('reasoning')) {
+      if (typeof parsed?.output_index === 'number') {
+        reasoningOutputIndex = parsed.output_index
+      }
+      if (typeof parsed?.summary_index === 'number') {
+        reasoningSummaryIndex = parsed.summary_index
+      }
+    }
+  }
+
+  function extractReasoningText(parsed) {
+    const delta = parsed?.choices?.[0]?.delta
+    // 用 'in' 操作符判断字段存在（空字符串也是有效的 reasoning delta）
+    if (delta && 'reasoning_content' in delta) {
+      markResponsesFormat(parsed)
+      return delta.reasoning_content ?? ''
+    }
+
+    // 同理，只要 type 匹配就认为是 reasoning delta，不管 delta 内容是否为空
+    if (parsed?.type === 'response.reasoning_summary_text.delta') {
+      markResponsesFormat(parsed)
+      return parsed.delta ?? ''
+    }
+
+    return null
+  }
+
+  function isContentEvent(parsed) {
+    const delta = parsed?.choices?.[0]?.delta
+    if (delta?.content) {
+      markResponsesFormat(parsed)
+      return true
+    }
+
+    if (parsed?.type === 'response.output_text.delta' && parsed?.delta) {
+      markResponsesFormat(parsed)
+      return true
+    }
+
+    const itemType = parsed?.item?.type
+    if (
+      (parsed?.type === 'response.output_item.added' ||
+        parsed?.type === 'response.output_item.done') &&
+      itemType === 'message'
+    ) {
+      markResponsesFormat(parsed)
+      return true
+    }
+
+    return false
+  }
+
+  function buildUsageChunk() {
+    if (streamFormat === 'responses') {
+      const payload = {
+        type: 'response.completed',
+        response: {
+          ...(responseObj || {}),
+          id: chatId || responseObj?.id || `resp-translated-${Date.now()}`,
+          usage: translationUsage
+        }
+      }
+      return `data: ${JSON.stringify(payload)}\n\n`
+    }
+
+    return buildUsageEvent(chatId, translationUsage)
+  }
+
+  function mergeUsageIntoResponsesChunk(parsed) {
+    if (!translationUsage?.trans_total_tokens || parsed?.type !== 'response.completed') {
+      return false
+    }
+
+    parsed.response = parsed.response || {}
+    parsed.response.usage = {
+      ...(parsed.response.usage || {}),
+      ...translationUsage
+    }
+    responseObj = parsed.response
+    return true
+  }
+
+  function mergeUsageIntoChunk(parsed) {
+    if (streamFormat === 'responses') {
+      return mergeUsageIntoResponsesChunk(parsed)
+    }
+    return mergeUsageIfNeeded(parsed)
+  }
+
+  function hasChunkUsage(parsed) {
+    if (streamFormat === 'responses') {
+      return !!parsed?.response?.usage
+    }
+    return !!parsed?.usage
+  }
+
+  function clearStandaloneUsageFlag(parsed) {
+    if (!injectedStandaloneUsage || !translationUsage?.trans_total_tokens) {
+      return
+    }
+
+    const hasTranslationUsage =
+      streamFormat === 'responses'
+        ? parsed?.response?.usage?.trans_total_tokens > 0
+        : parsed?.usage?.trans_total_tokens > 0
+
+    if (hasTranslationUsage) {
+      injectedStandaloneUsage = false
+    }
+  }
+
+  function stringifyEvent(parsed) {
+    return `data: ${JSON.stringify(parsed)}\n\n`
+  }
+
+  function writeStandaloneUsageIfNeeded() {
+    if (translationDone && injectedStandaloneUsage) {
+      originalWrite(buildUsageChunk())
+      injectedStandaloneUsage = false
+    }
+  }
+
+  function getMainUsage() {
+    return externalMainUsage || responseObj?.usage || null
+  }
+
+  function maybeLogUsageSummary(force = false) {
+    if (usageSummaryLogged || !translationDone) {
+      return
+    }
+
+    const mainUsage = getMainUsage()
+    if (!mainUsage && !force) {
+      return
+    }
+
+    const mu = mainUsage || {}
+    const mainInput = mu.input_tokens || 0
+    const cacheRead =
+      mu.input_tokens_details?.cached_tokens || mu.prompt_tokens_details?.cached_tokens || 0
+    const cacheCreate =
+      mu.input_tokens_details?.cache_creation_input_tokens ||
+      mu.input_tokens_details?.cache_creation_tokens ||
+      mu.prompt_tokens_details?.cache_creation_input_tokens ||
+      mu.prompt_tokens_details?.cache_creation_tokens ||
+      mu.cache_creation_input_tokens ||
+      mu.cache_creation_tokens ||
+      0
+    const actualInput = Math.max(0, mainInput - cacheRead)
+    const mainOutput = mu.output_tokens || 0
+    const reasoning = mu.output_tokens_details?.reasoning_tokens || 0
+    const textOutput = mainOutput - reasoning
+    const transIn = translationUsage?.trans_prompt_tokens || 0
+    const transOut = translationUsage?.trans_completion_tokens || 0
+    logger.info(
+      `📊 [TokenUsage] 主输入=${mainInput}(实际=${actualInput}+缓存读取=${cacheRead}+缓存写入=${cacheCreate}) | 思考链=${reasoning} 文本输出=${textOutput} 输出合计=${mainOutput} | 翻译输入=${transIn} 翻译输出=${transOut}`
+    )
+    usageSummaryLogged = true
+  }
+
+  function updateResponseObject(parsed) {
+    if (parsed?.type === 'response.completed' && parsed?.response) {
+      responseObj = parsed.response
+      maybeLogUsageSummary(usageSummaryFinalized)
+    }
+  }
+
+  function updateReasoningIndexes(parsed) {
+    // 只从 reasoning item 或 reasoning 类型事件更新，避免 message/function_call item 污染
+    const type = String(parsed?.type || '')
+    const isReasoningRelated = parsed?.item?.type === 'reasoning' || type.includes('reasoning')
+    if (!isReasoningRelated) {
+      return
+    }
+    if (typeof parsed?.output_index === 'number') {
+      reasoningOutputIndex = parsed.output_index
+    }
+    if (typeof parsed?.summary_index === 'number') {
+      reasoningSummaryIndex = parsed.summary_index
+    }
+    if (parsed?.item?.id) {
+      reasoningItemId = parsed.item.id
+    }
+  }
+
+  function getReasoningLogLabel(parsed) {
+    if (parsed?.type) {
+      return parsed.type
+    }
+    return 'reasoning_content'
+  }
+
+  function getReasoningPreview(text) {
+    return text.substring(0, 50)
+  }
+
+  function isResponsesDoneEvent(parsed) {
+    return parsed?.type === 'response.completed'
+  }
+
+  function isResponsesReasoningAddedEvent(parsed) {
+    return parsed?.type === 'response.output_item.added' && parsed?.item?.type === 'reasoning'
+  }
+
+  function isResponsesReasoningOutputItemDoneEvent(parsed) {
+    return parsed?.type === 'response.output_item.done' && parsed?.item?.type === 'reasoning'
+  }
+
+  function sanitizeReasoningOutputItemEvent(parsed) {
+    return stringifyEvent({
+      ...parsed,
+      item: {
+        ...(parsed?.item || {}),
+        summary: []
+      }
+    })
+  }
+
+  function shouldSuppressOriginalEvent(parsed) {
+    // 压制所有 reasoning_summary_* 上游事件（含 part.added / text.added / part.done / text.done），
+    // 翻译完成后我们会按正确顺序合成并发出完整事件序列。
+    // reasoning output_item.added/done 也延迟到翻译完成后再发，避免客户端基于上游半成品 summary 建立错误状态。
+    const type = parsed?.type
+    if (typeof type === 'string' && type.startsWith('response.reasoning_summary_')) {
+      return true
+    }
+    return isResponsesReasoningAddedEvent(parsed) || isResponsesReasoningOutputItemDoneEvent(parsed)
+  }
+
+  function maybeTrackResponsesReasoningItem(parsed) {
+    if (isResponsesReasoningAddedEvent(parsed)) {
+      markResponsesFormat(parsed)
+      updateReasoningIndexes(parsed)
+    }
+  }
+
   function mergeUsageIfNeeded(parsed) {
-    if (!parsed?.usage || !translationUsage?.trans_total_tokens) return false
+    if (!parsed?.usage || !translationUsage?.trans_total_tokens) {
+      return false
+    }
 
     Object.assign(parsed.usage, translationUsage)
     return true
+  }
+
+  function writeChunk(chunk) {
+    originalWrite(chunk)
+  }
+
+  function endResponse() {
+    originalEnd()
+  }
+
+  function flushBufferedChunks() {
+    if (contentStartedTime) {
+      const firstOutputDelayMs = Date.now() - contentStartedTime
+      logger.info(`🌐 [ReasoningTranslation] 首次输出延迟=${firstOutputDelayMs}ms（翻译等待时间）`)
+    }
+    // 先补发被延迟的 reasoning output_item.added/done 事件，保证正确顺序：
+    //   翻译后的 reasoning delta → output_item.added(reasoning) → output_item.done(reasoning) → 正文内容
+    for (const event of pendingReasoningAddedEvents) {
+      try {
+        const p = JSON.parse(event.replace(/^data: /, '').trim())
+        logClientReasoningEvent('output_item.added(reasoning)', {
+          item_id: p?.item?.id,
+          output_index: p?.output_index,
+          summary_index: p?.summary_index
+        })
+      } catch (_e) {
+        // JSON 解析失败，跳过日志
+      }
+      writeChunk(event)
+    }
+    pendingReasoningAddedEvents = []
+    for (const event of pendingReasoningDoneEvents) {
+      try {
+        const p = JSON.parse(event.replace(/^data: /, '').trim())
+        logClientReasoningEvent('output_item.done(reasoning)', {
+          item_id: p?.item?.id,
+          output_index: p?.output_index,
+          summary_index: p?.summary_index
+        })
+      } catch (_e) {
+        // JSON 解析失败，跳过日志
+      }
+      writeChunk(event)
+    }
+    pendingReasoningDoneEvents = []
+    for (const chunk of pendingChunks) {
+      writeChunk(chunk)
+    }
+    pendingChunks = []
+    if (endCalled) {
+      endResponse()
+    }
   }
 
   function flushPending(transUsage) {
@@ -54,14 +450,20 @@ function applyReasoningTranslation(res, options = {}) {
       for (let i = 0; i < pendingChunks.length; i++) {
         const text = pendingChunks[i]
         const dataLine = text.split('\n').find((l) => l.startsWith('data: '))
-        if (!dataLine) continue
+        if (!dataLine) {
+          continue
+        }
         const jsonStr = dataLine.slice(6).trim()
-        if (jsonStr === '[DONE]') continue
+        if (jsonStr === '[DONE]') {
+          continue
+        }
         try {
           const parsed = JSON.parse(jsonStr)
-          if (parsed.usage) {
-            mergeUsageIfNeeded(parsed)
-            pendingChunks[i] = `data: ${JSON.stringify(parsed)}\n\n`
+          markResponsesFormat(parsed)
+          updateResponseObject(parsed)
+          if (hasChunkUsage(parsed)) {
+            mergeUsageIntoChunk(parsed)
+            pendingChunks[i] = stringifyEvent(parsed)
             usageInjected = true
             break
           }
@@ -71,19 +473,17 @@ function applyReasoningTranslation(res, options = {}) {
       }
 
       if (!usageInjected) {
-        pendingChunks.push(buildUsageEvent(chatId, translationUsage))
+        pendingChunks.push(buildUsageChunk())
         injectedStandaloneUsage = true
       }
     }
 
-    for (const chunk of pendingChunks) originalWrite(chunk)
-    pendingChunks = []
-    if (endCalled) originalEnd()
+    flushBufferedChunks()
   }
 
-  function buildUsageEvent(chatId, transUsage) {
+  function buildUsageEvent(responseId, transUsage) {
     const payload = {
-      id: chatId || `chatcmpl-translated-${Date.now()}`,
+      id: responseId || `chatcmpl-translated-${Date.now()}`,
       object: 'chat.completion.chunk',
       choices: [{ index: 0, delta: {}, finish_reason: null }],
       usage: transUsage
@@ -91,18 +491,54 @@ function applyReasoningTranslation(res, options = {}) {
     return `data: ${JSON.stringify(payload)}\n\n`
   }
 
-
   function startTranslation() {
-    translator.flush()
+    if (translationStarted) {
+      return
+    }
+    translationStarted = true
+    logger.info(`🌐 [ReasoningTranslation] 开始 flush 翻译队列`)
+    translator
+      .flush()
       .then(() => {
-        const usage = translator.usage
+        const { usage } = translator
+        const elapsedMs = firstReasoningDeltaTime ? Date.now() - firstReasoningDeltaTime : 0
         if (usage.trans_total_tokens > 0) {
-          logger.debug(
-            `[ReasoningTranslation] 翻译 token: prompt=${usage.trans_prompt_tokens} completion=${usage.trans_completion_tokens} total=${usage.trans_total_tokens}`
+          logger.info(
+            `🌐 [ReasoningTranslation] 翻译完成 - 耗时=${elapsedMs}ms prompt=${usage.trans_prompt_tokens} completion=${usage.trans_completion_tokens} total=${usage.trans_total_tokens}`
           )
+        } else {
+          logger.info(`🌐 [ReasoningTranslation] 翻译完成 - 耗时=${elapsedMs}ms 无翻译 token 消耗`)
+        }
+
+        translationUsage = usage
+        maybeLogUsageSummary(usageSummaryFinalized)
+
+        logger.info(`🌐 [ReasoningTranslation] ===原文===\n${translator.originalAccumulated}`)
+        logger.info(`🌐 [ReasoningTranslation] ===译文===\n${translatedReasoningAccumulated}`)
+        // 补发 reasoning_summary_text.done 和 reasoning_summary_part.done，完成 reasoning 状态机
+        if (streamFormat === 'responses' && reasoningItemId && translatedReasoningAccumulated) {
+          const donePayload = {
+            type: 'response.reasoning_summary_text.done',
+            item_id: reasoningItemId,
+            output_index: reasoningOutputIndex,
+            summary_index: reasoningSummaryIndex,
+            text: translatedReasoningAccumulated
+          }
+          logClientReasoningEvent('reasoning_summary_text.done', donePayload)
+          originalWrite(`data: ${JSON.stringify(donePayload)}\n\n`)
+          const partDonePayload = {
+            type: 'response.reasoning_summary_part.done',
+            item_id: reasoningItemId,
+            output_index: reasoningOutputIndex,
+            summary_index: reasoningSummaryIndex,
+            part: { type: 'summary_text', text: translatedReasoningAccumulated }
+          }
+          logClientReasoningEvent('reasoning_summary_part.done', partDonePayload)
+          originalWrite(`data: ${JSON.stringify(partDonePayload)}\n\n`)
         }
         translationDone = true
         flushPending(usage)
+        maybeLogUsageSummary(usageSummaryFinalized)
       })
       .catch((err) => {
         logger.warn(`[ReasoningTranslation] flush 异常: ${err.message}`)
@@ -114,20 +550,24 @@ function applyReasoningTranslation(res, options = {}) {
   function processEvent(eventText) {
     const dataLine = eventText.split('\n').find((l) => l.startsWith('data: '))
     if (!dataLine) {
-      if (!contentStarted) originalWrite(eventText)
-      else if (!translationDone) pendingChunks.push(eventText)
-      else originalWrite(eventText)
+      if (!contentStarted) {
+        writeChunk(eventText)
+      } else if (!translationDone) {
+        pendingChunks.push(eventText)
+      } else {
+        writeChunk(eventText)
+      }
       return
     }
 
     const jsonStr = dataLine.slice(6).trim()
     if (jsonStr === '[DONE]') {
-      if (translationDone && injectedStandaloneUsage) {
-        originalWrite(buildUsageEvent(chatId, translationUsage))
-        injectedStandaloneUsage = false
+      writeStandaloneUsageIfNeeded()
+      if (!translationDone) {
+        pendingChunks.push(eventText)
+      } else {
+        writeChunk(eventText)
       }
-      if (!translationDone) pendingChunks.push(eventText)
-      else originalWrite(eventText)
       return
     }
 
@@ -139,27 +579,60 @@ function applyReasoningTranslation(res, options = {}) {
       return
     }
 
-    if (!chatId && parsed.id) chatId = parsed.id
+    markResponsesFormat(parsed)
+    updateResponseObject(parsed)
+    maybeTrackResponsesReasoningItem(parsed)
+    updateReasoningIndexes(parsed)
 
-    if (mergeUsageIfNeeded(parsed)) {
-      if (injectedStandaloneUsage && parsed.usage?.trans_total_tokens > 0) {
-        injectedStandaloneUsage = false
+    if (!chatId && parsed.id) {
+      chatId = parsed.id
+    }
+    if (!chatId && parsed.response?.id) {
+      chatId = parsed.response.id
+    }
+
+    if (mergeUsageIntoChunk(parsed)) {
+      clearStandaloneUsageFlag(parsed)
+      originalWrite(stringifyEvent(parsed))
+      return
+    }
+
+    const reasoningText = extractReasoningText(parsed)
+    if (reasoningText !== null) {
+      // 只有非空文本才推入翻译器和打日志；空 delta 仅做拦截
+      if (reasoningText) {
+        logger.info(
+          `🌐 [ReasoningTranslation] 收到 ${getReasoningLogLabel(parsed)}: ${getReasoningPreview(reasoningText)}...`
+        )
+        if (!firstReasoningDeltaTime) {
+          firstReasoningDeltaTime = Date.now()
+        }
+        translator.push(reasoningText)
       }
-      originalWrite(`data: ${JSON.stringify(parsed)}\n\n`)
+      // 无论内容是否为空，reasoning delta 事件一律不转发给客户端
       return
     }
 
-    const delta = parsed?.choices?.[0]?.delta
-
-    if (delta?.reasoning_content) {
-      translator.push(delta.reasoning_content)
+    if (shouldSuppressOriginalEvent(parsed)) {
+      // reasoning output_item.added/done 需要缓存，等翻译完成后在正文前补发
+      if (isResponsesReasoningAddedEvent(parsed)) {
+        pendingReasoningAddedEvents.push(sanitizeReasoningOutputItemEvent(parsed))
+      } else if (isResponsesReasoningOutputItemDoneEvent(parsed)) {
+        pendingReasoningDoneEvents.push(sanitizeReasoningOutputItemEvent(parsed))
+      }
       return
     }
 
-    if (!contentStarted) {
+    if (!contentStarted && isContentEvent(parsed)) {
       contentStarted = true
+      contentStartedTime = Date.now()
       pendingChunks.push(eventText)
       startTranslation()
+    } else if (!contentStarted && isResponsesDoneEvent(parsed)) {
+      pendingChunks.push(eventText)
+      startTranslation()
+    } else if (!contentStarted) {
+      originalWrite(eventText)
     } else if (!translationDone) {
       pendingChunks.push(eventText)
     } else {
@@ -180,7 +653,9 @@ function applyReasoningTranslation(res, options = {}) {
     const text = Buffer.isBuffer(chunk) ? chunk.toString('utf8') : String(chunk || '')
     sseBuffer += text
     drainBuffer()
-    if (typeof callback === 'function') callback()
+    if (typeof callback === 'function') {
+      callback()
+    }
     return true
   }
 
@@ -197,8 +672,10 @@ function applyReasoningTranslation(res, options = {}) {
       sseBuffer = ''
     }
 
+    usageSummaryFinalized = true
+    maybeLogUsageSummary(true)
+
     if (!contentStarted) {
-      // 纯思考无正文（极少情况）
       endCalled = true
       startTranslation()
     } else if (!translationDone) {
@@ -207,13 +684,41 @@ function applyReasoningTranslation(res, options = {}) {
       originalEnd()
     }
   }
+
+  return {
+    updateMainUsage(usage) {
+      if (!usage || typeof usage !== 'object') {
+        return
+      }
+      externalMainUsage = usage
+      maybeLogUsageSummary(usageSummaryFinalized)
+    }
+  }
 }
 
-function buildReasoningEvent(chatId, reasoningContent) {
+function buildReasoningEvent({
+  id,
+  text,
+  streamFormat = 'chat',
+  reasoningItemId = null,
+  reasoningOutputIndex = 0,
+  reasoningSummaryIndex = 0
+}) {
+  if (streamFormat === 'responses') {
+    const payload = {
+      type: 'response.reasoning_summary_text.delta',
+      item_id: reasoningItemId || `rs_${Date.now()}`,
+      output_index: reasoningOutputIndex,
+      summary_index: reasoningSummaryIndex,
+      delta: text
+    }
+    return `data: ${JSON.stringify(payload)}\n\n`
+  }
+
   const payload = {
-    id: chatId,
+    id,
     object: 'chat.completion.chunk',
-    choices: [{ index: 0, delta: { reasoning_content: reasoningContent }, finish_reason: null }]
+    choices: [{ index: 0, delta: { reasoning_content: text }, finish_reason: null }]
   }
   return `data: ${JSON.stringify(payload)}\n\n`
 }
@@ -223,9 +728,13 @@ function isTranslationConfigured() {
 }
 
 function shouldTranslateForKey(keyName) {
-  if (!isTranslationConfigured()) return false
+  if (!isTranslationConfigured()) {
+    return false
+  }
   const { keyNames } = config.translation
-  if (!keyNames || keyNames.length === 0) return false
+  if (!keyNames || keyNames.length === 0) {
+    return false
+  }
   return keyNames.includes(keyName)
 }
 
