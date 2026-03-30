@@ -1616,7 +1616,7 @@ const authenticateApiKey = async (req, res, next) => {
     logger.api(
       `🔓 Authenticated request from key: ${validation.keyData.name} (${validation.keyData.id}) in ${authDuration}ms`
     )
-    logger.api(`   User-Agent: "${userAgent}"`)
+    logger.api(`   User-Agent: "${userAgent}" req.apiKey: "${req.apiKey.id}"`)
 
     return next()
   } catch (error) {
