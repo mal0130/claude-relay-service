@@ -1462,7 +1462,8 @@ const authenticateApiKey = async (req, res, next) => {
               remainingMinutes
             })
           }
-        } else if (ruleCost > 0) {
+        }
+        if (ruleCost > 0) {
           if (currentCost >= ruleCost) {
             const resetTime = new Date(windowStart + windowDuration)
             const remainingMinutes = Math.ceil((resetTime - now) / 60000)
@@ -1475,7 +1476,7 @@ const authenticateApiKey = async (req, res, next) => {
 
             return res.status(429).json({
               error: 'Rate limit exceeded',
-              message: `已达到使用限制，将在 ${remainingMinutes} 分钟后重置，您可前往<a href="${subscriptionUrl}">开发者中心</a>购买资源包，如已购买，可发送“继续”以继续使用。`,
+              message: `已达到使用限制，将在 ${remainingMinutes} 分钟后重置，您可前往<a href=”${subscriptionUrl}”>开发者中心</a>购买资源包，如已购买，可发送”继续”以继续使用。`,
               currentCost,
               costLimit: ruleCost,
               resetAt: resetTime.toISOString(),
