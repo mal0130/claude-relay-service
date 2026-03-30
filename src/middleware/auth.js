@@ -439,7 +439,8 @@ async function validateApiKeyWithAllChecks(apiKey, req, res) {
   // 2. 检查所有限制
   const limitCheck = await checkApiKeyLimits(keyData, req)
   if (!limitCheck.valid) {
-    return limitCheck
+    // 把 keyData 带回去，避免外层重复查询
+    return { ...limitCheck, keyData }
   }
 
   return { valid: true, keyData }
@@ -696,22 +697,22 @@ const authenticateApiKey = async (req, res, next) => {
     let validation = await validateApiKeyWithAllChecks(apiKey, req, res)
 
     if (!validation.valid) {
-      // 尝试切换到备用 Key
-      const basicValidation = await apiKeyService.validateApiKey(apiKey)
+      // 尝试切换到备用 Key（keyData 已由 validateApiKeyWithAllChecks 带回，无需重复查询）
+      const failedKeyData = validation.keyData
       logger.api(
-        `🔄 Validation failed: ${validation.error}, externalUid: ${basicValidation.keyData?.externalUid || 'none'}`
+        `🔄 Validation failed: ${typeof validation.error === 'object' ? JSON.stringify(validation.error) : validation.error}, externalUid: ${failedKeyData?.externalUid || 'none'}`
       )
-      if (basicValidation.keyData?.externalUid) {
-        logger.api(`🔄 Trying alternative keys for uid: ${basicValidation.keyData.externalUid}`)
+      if (failedKeyData?.externalUid) {
+        logger.api(`🔄 Trying alternative keys for uid: ${failedKeyData.externalUid}`)
 
         // 获取该 uid 的所有 Key ID
-        const keyIds = await redis.getKeysByUid(basicValidation.keyData.externalUid)
-        logger.api(`🔄 Found ${keyIds.length} keys for uid: ${basicValidation.keyData.externalUid}`)
+        const keyIds = await redis.getKeysByUid(failedKeyData.externalUid)
+        logger.api(`🔄 Found ${keyIds.length} keys for uid: ${failedKeyData.externalUid}`)
         if (keyIds && keyIds.length > 0) {
           // 获取所有 Key 数据并分类
           const allKeys = []
           for (const keyId of keyIds) {
-            if (keyId === basicValidation.keyData.id) continue
+            if (keyId === failedKeyData.id) continue
             const keyData = await redis.getApiKey(keyId)
             if (!keyData || Object.keys(keyData).length === 0) continue
             allKeys.push(keyData)
@@ -730,10 +731,10 @@ const authenticateApiKey = async (req, res, next) => {
           )
 
           // 判断当前失败的 Key 类型
-          const currentIsPackage = isPackage(basicValidation.keyData.name)
-          const currentIsResourcePack = isResourcePack(basicValidation.keyData.name)
+          const currentIsPackage = isPackage(failedKeyData.name)
+          const currentIsResourcePack = isResourcePack(failedKeyData.name)
           logger.api(
-            `🔄 Current key type: ${basicValidation.keyData.name}, isPackage=${currentIsPackage}, isResourcePack=${currentIsResourcePack}`
+            `🔄 Current key type: ${failedKeyData.name}, isPackage=${currentIsPackage}, isResourcePack=${currentIsResourcePack}`
           )
 
           // 检查是否有 pack_consent 标签
@@ -762,9 +763,9 @@ const authenticateApiKey = async (req, res, next) => {
             logger.api(`🔄 Current is resource pack, adding ${resourcePacks.length} resource packs`)
           } else {
             // 当前不是资源包，需要检查 pack_consent 标签
-            const hasConsent = hasPackConsent(basicValidation.keyData.tags)
+            const hasConsent = hasPackConsent(failedKeyData.tags)
             logger.api(
-              `🔄 Current is not resource pack, pack_consent=${hasConsent}, tags=${basicValidation.keyData.tags}`
+              `🔄 Current is not resource pack, pack_consent=${hasConsent}, tags=${failedKeyData.tags}`
             )
             if (hasConsent) {
               keysToTry.push(...resourcePacks)
