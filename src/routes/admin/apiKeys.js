@@ -1267,6 +1267,16 @@ async function calculateKeyStats(keyId, timeRange, startDate, endDate) {
 
   // 获取速率限制窗口数据（独立 try/catch，避免费用获取失败影响速率限制显示）
   const rateLimitStatuses = []
+  let recentUsageRecords = null
+  const loadRecentUsageRecords = async () => {
+    if (recentUsageRecords !== null) {
+      return recentUsageRecords
+    }
+
+    recentUsageRecords = await redis.getUsageRecords(keyId, 200)
+    return recentUsageRecords
+  }
+
   try {
     const now = Date.now()
 
@@ -1301,6 +1311,24 @@ async function calculateKeyStats(keyId, timeRange, startDate, endDate) {
 
         if (now < ruleWindowEndTime) {
           ruleWindowRemainingSeconds = Math.max(0, Math.floor((ruleWindowEndTime - now) / 1000))
+
+          // 兼容历史数据：部分请求链路未写入窗口费用计数器时，用最近 usage 记录回算倍率费用。
+          if (costLimit > 0 && ruleCurrentCost <= 0) {
+            const usageRecords = await loadRecentUsageRecords()
+            ruleCurrentCost = Number(
+              usageRecords
+                .filter((record) => {
+                  if (!record || typeof record.cost !== 'number') {
+                    return false
+                  }
+
+                  const timestamp = Date.parse(record.timestamp)
+                  return Number.isFinite(timestamp) && timestamp >= ruleWindowStartTime
+                })
+                .reduce((sum, record) => sum + record.cost, 0)
+                .toFixed(6)
+            )
+          }
         } else {
           ruleWindowRemainingSeconds = 0
           ruleCurrentRequests = 0
