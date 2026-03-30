@@ -66,7 +66,7 @@ function buildQuotaLimitMessage(windowStartMs, windowDurationMs, ruleWindowMinut
     hour: '2-digit',
     minute: '2-digit'
   })
-  return `您当前的套餐用量已达（${windowLabel}）使用上限，将于 ${resetTimeStr} 自动恢复。如需继续使用，可<a href="${subscriptionUrl}">点此购买资源包</a>立即补充额度。套餐恢复后，系统将优先消耗您的套餐额度。`
+  return `您当前的套餐用量已达（${windowLabel}）使用上限，将于 ${resetTimeStr} 自动恢复。如需继续使用，可<a href="${subscriptionUrl}">点此购买资源包</a>立即补充额度，如已购买，可发送“继续”以继续使用。套餐恢复后，系统将优先消耗您的套餐额度。`
 }
 
 /**
@@ -362,7 +362,7 @@ async function checkApiKeyLimits(keyData, req) {
       valid: false,
       error: {
         type: 'insufficient_quota',
-        message: `您订购的资源包额度已耗尽。您可以 [<a href="${subscriptionUrl}">补充资源包</a>] 继续使用，或 [<a href="${subscriptionUrl}">升级订阅套餐</a>] 享受更划算的长效权益。`,
+        message: `您订购的资源包额度已耗尽。您可以 [<a href="${subscriptionUrl}">补充资源包</a>] 继续使用，或 [<a href="${subscriptionUrl}">订阅套餐</a>] 享受更划算的长效权益，如已购买，可发送“继续”以继续使用。`,
         code: 'daily_cost_limit_exceeded'
       },
       statusCode: 402
@@ -377,7 +377,7 @@ async function checkApiKeyLimits(keyData, req) {
       valid: false,
       error: {
         type: 'insufficient_quota',
-        message: `您订购的资源包额度已耗尽。您可以 [<a href="${subscriptionUrl}">补充资源包</a>] 继续使用，或 [<a href="${subscriptionUrl}">升级订阅套餐</a>] 享受更划算的长效权益。`,
+        message: `您订购的资源包额度已耗尽。您可以 [<a href="${subscriptionUrl}">补充资源包</a>] 继续使用，或 [<a href="${subscriptionUrl}">订阅套餐</a>] 享受更划算的长效权益，如已购买，可发送“继续”以继续使用。`,
         code: 'total_cost_limit_exceeded'
       },
       statusCode: 402
