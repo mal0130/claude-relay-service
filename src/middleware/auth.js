@@ -11,9 +11,62 @@ const claudeRelayConfigService = require('../services/claudeRelayConfigService')
 const { calculateWaitTimeStats } = require('../utils/statsHelper')
 const { isClaudeFamilyModel } = require('../utils/modelHelper')
 
+const subscriptionUrl =
+  'https://dev.dcloud.net.cn/pages/product-account/product-account?pcd=uni_ai_agent'
+
 // 工具函数
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+function parseRateLimits(rateLimits) {
+  if (!rateLimits) return []
+  let parsed = rateLimits
+  if (typeof rateLimits === 'string') {
+    try {
+      parsed = JSON.parse(rateLimits)
+    } catch {
+      return []
+    }
+  }
+  return Array.isArray(parsed) ? parsed : []
+}
+
+async function getWindowRatedCostFallback(keyId, windowStartTime) {
+  const usageRecords = await redis.getUsageRecords(keyId, 200)
+  return Number(
+    usageRecords
+      .filter((record) => {
+        if (!record || typeof record.cost !== 'number') {
+          return false
+        }
+
+        const timestamp = Date.parse(record.timestamp)
+        return Number.isFinite(timestamp) && timestamp >= windowStartTime
+      })
+      .reduce((sum, record) => sum + record.cost, 0)
+      .toFixed(6)
+  )
+}
+
+/**
+ * 生成窗口限额提示信息
+ * @param {number} windowStartMs - 窗口开始时间戳（ms）
+ * @param {number} windowDurationMs - 窗口时长（ms）
+ * @param {number} ruleWindowMinutes - 窗口分钟数，用于判断 5小时/周
+ * @param {string} subscriptionUrl - 购买链接
+ * @returns {string} 提示文案
+ */
+function buildQuotaLimitMessage(windowStartMs, windowDurationMs, ruleWindowMinutes, subscriptionUrl) {
+  const resetTime = new Date(windowStartMs + windowDurationMs)
+  const windowLabel = ruleWindowMinutes >= 10080 ? '周' : `${Math.round(ruleWindowMinutes / 60)}小时`
+  const resetTimeStr = resetTime.toLocaleString('zh-CN', {
+    month: 'numeric',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit'
+  })
+  return `您当前的套餐用量已达（${windowLabel}）使用上限，将于 ${resetTimeStr} 自动恢复。如需继续使用，可<a href="${subscriptionUrl}">点此购买资源包</a>立即补充额度，如已购买，可发送“继续”以继续使用。套餐恢复后，系统将优先消耗您的套餐额度。`
 }
 
 /**
@@ -223,6 +276,174 @@ function isTokenCountRequest(req) {
     return true
   }
   return false
+}
+
+/**
+ * 检查 API Key 的所有限制（速率、费用等）
+ * @param {Object} keyData - API Key 数据
+ * @param {Object} req - Express 请求对象
+ * @returns {Promise<Object>} { valid: boolean, error?: string, statusCode?: number }
+ */
+async function checkApiKeyLimits(keyData, req) {
+  // 1. 检查速率限制
+  const rateLimits = parseRateLimits(keyData.rateLimits)
+  if (rateLimits.length > 0) {
+    const now = Date.now()
+    for (let i = 0; i < rateLimits.length; i++) {
+      const rule = rateLimits[i]
+      const ruleWindow = rule.window || 0
+      const ruleRequests = rule.requests || 0
+      const ruleCost = rule.cost || 0
+
+      if (ruleWindow <= 0 || (ruleRequests <= 0 && ruleCost <= 0)) continue
+
+      const suffix = rateLimits.length === 1 ? '' : `:${i}`
+      const windowStartKey = `rate_limit:window_start:${keyData.id}${suffix}`
+      const requestCountKey = `rate_limit:requests:${keyData.id}${suffix}`
+      const costCountKey = `rate_limit:cost:${keyData.id}${suffix}`
+
+      const windowDuration = ruleWindow * 60 * 1000
+      const windowStart = await redis.getClient().get(windowStartKey)
+
+      if (windowStart) {
+        const windowStartTime = parseInt(windowStart)
+        if (now - windowStartTime < windowDuration) {
+          const currentRequests = parseInt((await redis.getClient().get(requestCountKey)) || '0')
+          let currentCost = parseFloat((await redis.getClient().get(costCountKey)) || '0')
+
+          if (ruleCost > 0 && currentCost <= 0) {
+            currentCost = await getWindowRatedCostFallback(keyData.id, windowStartTime)
+          }
+
+          if (ruleRequests > 0 && currentRequests >= ruleRequests) {
+            return {
+              valid: false,
+              error: {
+                type: 'insufficient_quota',
+                message: buildQuotaLimitMessage(windowStartTime, windowDuration, ruleWindow, subscriptionUrl),
+                code: 'rate_limit_requests_exceeded'
+              },
+              statusCode: 402
+            }
+          }
+
+          if (ruleCost > 0 && currentCost >= ruleCost) {
+            return {
+              valid: false,
+              error: {
+                type: 'insufficient_quota',
+                message: buildQuotaLimitMessage(windowStartTime, windowDuration, ruleWindow, subscriptionUrl),
+                code: 'rate_limit_cost_exceeded'
+              },
+              statusCode: 402
+            }
+          }
+        }
+      }
+    }
+  }
+
+  // 2. 获取实时费用统计（使用计费成本，与限额设置口径一致）
+  const [dailyCost, costStats] = await Promise.all([
+    redis.getDailyCost(keyData.id),
+    redis.getCostStats(keyData.id)
+  ])
+  const totalCost = costStats?.total || 0
+
+  logger.api(
+    `🔍 Key ${keyData.id} usage: daily=${dailyCost}/${parseFloat(keyData.dailyCostLimit || 0)}, total=${totalCost}/${parseFloat(keyData.totalCostLimit || 0)}`
+  )
+
+  // 3. 检查每日费用限制
+  const dailyCostLimit = parseFloat(keyData.dailyCostLimit || 0)
+  if (dailyCostLimit > 0 && dailyCost >= dailyCostLimit) {
+    logger.api(`❌ Key ${keyData.id} daily cost exceeded: ${dailyCost} >= ${dailyCostLimit}`)
+    return {
+      valid: false,
+      error: {
+        type: 'insufficient_quota',
+        message: `您订购的资源包额度已耗尽。您可以 [<a href="${subscriptionUrl}">补充资源包</a>] 继续使用，或 [<a href="${subscriptionUrl}">订阅套餐</a>] 享受更划算的长效权益，如已购买，可发送“继续”以继续使用。`,
+        code: 'daily_cost_limit_exceeded'
+      },
+      statusCode: 402
+    }
+  }
+
+  // 4. 检查总费用限制
+  const totalCostLimit = parseFloat(keyData.totalCostLimit || 0)
+  if (totalCostLimit > 0 && totalCost >= totalCostLimit) {
+    logger.api(`❌ Key ${keyData.id} total cost exceeded: ${totalCost} >= ${totalCostLimit}`)
+    return {
+      valid: false,
+      error: {
+        type: 'insufficient_quota',
+        message: `您订购的资源包额度已耗尽。您可以 [<a href="${subscriptionUrl}">补充资源包</a>] 继续使用，或 [<a href="${subscriptionUrl}">订阅套餐</a>] 享受更划算的长效权益，如已购买，可发送“继续”以继续使用。`,
+        code: 'total_cost_limit_exceeded'
+      },
+      statusCode: 402
+    }
+  }
+
+  // 5. 检查 Claude 周费用限制
+  const weeklyOpusCostLimit = parseFloat(keyData.weeklyOpusCostLimit || 0)
+  let weeklyOpusCost = 0
+  if (weeklyOpusCostLimit > 0) {
+    const model = req.body?.model || ''
+    if (isClaudeFamilyModel(model)) {
+      // 获取周费用（需要计算周起始时间）
+      const resetDay = parseInt(keyData.weeklyResetDay || 1)
+      const resetHour = parseInt(keyData.weeklyResetHour || 0)
+      const weekStart = redis.getWeekStartTime(resetDay, resetHour)
+      const weekKey = `usage:opus:real:weekly:${keyData.id}:${weekStart}`
+      const weekCostStr = await redis.getClient().get(weekKey)
+      weeklyOpusCost = parseFloat(weekCostStr || 0)
+
+      logger.api(`🔍 Key ${keyData.id} weekly=${weeklyOpusCost}/${weeklyOpusCostLimit}`)
+
+      if (weeklyOpusCost >= weeklyOpusCostLimit) {
+        logger.api(
+          `❌ Key ${keyData.id} weekly cost exceeded: ${weeklyOpusCost} >= ${weeklyOpusCostLimit}`
+        )
+        return {
+          valid: false,
+          error: {
+            type: 'insufficient_quota',
+            message: `您账户中 uni-agent 可用额度已用尽，请前往<a href="${subscriptionUrl}">开发者中心</a>购买资源包，如已购买，可发送"继续"以继续使用。`,
+            code: 'weekly_opus_cost_limit_exceeded'
+          },
+          statusCode: 402
+        }
+      }
+    }
+  }
+
+  return { valid: true, usage: { dailyCost, totalCost, weeklyOpusCost } }
+}
+
+/**
+ * 完整的 API Key 验证（包含所有限制检查）
+ * @param {string} apiKey - API Key 明文
+ * @param {Object} req - Express 请求对象
+ * @param {Object} res - Express 响应对象
+ * @returns {Promise<Object>} { valid: boolean, keyData?: Object, error?: string, statusCode?: number }
+ */
+async function validateApiKeyWithAllChecks(apiKey, req, res) {
+  // 1. 基础验证
+  const validation = await apiKeyService.validateApiKey(apiKey)
+  if (!validation.valid) {
+    return { valid: false, error: validation.error, statusCode: 401 }
+  }
+
+  const keyData = validation.keyData
+
+  // 2. 检查所有限制
+  const limitCheck = await checkApiKeyLimits(keyData, req)
+  if (!limitCheck.valid) {
+    // 把 keyData 带回去，避免外层重复查询
+    return { ...limitCheck, keyData }
+  }
+
+  return { valid: true, keyData }
 }
 
 /**
@@ -472,100 +693,184 @@ const authenticateApiKey = async (req, res, next) => {
     // 打印headers
     logger.info(`🔍 headers: ${JSON.stringify(req.headers)}`)
 
-    // 验证API Key（带缓存优化）
-    const validation = await apiKeyService.validateApiKey(apiKey)
+    // 完整验证（包含所有限制检查）
+    let validation = await validateApiKeyWithAllChecks(apiKey, req, res)
 
     if (!validation.valid) {
-      const clientIP = req.ip || req.connection?.remoteAddress || 'unknown'
-      logger.security(`Invalid API key attempt: ${validation.error} from ${clientIP}`)
-      return res.status(401).json({
-        error: 'Invalid API key',
-        message: validation.error
-      })
-    }
-
-    const skipKeyRestrictions = isTokenCountRequest(req)
-
-    // 🔒 检查客户端限制（使用新的验证器）
-    if (
-      !skipKeyRestrictions &&
-      validation.keyData.enableClientRestriction &&
-      validation.keyData.allowedClients?.length > 0
-    ) {
-      // 使用新的 ClientValidator 进行验证
-      const validationResult = ClientValidator.validateRequest(
-        validation.keyData.allowedClients,
-        req
-      )
-
-      if (!validationResult.allowed) {
-        const clientIP = req.ip || req.connection?.remoteAddress || 'unknown'
-        logger.security(
-          `🚫 Client restriction failed for key: ${validation.keyData.id} (${validation.keyData.name}) from ${clientIP}`
-        )
-        return res.status(403).json({
-          error: 'Client not allowed',
-          message: 'Your client is not authorized to use this API key',
-          allowedClients: validation.keyData.allowedClients,
-          userAgent: validationResult.userAgent
-        })
-      }
-
-      // 验证通过
+      // 尝试切换到备用 Key（keyData 已由 validateApiKeyWithAllChecks 带回，无需重复查询）
+      const failedKeyData = validation.keyData
       logger.api(
-        `✅ Client validated: ${validationResult.clientName} (${validationResult.matchedClient}) for key: ${validation.keyData.id} (${validation.keyData.name})`
+        `🔄 Validation failed: ${typeof validation.error === 'object' ? JSON.stringify(validation.error) : validation.error}, externalUid: ${failedKeyData?.externalUid || 'none'}`
       )
-    }
+      if (failedKeyData?.externalUid) {
+        logger.api(`🔄 Trying alternative keys for uid: ${failedKeyData.externalUid}`)
 
-    // 🔒 检查全局 Claude Code 限制（与 API Key 级别是 OR 逻辑）
-    // 仅对 Claude 服务端点生效 (/api/v1/messages 和 /claude/v1/messages)
-    if (!skipKeyRestrictions) {
-      const normalizedPath = (req.originalUrl || req.path || '').toLowerCase()
-      const isClaudeMessagesEndpoint =
-        normalizedPath.includes('/v1/messages') &&
-        (normalizedPath.startsWith('/api') || normalizedPath.startsWith('/claude'))
+        // 获取该 uid 的所有 Key ID
+        const keyIds = await redis.getKeysByUid(failedKeyData.externalUid)
+        logger.api(`🔄 Found ${keyIds.length} keys for uid: ${failedKeyData.externalUid}`)
+        if (keyIds && keyIds.length > 0) {
+          // 获取所有 Key 数据并分类
+          const allKeys = []
+          for (const keyId of keyIds) {
+            if (keyId === failedKeyData.id) continue
+            const keyData = await redis.getApiKey(keyId)
+            if (!keyData || Object.keys(keyData).length === 0) continue
+            allKeys.push(keyData)
+          }
 
-      if (isClaudeMessagesEndpoint) {
-        try {
-          const globalClaudeCodeOnly = await claudeRelayConfigService.isClaudeCodeOnlyEnabled()
+          // 分类：套餐和资源包
+          const isPackage = (name) => /pack-month-(149|360|1490)$/i.test(name)
+          const isResourcePack = (name) => /_pack-(10|100|1000|10000)-month$/i.test(name)
 
-          // API Key 级别的 Claude Code 限制
-          const keyClaudeCodeOnly =
-            validation.keyData.enableClientRestriction &&
-            Array.isArray(validation.keyData.allowedClients) &&
-            validation.keyData.allowedClients.length === 1 &&
-            validation.keyData.allowedClients.includes('claude_code')
+          const packages = allKeys.filter((k) => isPackage(k.name))
+          const resourcePacks = allKeys.filter((k) => isResourcePack(k.name))
+          const others = allKeys.filter((k) => !isPackage(k.name) && !isResourcePack(k.name))
 
-          // OR 逻辑：全局开启 或 API Key 级别限制为仅 claude_code
-          if (globalClaudeCodeOnly || keyClaudeCodeOnly) {
-            const isClaudeCode = ClaudeCodeValidator.validate(req)
+          logger.api(
+            `🔄 Key classification: packages=${packages.length}, resourcePacks=${resourcePacks.length}, others=${others.length}`
+          )
 
-            if (!isClaudeCode) {
-              const clientIP = req.ip || req.connection?.remoteAddress || 'unknown'
-              logger.api(
-                `❌ Claude Code client validation failed (global: ${globalClaudeCodeOnly}, key: ${keyClaudeCodeOnly}) from ${clientIP}`
-              )
-              return res.status(403).json({
-                error: {
-                  type: 'client_validation_error',
-                  message: 'This endpoint only accepts requests from Claude Code CLI'
-                }
-              })
+          // 判断当前失败的 Key 类型
+          const currentIsPackage = isPackage(failedKeyData.name)
+          const currentIsResourcePack = isResourcePack(failedKeyData.name)
+          logger.api(
+            `🔄 Current key type: ${failedKeyData.name}, isPackage=${currentIsPackage}, isResourcePack=${currentIsResourcePack}`
+          )
+
+          // 检查是否有 pack_consent 标签
+          const hasPackConsent = (tags) => {
+            try {
+              const tagArray = Array.isArray(tags) ? tags : JSON.parse(tags || '[]')
+              return tagArray.includes('pack_consent')
+            } catch {
+              return false
+            }
+          }
+
+          let keysToTry = []
+
+          // 优先级：套餐 > 其他 > 资源包（需同意）
+          // 1. 先尝试所有套餐
+          keysToTry.push(...packages)
+
+          // 2. 再尝试其他类型
+          keysToTry.push(...others)
+
+          // 3. 最后尝试资源包
+          if (currentIsResourcePack) {
+            // 当前是资源包，可以直接切换到其他资源包
+            keysToTry.push(...resourcePacks)
+            logger.api(`🔄 Current is resource pack, adding ${resourcePacks.length} resource packs`)
+          } else {
+            // 当前不是资源包，需要检查 pack_consent 标签
+            const hasConsent = hasPackConsent(failedKeyData.tags)
+            logger.api(
+              `🔄 Current is not resource pack, pack_consent=${hasConsent}, tags=${failedKeyData.tags}`
+            )
+            if (hasConsent) {
+              keysToTry.push(...resourcePacks)
+              logger.api(`🔄 Has pack_consent, adding ${resourcePacks.length} resource packs`)
+            }
+          }
+
+          logger.api(`🔄 Total keys to try: ${keysToTry.length}`)
+
+          // 逐个验证（复用限制检查逻辑）
+          for (const keyData of keysToTry) {
+            logger.api(`🔄 Trying key: ${keyData.id} (${keyData.name})`)
+
+            // 检查基本状态
+            if (keyData.isActive !== 'true') {
+              logger.api(`❌ Key ${keyData.id} is not active: ${keyData.isActive}`)
+              continue
             }
 
-            logger.api(
-              `✅ Claude Code client validated (global: ${globalClaudeCodeOnly}, key: ${keyClaudeCodeOnly})`
-            )
+            // 检查是否过期
+            if (keyData.expiresAt) {
+              const expiresAt = new Date(keyData.expiresAt)
+              if (expiresAt < new Date()) {
+                logger.api(`❌ Key ${keyData.id} has expired: ${keyData.expiresAt}`)
+                continue
+              }
+            }
+
+            // 检查所有限制（速率、费用等）
+            const limitCheck = await checkApiKeyLimits(keyData, req)
+            if (!limitCheck.valid) {
+              logger.api(`❌ Key ${keyData.id} limit check failed: ${limitCheck.error}`)
+              continue
+            }
+
+            // 找到可用的 Key
+            logger.api(`✅ Switched to alternative key: ${keyData.id} (${keyData.name})`)
+
+            // 解析 rateLimits
+            let parsedRateLimits = []
+            try {
+              parsedRateLimits = JSON.parse(keyData.rateLimits || '[]')
+            } catch (e) {
+              parsedRateLimits = []
+            }
+
+            // 构建完整的 keyData（使用实时费用数据）
+            validation = {
+              valid: true,
+              keyData: {
+                id: keyData.id,
+                name: keyData.name,
+                tokenLimit: keyData.tokenLimit,
+                claudeAccountId: keyData.claudeAccountId,
+                claudeConsoleAccountId: keyData.claudeConsoleAccountId,
+                geminiAccountId: keyData.geminiAccountId,
+                openaiAccountId: keyData.openaiAccountId,
+                bedrockAccountId: keyData.bedrockAccountId,
+                droidAccountId: keyData.droidAccountId,
+                permissions: keyData.permissions,
+                concurrencyLimit: keyData.concurrencyLimit,
+                rateLimitWindow: keyData.rateLimitWindow,
+                rateLimitRequests: keyData.rateLimitRequests,
+                rateLimitCost: keyData.rateLimitCost,
+                rateLimits: parsedRateLimits,
+                enableModelRestriction: keyData.enableModelRestriction,
+                restrictedModels: keyData.restrictedModels,
+                enableClientRestriction: keyData.enableClientRestriction,
+                allowedClients: keyData.allowedClients,
+                dailyCostLimit: parseFloat(keyData.dailyCostLimit || 0),
+                dailyCost: limitCheck.usage.dailyCost,
+                totalCostLimit: parseFloat(keyData.totalCostLimit || 0),
+                totalCost: limitCheck.usage.totalCost,
+                weeklyOpusCostLimit: parseFloat(keyData.weeklyOpusCostLimit || 0),
+                weeklyOpusCost: limitCheck.usage.weeklyOpusCost
+              }
+            }
+            break
           }
-        } catch (error) {
-          logger.error('❌ Error checking Claude Code restriction:', error)
-          // 配置服务出错时不阻断请求
         }
+      }
+
+      // 如果切换失败或无 externalUid，返回错误
+      if (!validation.valid) {
+        const clientIP = req.ip || req.connection?.remoteAddress || 'unknown'
+        logger.security(
+          `API key validation failed: ${JSON.stringify(validation.error)} from ${clientIP}`
+        )
+
+        // 如果 error 是对象（新格式），直接返回
+        if (typeof validation.error === 'object') {
+          return res.status(validation.statusCode || 401).json(validation.error)
+        }
+
+        // 如果 error 是字符串（旧格式），包装为对象
+        return res.status(validation.statusCode || 401).json({
+          error: validation.error,
+          message: validation.error
+        })
       }
     }
 
     // 检查并发限制
     const concurrencyLimit = validation.keyData.concurrencyLimit || 0
+    const skipKeyRestrictions = isTokenCountRequest(req)
     if (!skipKeyRestrictions && concurrencyLimit > 0) {
       const { leaseSeconds: configLeaseSeconds, renewIntervalSeconds: configRenewIntervalSeconds } =
         resolveConcurrencyConfig()
@@ -653,8 +958,7 @@ const authenticateApiKey = async (req, res, next) => {
         // 3. 排队功能未启用，直接返回 429（保持现有行为）
         if (!queueConfig.concurrentRequestQueueEnabled) {
           logger.security(
-            `🚦 Concurrency limit exceeded for key: ${validation.keyData.id} (${
-              validation.keyData.name
+            `🚦 Concurrency limit exceeded for key: ${validation.keyData.id} (${validation.keyData.name
             }), current: ${currentConcurrency - 1}, limit: ${concurrencyLimit}`
           )
           // 建议客户端在短暂延迟后重试（并发场景下通常很快会有槽位释放）
@@ -686,9 +990,9 @@ const authenticateApiKey = async (req, res, next) => {
           const currentQueueCount = overloadCheck.currentQueueCount || 0
           logger.api(
             `🚨 Queue overloaded for key: ${validation.keyData.id} (${validation.keyData.name}), ` +
-              `P90=${overloadCheck.estimatedWaitMs}ms, timeout=${overloadCheck.timeoutMs}ms, ` +
-              `threshold=${overloadCheck.threshold}, samples=${overloadCheck.sampleCount}, ` +
-              `concurrency=${concurrencyLimit}, queue=${currentQueueCount}/${maxQueueSize}`
+            `P90=${overloadCheck.estimatedWaitMs}ms, timeout=${overloadCheck.timeoutMs}ms, ` +
+            `threshold=${overloadCheck.threshold}, samples=${overloadCheck.sampleCount}, ` +
+            `concurrency=${concurrencyLimit}, queue=${currentQueueCount}/${maxQueueSize}`
           )
           // 记录被拒绝的过载统计
           redis
@@ -726,7 +1030,7 @@ const authenticateApiKey = async (req, res, next) => {
             queueIncremented = false
             logger.api(
               `🚦 Concurrency queue full for key: ${validation.keyData.id} (${validation.keyData.name}), ` +
-                `queue: ${newQueueCount - 1}, maxQueue: ${maxQueueSize}`
+              `queue: ${newQueueCount - 1}, maxQueue: ${maxQueueSize}`
             )
             // 队列已满，建议客户端在排队超时时间后重试
             const retryAfterSeconds = Math.ceil(queueConfig.concurrentRequestQueueTimeoutMs / 1000)
@@ -746,7 +1050,7 @@ const authenticateApiKey = async (req, res, next) => {
           // 6. 已成功进入排队，记录统计并开始等待槽位
           logger.api(
             `⏳ Request entering queue for key: ${validation.keyData.id} (${validation.keyData.name}), ` +
-              `queue position: ${newQueueCount}`
+            `queue position: ${newQueueCount}`
           )
           redis
             .incrConcurrencyQueueStats(validation.keyData.id, 'entered')
@@ -839,7 +1143,7 @@ const authenticateApiKey = async (req, res, next) => {
           // 8. 排队成功，slot.acquired 表示已在 waitForConcurrencySlot 中获取到槽位
           logger.api(
             `✅ Queue wait completed for key: ${validation.keyData.id} (${validation.keyData.name}), ` +
-              `waited: ${slot.waitTimeMs}ms`
+            `waited: ${slot.waitTimeMs}ms`
           )
           hasConcurrencySlot = true
           setTemporaryConcurrencyCleanup()
@@ -854,8 +1158,8 @@ const authenticateApiKey = async (req, res, next) => {
           if (res.destroyed || res.writableEnded || postQueueSocket?.destroyed) {
             logger.warn(
               `⚠️ Client no longer waiting after queue for key: ${validation.keyData.id} (${validation.keyData.name}), ` +
-                `waited: ${slot.waitTimeMs}ms | destroyed: ${res.destroyed}, ` +
-                `writableEnded: ${res.writableEnded}, socketDestroyed: ${postQueueSocket?.destroyed}`
+              `waited: ${slot.waitTimeMs}ms | destroyed: ${res.destroyed}, ` +
+              `writableEnded: ${res.writableEnded}, socketDestroyed: ${postQueueSocket?.destroyed}`
             )
             // 释放刚获取的槽位
             hasConcurrencySlot = false
@@ -879,10 +1183,10 @@ const authenticateApiKey = async (req, res, next) => {
           if (socketIdentityChanged) {
             logger.error(
               `❌ [Queue] Socket identity changed during queue wait! ` +
-                `key: ${validation.keyData.id} (${validation.keyData.name}), ` +
-                `waited: ${slot.waitTimeMs}ms | ` +
-                `tokenMatch: ${queueData?.queueToken === savedToken}, ` +
-                `socketMatch: ${queueData?.originalSocket === savedSocket}`
+              `key: ${validation.keyData.id} (${validation.keyData.name}), ` +
+              `waited: ${slot.waitTimeMs}ms | ` +
+              `tokenMatch: ${queueData?.queueToken === savedToken}, ` +
+              `socketMatch: ${queueData?.originalSocket === savedSocket}`
             )
             // 释放刚获取的槽位
             hasConcurrencySlot = false
@@ -1104,24 +1408,23 @@ const authenticateApiKey = async (req, res, next) => {
 
         const currentRequests = parseInt((await redis.getClient().get(requestCountKey)) || '0')
         const currentTokens = parseInt((await redis.getClient().get(tokenCountKey)) || '0')
-        const currentCost = parseFloat((await redis.getClient().get(costCountKey)) || '0')
+        let currentCost = parseFloat((await redis.getClient().get(costCountKey)) || '0')
+
+        if (ruleCost > 0 && currentCost <= 0) {
+          currentCost = await getWindowRatedCostFallback(validation.keyData.id, windowStart)
+        }
 
         // 检查请求次数限制
         if (ruleRequests > 0 && currentRequests >= ruleRequests) {
-          const resetTime = new Date(windowStart + windowDuration)
-          const remainingMinutes = Math.ceil((resetTime - now) / 60000)
-
           logger.security(
             `🚦 Rate limit exceeded (requests, rule ${i}) for key: ${validation.keyData.id} (${validation.keyData.name}), requests: ${currentRequests}/${ruleRequests}, window: ${ruleWindow}min`
           )
-
           return res.status(429).json({
             error: 'Rate limit exceeded',
-            message: `已达到请求次数限制 (${ruleRequests} 次/${ruleWindow}分钟)，将在 ${remainingMinutes} 分钟后重置`,
+            message: buildQuotaLimitMessage(windowStart, windowDuration, ruleWindow, subscriptionUrl),
             currentRequests,
             requestLimit: ruleRequests,
-            resetAt: resetTime.toISOString(),
-            remainingMinutes
+            resetAt: new Date(windowStart + windowDuration).toISOString()
           })
         }
 
@@ -1129,40 +1432,30 @@ const authenticateApiKey = async (req, res, next) => {
         const tokenLimit = parseInt(validation.keyData.tokenLimit)
         if (i === 0 && tokenLimit > 0) {
           if (currentTokens >= tokenLimit) {
-            const resetTime = new Date(windowStart + windowDuration)
-            const remainingMinutes = Math.ceil((resetTime - now) / 60000)
-
             logger.security(
               `🚦 Rate limit exceeded (tokens) for key: ${validation.keyData.id} (${validation.keyData.name}), tokens: ${currentTokens}/${tokenLimit}`
             )
-
             return res.status(429).json({
               error: 'Rate limit exceeded',
-              message: `已达到 Token 使用限制 (${tokenLimit} tokens)，将在 ${remainingMinutes} 分钟后重置`,
+              message: buildQuotaLimitMessage(windowStart, windowDuration, ruleWindow, subscriptionUrl),
               currentTokens,
               tokenLimit,
-              resetAt: resetTime.toISOString(),
-              remainingMinutes
+              resetAt: new Date(windowStart + windowDuration).toISOString()
             })
           }
-        } else if (ruleCost > 0) {
+        }
+        if (ruleCost > 0) {
           if (currentCost >= ruleCost) {
-            const resetTime = new Date(windowStart + windowDuration)
-            const remainingMinutes = Math.ceil((resetTime - now) / 60000)
-
             logger.security(
-              `💰 Rate limit exceeded (cost, rule ${i}) for key: ${validation.keyData.id} (${
-                validation.keyData.name
+              `💰 Rate limit exceeded (cost, rule ${i}) for key: ${validation.keyData.id} (${validation.keyData.name
               }), cost: $${currentCost.toFixed(2)}/$${ruleCost}, window: ${ruleWindow}min`
             )
-
             return res.status(429).json({
               error: 'Rate limit exceeded',
-              message: `已达到费用限制 ($${ruleCost}/${ruleWindow}分钟)，将在 ${remainingMinutes} 分钟后重置`,
+              message: buildQuotaLimitMessage(windowStart, windowDuration, ruleWindow, subscriptionUrl),
               currentCost,
               costLimit: ruleCost,
-              resetAt: resetTime.toISOString(),
-              remainingMinutes
+              resetAt: new Date(windowStart + windowDuration).toISOString()
             })
           }
         }
@@ -1196,8 +1489,7 @@ const authenticateApiKey = async (req, res, next) => {
 
       if (dailyCost >= dailyCostLimit) {
         logger.security(
-          `💰 Daily cost limit exceeded for key: ${validation.keyData.id} (${
-            validation.keyData.name
+          `💰 Daily cost limit exceeded for key: ${validation.keyData.id} (${validation.keyData.name
           }), cost: $${dailyCost.toFixed(2)}/$${dailyCostLimit}`
         )
 
@@ -1205,7 +1497,7 @@ const authenticateApiKey = async (req, res, next) => {
         return res.status(402).json({
           error: {
             type: 'insufficient_quota',
-            message: `当前 uni-agent 资源包额度已用尽，请购买新资源包，如已购买，请重启 HBuilderX 使新资源包生效。`,
+            message: `您账户中 uni-agent 可用额度已用尽，请前往<a href="${subscriptionUrl}">开发者中心</a>购买资源包，如已购买，可发送“继续”以继续使用。`,
             code: 'daily_cost_limit_exceeded'
           },
           currentCost: dailyCost,
@@ -1216,8 +1508,7 @@ const authenticateApiKey = async (req, res, next) => {
 
       // 记录当前费用使用情况
       logger.api(
-        `💰 Cost usage for key: ${validation.keyData.id} (${
-          validation.keyData.name
+        `💰 Cost usage for key: ${validation.keyData.id} (${validation.keyData.name
         }), current: $${dailyCost.toFixed(2)}/$${dailyCostLimit}`
       )
     }
@@ -1229,8 +1520,7 @@ const authenticateApiKey = async (req, res, next) => {
 
       if (totalCost >= totalCostLimit) {
         logger.security(
-          `💰 Total cost limit exceeded for key: ${validation.keyData.id} (${
-            validation.keyData.name
+          `💰 Total cost limit exceeded for key: ${validation.keyData.id} (${validation.keyData.name
           }), cost: $${totalCost.toFixed(2)}/$${totalCostLimit}`
         )
 
@@ -1238,7 +1528,7 @@ const authenticateApiKey = async (req, res, next) => {
         return res.status(402).json({
           error: {
             type: 'insufficient_quota',
-            message: `当前 uni-agent 资源包额度已用尽，请购买新资源包，如已购买，请重启 HBuilderX 使新资源包生效。`,
+            message: `您账户中 uni-agent 可用额度已用尽，请前往<a href="${subscriptionUrl}">开发者中心</a>购买资源包，如已购买，可发送“继续”以继续使用。`,
             code: 'total_cost_limit_exceeded'
           },
           currentCost: totalCost,
@@ -1247,8 +1537,7 @@ const authenticateApiKey = async (req, res, next) => {
       }
 
       logger.api(
-        `💰 Total cost usage for key: ${validation.keyData.id} (${
-          validation.keyData.name
+        `💰 Total cost usage for key: ${validation.keyData.id} (${validation.keyData.name
         }), current: $${totalCost.toFixed(2)}/$${totalCostLimit}`
       )
     }
@@ -1266,8 +1555,7 @@ const authenticateApiKey = async (req, res, next) => {
 
         if (weeklyOpusCost >= weeklyOpusCostLimit) {
           logger.security(
-            `💰 Weekly Claude cost limit exceeded for key: ${validation.keyData.id} (${
-              validation.keyData.name
+            `💰 Weekly Claude cost limit exceeded for key: ${validation.keyData.id} (${validation.keyData.name
             }), cost: $${weeklyOpusCost.toFixed(2)}/$${weeklyOpusCostLimit}`
           )
 
@@ -1280,7 +1568,7 @@ const authenticateApiKey = async (req, res, next) => {
           return res.status(402).json({
             error: {
               type: 'insufficient_quota',
-              message: `当前 uni-agent 资源包额度已用尽，请购买新资源包，如已购买，请重启 HBuilderX 使新资源包生效。`,
+              message: `您账户中 uni-agent 可用额度已用尽，请前往<a href="${subscriptionUrl}">开发者中心</a>购买资源包，如已购买，可发送“继续”以继续使用。`,
               code: 'weekly_opus_cost_limit_exceeded'
             },
             currentCost: weeklyOpusCost,
@@ -1291,8 +1579,7 @@ const authenticateApiKey = async (req, res, next) => {
 
         // 记录当前 Claude 费用使用情况
         logger.api(
-          `💰 Claude weekly cost usage for key: ${validation.keyData.id} (${
-            validation.keyData.name
+          `💰 Claude weekly cost usage for key: ${validation.keyData.id} (${validation.keyData.name
           }), current: $${weeklyOpusCost.toFixed(2)}/$${weeklyOpusCostLimit}`
         )
       }
@@ -1329,7 +1616,7 @@ const authenticateApiKey = async (req, res, next) => {
     logger.api(
       `🔓 Authenticated request from key: ${validation.keyData.name} (${validation.keyData.id}) in ${authDuration}ms`
     )
-    logger.api(`   User-Agent: "${userAgent}"`)
+    logger.api(`   User-Agent: "${userAgent}" req.apiKey: "${req.apiKey.id}"`)
 
     return next()
   } catch (error) {

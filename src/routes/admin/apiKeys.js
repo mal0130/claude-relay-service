@@ -1267,6 +1267,16 @@ async function calculateKeyStats(keyId, timeRange, startDate, endDate) {
 
   // 获取速率限制窗口数据（独立 try/catch，避免费用获取失败影响速率限制显示）
   const rateLimitStatuses = []
+  let recentUsageRecords = null
+  const loadRecentUsageRecords = async () => {
+    if (recentUsageRecords !== null) {
+      return recentUsageRecords
+    }
+
+    recentUsageRecords = await redis.getUsageRecords(keyId, 200)
+    return recentUsageRecords
+  }
+
   try {
     const now = Date.now()
 
@@ -1301,6 +1311,24 @@ async function calculateKeyStats(keyId, timeRange, startDate, endDate) {
 
         if (now < ruleWindowEndTime) {
           ruleWindowRemainingSeconds = Math.max(0, Math.floor((ruleWindowEndTime - now) / 1000))
+
+          // 兼容历史数据：部分请求链路未写入窗口费用计数器时，用最近 usage 记录回算倍率费用。
+          if (costLimit > 0 && ruleCurrentCost <= 0) {
+            const usageRecords = await loadRecentUsageRecords()
+            ruleCurrentCost = Number(
+              usageRecords
+                .filter((record) => {
+                  if (!record || typeof record.cost !== 'number') {
+                    return false
+                  }
+
+                  const timestamp = Date.parse(record.timestamp)
+                  return Number.isFinite(timestamp) && timestamp >= ruleWindowStartTime
+                })
+                .reduce((sum, record) => sum + record.cost, 0)
+                .toFixed(6)
+            )
+          }
         } else {
           ruleWindowRemainingSeconds = 0
           ruleCurrentRequests = 0
@@ -1673,7 +1701,8 @@ router.post('/api-keys', authenticateAdmin, async (req, res) => {
       serviceRates, // API Key 级别服务倍率
       weeklyResetDay, // 周费用重置日 (1-7)
       weeklyResetHour, // 周费用重置时 (0-23)
-      translateReasoning // 是否启用思考链路翻译
+      translateReasoning, // 是否启用思考链路翻译
+      externalUid // 外部用户ID
     } = req.body
 
     // 输入验证
@@ -1708,20 +1737,20 @@ router.post('/api-keys', authenticateAdmin, async (req, res) => {
       rateLimitWindow !== undefined &&
       rateLimitWindow !== null &&
       rateLimitWindow !== '' &&
-      (!Number.isInteger(Number(rateLimitWindow)) || Number(rateLimitWindow) < 1)
+      (!Number.isInteger(Number(rateLimitWindow)) || Number(rateLimitWindow) < 0)
     ) {
       return res
         .status(400)
-        .json({ error: 'Rate limit window must be a positive integer (minutes)' })
+        .json({ error: 'Rate limit window must be a non-negative integer (minutes)' })
     }
 
     if (
       rateLimitRequests !== undefined &&
       rateLimitRequests !== null &&
       rateLimitRequests !== '' &&
-      (!Number.isInteger(Number(rateLimitRequests)) || Number(rateLimitRequests) < 1)
+      (!Number.isInteger(Number(rateLimitRequests)) || Number(rateLimitRequests) < 0)
     ) {
-      return res.status(400).json({ error: 'Rate limit requests must be a positive integer' })
+      return res.status(400).json({ error: 'Rate limit requests must be a non-negative integer' })
     }
 
     // 验证多规则速率限制
@@ -1896,7 +1925,8 @@ router.post('/api-keys', authenticateAdmin, async (req, res) => {
         weeklyResetHour !== undefined && weeklyResetHour !== null && weeklyResetHour !== ''
           ? Number(weeklyResetHour)
           : 0,
-      translateReasoning: translateReasoning === true || translateReasoning === 'true'
+      translateReasoning: translateReasoning === true || translateReasoning === 'true',
+      externalUid
     })
 
     logger.success(`🔑 Admin created new API key: ${name}`)
@@ -2312,7 +2342,8 @@ router.put('/api-keys/:keyId', authenticateAdmin, async (req, res) => {
       serviceRates, // API Key 级别服务倍率
       weeklyResetDay, // 周费用重置日 (1-7)
       weeklyResetHour, // 周费用重置时 (0-23)
-      translateReasoning // 是否启用思考链路翻译
+      translateReasoning, // 是否启用思考链路翻译
+      externalUid // 外部用户ID
     } = req.body
 
     // 只允许更新指定字段
@@ -2571,6 +2602,11 @@ router.put('/api-keys/:keyId', authenticateAdmin, async (req, res) => {
     // 处理思考链路翻译开关
     if (translateReasoning !== undefined && translateReasoning !== null) {
       updates.translateReasoning = translateReasoning === true || translateReasoning === 'true'
+    }
+
+    // 处理外部用户ID
+    if (externalUid !== undefined) {
+      updates.externalUid = externalUid || ''
     }
 
     // 处理活跃/禁用状态状态, 放在过期处理后，以确保后续增加禁用key功能

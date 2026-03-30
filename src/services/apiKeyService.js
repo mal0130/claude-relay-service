@@ -129,6 +129,41 @@ class ApiKeyService {
     this.prefix = config.security.apiKeyPrefix
   }
 
+  /**
+   * 初始化速率限制窗口（购买时立即启动倒计时）
+   * @param {string} keyId - API Key ID
+   * @param {Array} rateLimits - 速率限制规则数组
+   */
+  async initializeRateLimitWindows(keyId, rateLimits) {
+    if (!rateLimits || rateLimits.length === 0) {
+      return
+    }
+
+    const now = Date.now()
+    const client = redis.getClient()
+
+    for (let i = 0; i < rateLimits.length; i++) {
+      const rule = rateLimits[i]
+      const ruleWindow = rule.window || 0
+
+      if (ruleWindow <= 0) continue
+
+      const suffix = rateLimits.length === 1 ? '' : `:${i}`
+      const windowStartKey = `rate_limit:window_start:${keyId}${suffix}`
+      const requestCountKey = `rate_limit:requests:${keyId}${suffix}`
+      const tokenCountKey = `rate_limit:tokens:${keyId}${suffix}`
+      const costCountKey = `rate_limit:cost:${keyId}${suffix}`
+      const windowDuration = ruleWindow * 60 * 1000
+
+      await client.set(windowStartKey, now, 'PX', windowDuration)
+      await client.set(requestCountKey, 0, 'PX', windowDuration)
+      await client.set(tokenCountKey, 0, 'PX', windowDuration)
+      await client.set(costCountKey, 0, 'PX', windowDuration)
+    }
+
+    logger.info(`✅ Initialized rate limit windows for key ${keyId}, ${rateLimits.length} rules`)
+  }
+
   // 🔑 生成新的API Key
   async generateApiKey(options = {}) {
     const {
@@ -165,7 +200,8 @@ class ApiKeyService {
       serviceRates = {}, // API Key 级别服务倍率覆盖
       weeklyResetDay = 1, // 周费用重置日 (1=周一 ... 7=周日)
       weeklyResetHour = 0, // 周费用重置时 (0-23)
-      translateReasoning = false // 是否对该 Key 启用思考链路翻译
+      translateReasoning = false, // 是否对该 Key 启用思考链路翻译
+      externalUid = null // 新增：外部用户ID，用于多Key自动切换
     } = options
 
     // 生成简单的API Key (64字符十六进制)
@@ -219,11 +255,17 @@ class ApiKeyService {
       serviceRates: JSON.stringify(serviceRates || {}), // API Key 级别服务倍率
       weeklyResetDay: String(weeklyResetDay || 1), // 周费用重置日 (1-7)
       weeklyResetHour: String(weeklyResetHour || 0), // 周费用重置时 (0-23)
-      translateReasoning: String(translateReasoning || false) // 思考链路翻译
+      translateReasoning: String(translateReasoning || false), // 思考链路翻译
+      externalUid: externalUid || '' // 外部用户ID，用于多Key自动切换
     }
 
     // 保存API Key数据并建立哈希映射
     await redis.setApiKey(keyId, keyData, hashedKey)
+
+    // 维护 externalUid 索引
+    if (externalUid) {
+      await redis.addKeyToUidIndex(externalUid, keyId)
+    }
 
     // 同步添加到费用排序索引
     try {
@@ -247,6 +289,15 @@ class ApiKeyService {
       })
     } catch (err) {
       logger.warn(`Failed to add key ${keyId} to API Key index:`, err.message)
+    }
+
+    // 初始化速率限制窗口（购买时立即启动倒计时）
+    if (rateLimits && rateLimits.length > 0) {
+      try {
+        await this.initializeRateLimitWindows(keyId, rateLimits)
+      } catch (err) {
+        logger.warn(`Failed to initialize rate limit windows for key ${keyId}:`, err.message)
+      }
     }
 
     logger.success(`🔑 Generated new API key: ${name} (${keyId})`)
@@ -344,15 +395,20 @@ class ApiKeyService {
         await redis.setApiKey(keyData.id, keyData)
 
         logger.success(
-          `🔓 API key activated: ${keyData.id} (${
-            keyData.name
+          `🔓 API key activated: ${keyData.id} (${keyData.name
           }), will expire in ${activationPeriod} ${activationUnit} at ${expiresAt.toISOString()}`
         )
       }
 
       // 检查是否过期
       if (keyData.expiresAt && new Date() > new Date(keyData.expiresAt)) {
-        return { valid: false, error: 'API key has expired' }
+        const subscriptionUrl =
+          'https://dev.dcloud.net.cn/pages/product-account/product-account?pcd=uni_ai_agent'
+        const isResourcePack = /_pack-(10|100|1000|10000)-month$/i.test(keyData.name || '')
+        const expiredError = isResourcePack
+          ? `您订购的资源包已过有效期。您可以重新购买 [<a href="${subscriptionUrl}">资源包</a>]，或选择更灵活的 [<a href="${subscriptionUrl}">订阅套餐</a>] 开启新一轮体验。`
+          : `您订阅的套餐已到期，为确保您的开发不受影响，请 [<a href="${subscriptionUrl}">点此续费</a>]`
+        return { valid: false, error: expiredError }
       }
 
       // 如果API Key属于某个用户，检查用户是否被禁用
@@ -483,7 +539,8 @@ class ApiKeyService {
           weeklyResetDay: parseInt(keyData.weeklyResetDay || 1),
           weeklyResetHour: parseInt(keyData.weeklyResetHour || 0),
           tags,
-          serviceRates
+          serviceRates,
+          externalUid: keyData.externalUid || ''
         }
       }
     } catch (error) {
@@ -1279,7 +1336,8 @@ class ApiKeyService {
         'serviceRates', // API Key 级别服务倍率
         'weeklyResetDay', // 周费用重置日 (1-7)
         'weeklyResetHour', // 周费用重置时 (0-23)
-        'translateReasoning' // 思考链路翻译
+        'translateReasoning', // 思考链路翻译
+        'externalUid' // 外部用户ID
       ]
       const updatedData = { ...keyData }
 
@@ -1315,6 +1373,18 @@ class ApiKeyService {
 
       updatedData.updatedAt = new Date().toISOString()
 
+      // 如果 externalUid 发生变化，更新索引
+      if (updates.externalUid !== undefined && updates.externalUid !== keyData.externalUid) {
+        // 从旧索引移除
+        if (keyData.externalUid) {
+          await redis.removeKeyFromUidIndex(keyData.externalUid, keyId)
+        }
+        // 添加到新索引
+        if (updates.externalUid) {
+          await redis.addKeyToUidIndex(updates.externalUid, keyId)
+        }
+      }
+
       // 传递hashedKey以确保映射表一致性
       // keyData.apiKey 存储的就是 hashedKey（见generateApiKey第123行）
       await redis.setApiKey(keyId, updatedData, keyData.apiKey)
@@ -1330,6 +1400,42 @@ class ApiKeyService {
         })
       } catch (err) {
         logger.warn(`Failed to update API Key index for ${keyId}:`, err.message)
+      }
+
+      // 如果 rateLimits 发生变化，检查是否需要重置速率限制窗口
+      if (updates.rateLimits !== undefined) {
+        try {
+          const oldRateLimits = JSON.parse(keyData.rateLimits || '[]')
+          const newRateLimits = Array.isArray(updates.rateLimits)
+            ? updates.rateLimits
+            : JSON.parse(updates.rateLimits || '[]')
+
+          // 判断是否需要重置窗口：
+          // 1. 规则数量变化
+          // 2. 窗口时长变化（window 字段）
+          let needReset = oldRateLimits.length !== newRateLimits.length
+
+          if (!needReset && oldRateLimits.length > 0) {
+            for (let i = 0; i < oldRateLimits.length; i++) {
+              const oldWindow = oldRateLimits[i]?.window || 0
+              const newWindow = newRateLimits[i]?.window || 0
+              if (oldWindow !== newWindow) {
+                needReset = true
+                break
+              }
+            }
+          }
+
+          // 只有窗口结构变化时才重置，单纯修改限额不重置
+          if (needReset && newRateLimits.length > 0) {
+            await this.initializeRateLimitWindows(keyId, newRateLimits)
+            logger.info(`🔄 Reset rate limit windows for key ${keyId} (structure changed)`)
+          } else if (!needReset) {
+            logger.info(`📝 Updated rate limits for key ${keyId} (window preserved)`)
+          }
+        } catch (err) {
+          logger.warn(`Failed to process rate limit update for key ${keyId}:`, err.message)
+        }
       }
 
       logger.success(`📝 Updated API key: ${keyId}, hashMap updated`)
@@ -1364,6 +1470,11 @@ class ApiKeyService {
       // 从哈希映射中移除（这样就不能再使用这个key进行API调用）
       if (keyData.apiKey) {
         await redis.deleteApiKeyHash(keyData.apiKey)
+      }
+
+      // 从 externalUid 索引中移除
+      if (keyData.externalUid) {
+        await redis.removeKeyFromUidIndex(keyData.externalUid, keyId)
       }
 
       // 从费用排序索引中移除
@@ -1440,6 +1551,11 @@ class ApiKeyService {
           name: keyData.name,
           isActive: 'true'
         })
+      }
+
+      // 重新添加到 externalUid 索引
+      if (keyData.externalUid) {
+        await redis.addKeyToUidIndex(keyData.externalUid, keyId)
       }
 
       // 重新添加到费用排序索引
@@ -2893,6 +3009,44 @@ class ApiKeyService {
     } catch (error) {
       logger.error('❌ Failed to extend expiry:', error)
       throw error
+    }
+  }
+
+  /**
+   * 查找备用 API Key（用于多 Key 自动切换）
+   * @param {string} externalUid - 外部用户ID
+   * @param {string[]} excludeKeyIds - 排除的 Key ID 列表
+   * @returns {Promise<Object|null>} 可用的备用 Key 数据，如果没有则返回 null
+   */
+  async findAlternativeKey(externalUid, excludeKeyIds = []) {
+    if (!externalUid) return null
+
+    try {
+      // 获取该 uid 的所有 Key ID
+      const keyIds = await redis.getKeysByUid(externalUid)
+      if (!keyIds || keyIds.length === 0) return null
+
+      // 逐个检查（排除已尝试的）
+      for (const keyId of keyIds) {
+        if (excludeKeyIds.includes(keyId)) continue
+
+        // 获取 Key 数据
+        const keyData = await redis.getApiKey(keyId)
+        if (!keyData || Object.keys(keyData).length === 0) continue
+
+        // 基础验证（复用 validateApiKey 的逻辑）
+        const validation = await this.validateApiKey(keyData.apiKey)
+        if (validation.valid) {
+          logger.api(`🔄 Found alternative key: ${keyId} (${keyData.name}) for uid: ${externalUid}`)
+          return validation.keyData
+        }
+      }
+
+      logger.api(`❌ No alternative key found for uid: ${externalUid}`)
+      return null
+    } catch (error) {
+      logger.error(`Failed to find alternative key for uid ${externalUid}:`, error)
+      return null
     }
   }
 }

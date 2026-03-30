@@ -334,6 +334,11 @@
                       标签
                     </th>
                     <th
+                      class="min-w-[100px] px-3 py-4 text-left text-xs font-bold uppercase tracking-wider text-gray-700 dark:text-gray-300"
+                    >
+                      外部用户ID
+                    </th>
+                    <th
                       class="min-w-[80px] cursor-pointer px-3 py-4 text-left text-xs font-bold uppercase tracking-wider text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-600"
                       @click="sortApiKeys('status')"
                     >
@@ -596,6 +601,12 @@
                             >无标签</span
                           >
                         </div>
+                      </td>
+                      <!-- 外部用户ID列 -->
+                      <td class="px-3 py-3">
+                        <span class="text-xs text-gray-600 dark:text-gray-400">
+                          {{ key.externalUid || '-' }}
+                        </span>
                       </td>
                       <td class="whitespace-nowrap px-3 py-3">
                         <span

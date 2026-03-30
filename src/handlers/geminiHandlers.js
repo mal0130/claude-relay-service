@@ -21,7 +21,7 @@ const axios = require('axios')
 const { getSafeMessage } = require('../utils/errorSanitizer')
 const ProxyHelper = require('../utils/proxyHelper')
 const upstreamErrorHelper = require('../utils/upstreamErrorHelper')
-const { extractUserInput, classifyProjectType } = require('../utils/userInputExtractor')
+const { buildUsageMetadata } = require('../utils/userInputExtractor')
 
 // 处理 Gemini 上游错误，标记账户为临时不可用
 const handleGeminiUpstreamError = async (
@@ -579,12 +579,14 @@ async function handleMessages(req, res) {
 
           // 记录使用统计
           if (geminiData.usageMetadata) {
-            const _userInput = extractUserInput(req.body, 'gemini')
-            const _usageExtra = {
+            const _usageExtra = buildUsageMetadata({
+              body: req.body,
+              format: 'gemini',
+              headers: req.headers,
               sessionId: sessionHash || null,
-              userInput: _userInput,
-              projectType: classifyProjectType(req.body, 'gemini')
-            }
+              rawSessionId: req.headers['x-session-id'] || req.body?.session_id || null,
+              assistantContent: geminiResponse?.choices?.[0]?.message || undefined
+            })
             await apiKeyService.recordUsage(
               apiKeyData.id,
               geminiData.usageMetadata.promptTokenCount || 0,
@@ -626,7 +628,14 @@ async function handleMessages(req, res) {
           apiKeyId: apiKeyData.id,
           signal: abortController.signal,
           projectId: effectiveProjectId,
-          accountId: account.id
+          accountId: account.id,
+          extra: {
+            body: req.body,
+            format: 'gemini',
+            headers: req.headers,
+            sessionId: sessionHash || null,
+            rawSessionId: req.headers['x-session-id'] || req.body?.session_id || null
+          }
         })
       } else {
         geminiResponse = await sendGeminiRequest({
@@ -640,7 +649,14 @@ async function handleMessages(req, res) {
           apiKeyId: apiKeyData.id,
           signal: abortController.signal,
           projectId: effectiveProjectId,
-          accountId: account.id
+          accountId: account.id,
+          extra: {
+            body: req.body,
+            format: 'gemini',
+            headers: req.headers,
+            sessionId: sessionHash || null,
+            rawSessionId: req.headers['x-session-id'] || req.body?.session_id || null
+          }
         })
       }
     }
@@ -660,6 +676,7 @@ async function handleMessages(req, res) {
           totalTokenCount: 0
         }
         let streamBuffer = ''
+        let streamedText = ''
 
         geminiResponse.on('data', (chunk) => {
           try {
@@ -688,6 +705,10 @@ async function handleMessages(req, res) {
                     if (parsed.usageMetadata || parsed.response?.usageMetadata) {
                       totalUsage = parsed.usageMetadata || parsed.response.usageMetadata
                     }
+                    // 捕获流式文本内容
+                    if (parsed.candidates?.[0]?.content?.parts?.[0]?.text) {
+                      streamedText += parsed.candidates[0].content.parts[0].text
+                    }
                   } catch (e) {
                     // 解析失败，忽略
                   }
@@ -704,12 +725,15 @@ async function handleMessages(req, res) {
 
           // 异步记录使用统计
           if (totalUsage.totalTokenCount > 0) {
-            const _userInput = extractUserInput(req.body, 'gemini')
-            const _usageExtra = {
+            const _usageExtra = buildUsageMetadata({
+              body: req.body,
+              format: 'gemini',
+              headers: req.headers,
+              requestIp: req,
               sessionId: sessionHash || null,
-              userInput: _userInput,
-              projectType: classifyProjectType(req.body, 'gemini')
-            }
+              rawSessionId: req.headers['x-session-id'] || req.body?.session_id || null,
+              assistantContent: streamedText || undefined
+            })
             apiKeyService
               .recordUsage(
                 apiKeyData.id,
@@ -1731,12 +1755,13 @@ async function handleGenerateContent(req, res) {
     if (response?.response?.usageMetadata) {
       try {
         const usage = response.response.usageMetadata
-        const _userInput = extractUserInput(req.body, 'gemini')
-        const _usageExtra = {
+        const _usageExtra = buildUsageMetadata({
+          body: req.body,
+          format: 'gemini',
+          headers: req.headers,
           sessionId: sessionHash || null,
-          userInput: _userInput,
-          projectType: classifyProjectType(req.body, 'gemini')
-        }
+          rawSessionId: req.headers['x-session-id'] || req.body?.session_id || null
+        })
         const geminiNonStreamCosts = await apiKeyService.recordUsage(
           req.apiKey.id,
           usage.promptTokenCount || 0,
@@ -2089,12 +2114,13 @@ async function handleStreamGenerateContent(req, res) {
 
       // 异步记录使用统计
       if (!usageReported && totalUsage.totalTokenCount > 0) {
-        const _userInput = extractUserInput(req.body, 'gemini')
-        const _usageExtra = {
+        const _usageExtra = buildUsageMetadata({
+          body: req.body,
+          format: 'gemini',
+          headers: req.headers,
           sessionId: sessionHash || null,
-          userInput: _userInput,
-          projectType: classifyProjectType(req.body, 'gemini')
-        }
+          rawSessionId: req.headers['x-session-id'] || req.body?.session_id || null
+        })
         apiKeyService
           .recordUsage(
             req.apiKey.id,
@@ -2453,12 +2479,13 @@ async function handleStandardGenerateContent(req, res) {
     if (response?.response?.usageMetadata) {
       try {
         const usage = response.response.usageMetadata
-        const _userInput = extractUserInput(req.body, 'gemini')
-        const _usageExtra = {
+        const _usageExtra = buildUsageMetadata({
+          body: req.body,
+          format: 'gemini',
+          headers: req.headers,
           sessionId: sessionHash || null,
-          userInput: _userInput,
-          projectType: classifyProjectType(req.body, 'gemini')
-        }
+          rawSessionId: req.headers['x-session-id'] || req.body?.session_id || null
+        })
         await apiKeyService.recordUsage(
           req.apiKey.id,
           usage.promptTokenCount || 0,
@@ -2903,12 +2930,13 @@ async function handleStandardStreamGenerateContent(req, res) {
       res.end()
 
       if (totalUsage.totalTokenCount > 0) {
-        const _userInput = extractUserInput(req.body, 'gemini')
-        const _usageExtra = {
+        const _usageExtra = buildUsageMetadata({
+          body: req.body,
+          format: 'gemini',
+          headers: req.headers,
           sessionId: sessionHash || null,
-          userInput: _userInput,
-          projectType: classifyProjectType(req.body, 'gemini')
-        }
+          rawSessionId: req.headers['x-session-id'] || req.body?.session_id || null
+        })
         apiKeyService
           .recordUsage(
             req.apiKey.id,

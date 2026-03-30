@@ -288,6 +288,7 @@ function handleStreamResponse(upstreamResponse, clientResponse, options = {}) {
     let hasEnded = false
     let eventCount = 0
     const maxEvents = 10000 // 最大事件数量限制
+    let streamedText = ''
 
     // 专门用于保存最后几个chunks以提取usage数据
     let finalChunksBuffer = ''
@@ -333,6 +334,11 @@ function handleStreamResponse(upstreamResponse, clientResponse, options = {}) {
 
             // 保存所有成功解析的事件
             allParsedEvents.push(eventData)
+
+            // 捕获流式文本内容
+            if (eventData.choices?.[0]?.delta?.content) {
+              streamedText += eventData.choices[0].delta.content
+            }
 
             // 获取模型信息
             if (eventData.model) {
@@ -564,14 +570,14 @@ function handleStreamResponse(upstreamResponse, clientResponse, options = {}) {
         }
 
         if (onEnd) {
-          onEnd({ usageData, actualModel })
+          onEnd({ usageData, actualModel, streamedText })
         }
 
         if (!clientResponse.destroyed) {
           clientResponse.end()
         }
 
-        resolve({ usageData, actualModel })
+        resolve({ usageData, actualModel, streamedText })
       } catch (error) {
         logger.error('Stream end handling error:', error)
         reject(error)
@@ -759,7 +765,10 @@ function handleNonStreamResponse(upstreamResponse, clientResponse) {
     // 使用强化的用量提取
     const { usageData, actualModel } = extractUsageDataRobust(responseData, 'non-stream')
 
-    return { usageData, actualModel, responseData }
+    // 提取助手回复内容
+    const assistantContent = responseData?.choices?.[0]?.message?.content || undefined
+
+    return { usageData, actualModel, responseData, assistantContent }
   } catch (error) {
     logger.error('Error handling Azure OpenAI non-stream response:', error)
     throw error

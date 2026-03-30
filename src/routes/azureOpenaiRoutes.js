@@ -7,7 +7,7 @@ const azureOpenaiRelayService = require('../services/relay/azureOpenaiRelayServi
 const apiKeyService = require('../services/apiKeyService')
 const crypto = require('crypto')
 const upstreamErrorHelper = require('../utils/upstreamErrorHelper')
-const { extractUserInput, classifyProjectType } = require('../utils/userInputExtractor')
+const { buildUsageMetadata } = require('../utils/userInputExtractor')
 
 // 支持的模型列表 - 基于真实的 Azure OpenAI 模型
 const ALLOWED_MODELS = {
@@ -219,14 +219,18 @@ router.post('/chat/completions', authenticateApiKey, async (req, res) => {
     // 处理流式响应
     if (req.body.stream) {
       await azureOpenaiRelayService.handleStreamResponse(response, res, {
-        onEnd: async ({ usageData, actualModel }) => {
+        onEnd: async ({ usageData, actualModel, streamedText }) => {
           if (usageData) {
             const modelToRecord = actualModel || req.body.model || 'unknown'
-            const _usageExtra = {
+            const _usageExtra = buildUsageMetadata({
+              body: req.body,
+              format: 'openai',
+              headers: req.headers,
+              requestIp: req,
               sessionId: sessionId || null,
-              userInput: extractUserInput(req.body, 'openai'),
-              projectType: classifyProjectType(req.body, 'openai')
-            }
+              rawSessionId: sessionId || null,
+              assistantContent: streamedText || undefined
+            })
             await usageReporter.reportOnce(
               requestId,
               usageData,
@@ -243,18 +247,20 @@ router.post('/chat/completions', authenticateApiKey, async (req, res) => {
       })
     } else {
       // 处理非流式响应
-      const { usageData, actualModel } = azureOpenaiRelayService.handleNonStreamResponse(
-        response,
-        res
-      )
+      const { usageData, actualModel, assistantContent } =
+        azureOpenaiRelayService.handleNonStreamResponse(response, res)
 
       if (usageData) {
         const modelToRecord = actualModel || req.body.model || 'unknown'
-        const _usageExtra = {
+        const _usageExtra = buildUsageMetadata({
+          body: req.body,
+          format: 'openai',
+          headers: req.headers,
+          requestIp: req,
           sessionId: sessionId || null,
-          userInput: extractUserInput(req.body, 'openai'),
-          projectType: classifyProjectType(req.body, 'openai')
-        }
+          rawSessionId: sessionId || null,
+          assistantContent
+        })
         await usageReporter.reportOnce(
           requestId,
           usageData,
@@ -352,14 +358,18 @@ router.post('/responses', authenticateApiKey, async (req, res) => {
     // 处理流式响应
     if (req.body.stream) {
       await azureOpenaiRelayService.handleStreamResponse(response, res, {
-        onEnd: async ({ usageData, actualModel }) => {
+        onEnd: async ({ usageData, actualModel, streamedText }) => {
           if (usageData) {
             const modelToRecord = actualModel || req.body.model || 'unknown'
-            const _usageExtra = {
+            const _usageExtra = buildUsageMetadata({
+              body: req.body,
+              format: 'openai',
+              headers: req.headers,
+              requestIp: req,
               sessionId: sessionId || null,
-              userInput: extractUserInput(req.body, 'openai'),
-              projectType: classifyProjectType(req.body, 'openai')
-            }
+              rawSessionId: sessionId || null,
+              assistantContent: streamedText || undefined
+            })
             await usageReporter.reportOnce(
               requestId,
               usageData,
@@ -376,18 +386,20 @@ router.post('/responses', authenticateApiKey, async (req, res) => {
       })
     } else {
       // 处理非流式响应
-      const { usageData, actualModel } = azureOpenaiRelayService.handleNonStreamResponse(
-        response,
-        res
-      )
+      const { usageData, actualModel, assistantContent } =
+        azureOpenaiRelayService.handleNonStreamResponse(response, res)
 
       if (usageData) {
         const modelToRecord = actualModel || req.body.model || 'unknown'
-        const _usageExtra = {
+        const _usageExtra = buildUsageMetadata({
+          body: req.body,
+          format: 'openai',
+          headers: req.headers,
+          requestIp: req,
           sessionId: sessionId || null,
-          userInput: extractUserInput(req.body, 'openai'),
-          projectType: classifyProjectType(req.body, 'openai')
-        }
+          rawSessionId: sessionId || null,
+          assistantContent
+        })
         await usageReporter.reportOnce(
           requestId,
           usageData,
@@ -489,11 +501,13 @@ router.post('/embeddings', authenticateApiKey, async (req, res) => {
 
     if (usageData) {
       const modelToRecord = actualModel || req.body.model || 'unknown'
-      const _usageExtra = {
+      const _usageExtra = buildUsageMetadata({
+        body: req.body,
+        format: 'openai',
+        headers: req.headers,
         sessionId: sessionId || null,
-        userInput: extractUserInput(req.body, 'openai'),
-        projectType: classifyProjectType(req.body, 'openai')
-      }
+        rawSessionId: sessionId || null
+      })
       await usageReporter.reportOnce(
         requestId,
         usageData,

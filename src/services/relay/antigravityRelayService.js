@@ -2,6 +2,7 @@ const apiKeyService = require('../apiKeyService')
 const { convertMessagesToGemini, convertGeminiResponse } = require('./geminiRelayService')
 const { normalizeAntigravityModelInput } = require('../../utils/antigravityModel')
 const antigravityClient = require('../antigravityClient')
+const { buildUsageMetadata } = require('../../utils/userInputExtractor')
 
 function buildRequestData({ messages, model, temperature, maxTokens, sessionId }) {
   const requestedModel = normalizeAntigravityModelInput(model)
@@ -152,8 +153,13 @@ async function sendAntigravityRequest({
     params: { alt: 'sse' }
   })
 
+  const usageExtra =
+    extra && typeof extra === 'object' && !Array.isArray(extra) && extra.body
+      ? buildUsageMetadata(extra)
+      : extra
+
   if (stream) {
-    return handleStreamResponse(response, requestedModel, apiKeyId, accountId, extra)
+    return handleStreamResponse(response, requestedModel, apiKeyId, accountId, usageExtra)
   }
 
   const payload = response.data?.response || response.data
@@ -171,7 +177,7 @@ async function sendAntigravityRequest({
       'gemini',
       null,
       null,
-      extra
+      usageExtra
     )
   }
 

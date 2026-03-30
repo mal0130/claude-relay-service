@@ -130,6 +130,45 @@
             </p>
           </div>
 
+          <!-- 外部用户ID -->
+          <div>
+            <label class="mb-2 block text-sm font-semibold text-gray-700 dark:text-gray-300"
+              >外部用户ID</label
+            >
+            <input
+              v-model="form.externalUid"
+              class="form-input w-full border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200 dark:placeholder-gray-400"
+              maxlength="100"
+              placeholder="用于多Key切换，相同externalUid的Key可自动切换"
+              type="text"
+            />
+            <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+              用于关联同一用户的多个Key，当某个Key失效时自动切换到其他可用Key
+            </p>
+          </div>
+
+          <!-- 资源包使用同意 -->
+          <div v-if="form.externalUid">
+            <label class="mb-2 block text-sm font-semibold text-gray-700 dark:text-gray-300"
+              >资源包使用同意</label
+            >
+            <div class="flex items-center">
+              <input
+                id="createPackConsent"
+                v-model="packConsentChecked"
+                class="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                type="checkbox"
+                @change="togglePackConsent"
+              />
+              <label class="ml-2 text-sm text-gray-700 dark:text-gray-300" for="createPackConsent">
+                同意套餐超限后自动使用资源包
+              </label>
+            </div>
+            <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+              勾选后会在标签中添加 pack_consent，当套餐Key超限时会自动切换到资源包Key
+            </p>
+          </div>
+
           <!-- 标签 -->
           <div>
             <label class="mb-2 block text-sm font-semibold text-gray-700 dark:text-gray-300"
@@ -1125,8 +1164,25 @@ const form = reactive({
   modelInput: '',
   enableClientRestriction: false,
   allowedClients: [],
-  tags: []
+  tags: [],
+  externalUid: ''
 })
+
+// 计算 pack_consent 标签是否存在
+const packConsentChecked = computed({
+  get: () => form.tags.includes('pack_consent'),
+  set: () => {} // 通过 togglePackConsent 方法处理
+})
+
+// 切换 pack_consent 标签
+const togglePackConsent = () => {
+  const index = form.tags.indexOf('pack_consent')
+  if (index > -1) {
+    form.tags.splice(index, 1)
+  } else {
+    form.tags.push('pack_consent')
+  }
+}
 
 // 更新权限（数组格式，空数组=全部服务）
 const updatePermissions = () => {
@@ -1549,7 +1605,8 @@ const createApiKey = async () => {
       enableModelRestriction: form.enableModelRestriction,
       restrictedModels: form.restrictedModels,
       enableClientRestriction: form.enableClientRestriction,
-      allowedClients: form.allowedClients
+      allowedClients: form.allowedClients,
+      externalUid: form.externalUid || undefined
     }
 
     // 处理Claude账户绑定（区分OAuth和Console）

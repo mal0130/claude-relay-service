@@ -10,7 +10,7 @@ const crypto = require('crypto')
 const LRUCache = require('../../utils/lruCache')
 const upstreamErrorHelper = require('../../utils/upstreamErrorHelper')
 const webhookService = require('../webhookService')
-const { extractUserInput, classifyProjectType } = require('../../utils/userInputExtractor')
+const { buildUsageMetadata } = require('../../utils/userInputExtractor')
 const {
   applyReasoningTranslation,
   shouldTranslateForKey
@@ -69,8 +69,14 @@ class OpenAIResponsesRelayService {
   // 处理请求转发
   async handleRequest(req, res, account, apiKeyData) {
     let abortController = null
-    // 获取会话哈希（如果有的话）
-    const sessionId = req.headers['session_id'] || req.body?.session_id
+    // 获取会话哈希（如果有的话）——来源必须与 openaiRoutes.js handleResponses 保持一致
+    const sessionId =
+      req.headers['session_id'] ||
+      req.headers['x-session-id'] ||
+      req.body?.session_id ||
+      req.body?.conversation_id ||
+      req.body?.prompt_cache_key ||
+      null
     logger.info(
       `🔍 relay sessionId sources: header_session_id=${req.headers['session_id']}, ` +
         `header_x-session-id=${req.headers['x-session-id']}, ` +
@@ -394,7 +400,12 @@ class OpenAIResponsesRelayService {
         abortController.abort()
       }
 
-      // 安全地记录错误，避免循环引用
+      // 客户端主动断开导致的取消，静默退出即可
+      if (axios.isCancel(error) || error.code === 'ERR_CANCELED') {
+        logger.info('🔌 Request canceled due to client disconnect')
+        return
+      }
+
       const errorInfo = {
         message: error.message,
         code: error.code,
@@ -559,6 +570,7 @@ class OpenAIResponsesRelayService {
     let rateLimitDetected = false
     let rateLimitResetsInSeconds = null
     let streamEnded = false
+    let streamedOutputText = ''
 
     // 解析 SSE 事件以捕获 usage 数据和 model
     const parseSSEForUsage = (data) => {
@@ -573,6 +585,11 @@ class OpenAIResponsesRelayService {
             }
 
             const eventData = JSON.parse(jsonStr)
+
+            // 捕获流式输出文本
+            if (eventData.type === 'response.output_text.delta' && eventData.delta) {
+              streamedOutputText += eventData.delta
+            }
 
             // 检查是否是 response.completed 事件（OpenAI-Responses 格式）
             if (eventData.type === 'response.completed' && eventData.response) {
@@ -682,12 +699,15 @@ class OpenAIResponsesRelayService {
             req.body?.prompt_cache_key ||
             req.body?.previous_response_id ||
             null
-          const _usageExtra = {
+          const _usageExtra = buildUsageMetadata({
+            body: req.body,
+            format: 'openai',
+            headers: req.headers,
+            requestIp: req,
             sessionId: _usageSessionId || null,
             rawSessionId: _usageSessionId || null,
-            userInput: extractUserInput(req.body, 'openai'),
-            projectType: classifyProjectType(req.body, 'openai')
-          }
+            assistantContent: streamedOutputText || undefined
+          })
           await apiKeyService.recordUsage(
             apiKeyData.id,
             actualInputTokens, // 传递实际输入（不含缓存）
@@ -839,12 +859,14 @@ class OpenAIResponsesRelayService {
           req.body?.prompt_cache_key ||
           req.body?.previous_response_id ||
           null
-        const _usageExtra = {
+        const _usageExtra = buildUsageMetadata({
+          body: req.body,
+          format: 'openai',
+          headers: req.headers,
           sessionId: _usageSessionId || null,
           rawSessionId: _usageSessionId || null,
-          userInput: extractUserInput(req.body, 'openai'),
-          projectType: classifyProjectType(req.body, 'openai')
-        }
+          assistantContent: responseData?.output || responseData?.response?.output || undefined
+        })
         await apiKeyService.recordUsage(
           apiKeyData.id,
           actualInputTokens, // 传递实际输入（不含缓存）

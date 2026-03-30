@@ -112,6 +112,48 @@
             </p>
           </div>
 
+          <!-- 外部用户ID -->
+          <div>
+            <label
+              class="mb-1.5 block text-xs font-semibold text-gray-700 dark:text-gray-300 sm:mb-3 sm:text-sm"
+              >外部用户ID</label
+            >
+            <input
+              v-model="form.externalUid"
+              class="form-input w-full border-gray-300 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200 dark:placeholder-gray-400"
+              maxlength="100"
+              placeholder="用于多Key切换，相同externalUid的Key可自动切换"
+              type="text"
+            />
+            <p class="mt-1 text-xs text-gray-500 dark:text-gray-400 sm:mt-2">
+              用于关联同一用户的多个Key，当某个Key失效时自动切换到其他可用Key
+            </p>
+          </div>
+
+          <!-- 资源包使用同意 -->
+          <div v-if="form.externalUid">
+            <label
+              class="mb-1.5 block text-xs font-semibold text-gray-700 dark:text-gray-300 sm:mb-3 sm:text-sm"
+              >资源包使用同意</label
+            >
+            <div class="flex items-center">
+              <input
+                id="packConsent"
+                v-model="packConsentChecked"
+                class="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                type="checkbox"
+                @change="togglePackConsent"
+              />
+              <label class="ml-2 text-sm text-gray-700 dark:text-gray-300" for="packConsent">
+                同意套餐超限后自动使用资源包
+              </label>
+            </div>
+            <p class="mt-1 text-xs text-gray-500 dark:text-gray-400 sm:mt-2">
+              勾选后会在标签中添加 pack_consent，当套餐Key超限时会自动切换到资源包Key。
+              套餐时需要勾选，资源包时此项不生效。
+            </p>
+          </div>
+
           <!-- 标签 -->
           <div>
             <label
@@ -961,8 +1003,25 @@ const form = reactive({
   allowedClients: [],
   tags: [],
   isActive: true,
-  ownerId: '' // 新增：所有者ID
+  ownerId: '', // 新增：所有者ID
+  externalUid: '' // 外部用户ID
 })
+
+// 计算 pack_consent 标签是否存在
+const packConsentChecked = computed({
+  get: () => form.tags.includes('pack_consent'),
+  set: () => {} // 通过 togglePackConsent 方法处理
+})
+
+// 切换 pack_consent 标签
+const togglePackConsent = () => {
+  const index = form.tags.indexOf('pack_consent')
+  if (index > -1) {
+    form.tags.splice(index, 1)
+  } else {
+    form.tags.push('pack_consent')
+  }
+}
 
 const normalizeRateLimits = (rateLimits) => {
   let parsed = rateLimits
@@ -1166,6 +1225,11 @@ const updateApiKey = async () => {
     // 所有者
     if (form.ownerId !== undefined) {
       data.ownerId = form.ownerId
+    }
+
+    // 外部用户ID
+    if (form.externalUid !== undefined) {
+      data.externalUid = form.externalUid
     }
 
     const result = await httpApis.updateApiKeyApi(props.apiKey.id, data)
@@ -1493,5 +1557,8 @@ onMounted(async () => {
 
   // 初始化所有者
   form.ownerId = props.apiKey.userId || 'admin'
+
+  // 初始化外部用户ID
+  form.externalUid = props.apiKey.externalUid || ''
 })
 </script>

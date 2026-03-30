@@ -57,10 +57,9 @@ function extractUserInput(body, format = 'anthropic') {
 /**
  * 从 Anthropic (Claude Code) 格式提取用户输入
  * messages 中 role='user' 的 content(数组) 中 type='text' 的 text 内容
- * 正序收集前 maxCount 条 user 消息
  * @returns {Array<string>}
  */
-function extractFromAnthropic(body, maxCount = 5) {
+function extractFromAnthropic(body) {
   const { messages } = body
   if (!Array.isArray(messages) || messages.length === 0) {
     return []
@@ -83,10 +82,6 @@ function extractFromAnthropic(body, maxCount = 5) {
         result.push(text)
       }
     }
-
-    if (result.length >= maxCount) {
-      break
-    }
   }
 
   return result
@@ -95,10 +90,9 @@ function extractFromAnthropic(body, maxCount = 5) {
 /**
  * 从 OpenAI 格式提取用户输入
  * input/messages 中 role='user' 的 content(数组) 中 type='input_text' 的 text 内容
- * 正序收集前 maxCount 条 user 消息
  * @returns {Array<string>}
  */
-function extractFromOpenAI(body, maxCount = 5) {
+function extractFromOpenAI(body) {
   const items = body.input || body.messages
   if (!Array.isArray(items) || items.length === 0) {
     return []
@@ -121,10 +115,6 @@ function extractFromOpenAI(body, maxCount = 5) {
         result.push(text)
       }
     }
-
-    if (result.length >= maxCount) {
-      break
-    }
   }
 
   return result
@@ -133,14 +123,13 @@ function extractFromOpenAI(body, maxCount = 5) {
 /**
  * 从 Gemini 格式提取用户输入
  * contents 中 role='user' 的 parts 中有 text 的内容
- * 正序收集前 maxCount 条 user 消息
  * @returns {Array<string>}
  */
-function extractFromGemini(body, maxCount = 5) {
+function extractFromGemini(body) {
   const { contents } = body
   if (!Array.isArray(contents) || contents.length === 0) {
     if (body.messages) {
-      return extractFromOpenAI(body, maxCount)
+      return extractFromOpenAI(body)
     }
     return []
   }
@@ -160,13 +149,124 @@ function extractFromGemini(body, maxCount = 5) {
         result.push(text)
       }
     }
-
-    if (result.length >= maxCount) {
-      break
-    }
   }
 
   return result
+}
+
+function extractUserIp(headers = {}, requestIp = null) {
+  const forwardedFor = headers['x-forwarded-for']
+  if (typeof forwardedFor === 'string' && forwardedFor.trim()) {
+    const [firstIp] = forwardedFor.split(',')
+    if (firstIp && firstIp.trim()) {
+      return firstIp.trim()
+    }
+  }
+
+  const realIp = headers['x-real-ip']
+  if (typeof realIp === 'string' && realIp.trim()) {
+    return realIp.trim()
+  }
+
+  if (typeof requestIp === 'string' && requestIp.trim()) {
+    return requestIp.trim()
+  }
+
+  return null
+}
+
+function normalizeAssistantContent(assistantContent) {
+  if (assistantContent === undefined) {
+    return undefined
+  }
+
+  if (assistantContent === null) {
+    return null
+  }
+
+  if (typeof assistantContent === 'string') {
+    const content = assistantContent.trim()
+    return content ? { role: 'assistant', content } : undefined
+  }
+
+  if (Array.isArray(assistantContent)) {
+    return assistantContent.length > 0 ? assistantContent : undefined
+  }
+
+  if (typeof assistantContent === 'object') {
+    return assistantContent
+  }
+
+  return undefined
+}
+
+function compactRequestIp(requestIp) {
+  if (typeof requestIp !== 'string') {
+    return null
+  }
+
+  const normalized = requestIp.trim()
+  return normalized || null
+}
+
+function inferRequestIp(source = {}) {
+  if (!source || typeof source !== 'object') {
+    return null
+  }
+
+  return (
+    compactRequestIp(source.requestIp) ||
+    compactRequestIp(source.ip) ||
+    compactRequestIp(source.remoteAddress) ||
+    compactRequestIp(source.socketRemoteAddress) ||
+    compactRequestIp(source.connection?.remoteAddress) ||
+    compactRequestIp(source.socket?.remoteAddress) ||
+    null
+  )
+}
+
+function resolveRequestIp(requestIp) {
+  if (!requestIp) {
+    return null
+  }
+
+  return typeof requestIp === 'string' ? compactRequestIp(requestIp) : inferRequestIp(requestIp)
+}
+
+function extractProcessType(headers = {}) {
+  const raw = headers['uni_agent_agent_type']
+  if (typeof raw !== 'string') {
+    return null
+  }
+
+  return raw.trim().toLowerCase()
+}
+
+function buildUsageMetadata({
+  body,
+  format,
+  headers,
+  requestIp = null,
+  sessionId = null,
+  rawSessionId = null,
+  assistantContent,
+  projectTypeBody
+}) {
+  const metadata = {
+    sessionId,
+    rawSessionId,
+    userInput: extractUserInput(body, format),
+    userIp: extractUserIp(headers, resolveRequestIp(requestIp)),
+    processType: extractProcessType(headers),
+    projectType: classifyProjectType(projectTypeBody || body, format)
+  }
+
+  const normalizedAssistantContent = normalizeAssistantContent(assistantContent)
+  if (normalizedAssistantContent !== undefined) {
+    metadata.assistantContent = normalizedAssistantContent
+  }
+
+  return metadata
 }
 
 /**
@@ -297,5 +397,8 @@ function extractDeveloperTextsGemini(body) {
 
 module.exports = {
   extractUserInput,
+  extractUserIp,
+  extractProcessType,
+  buildUsageMetadata,
   classifyProjectType
 }
