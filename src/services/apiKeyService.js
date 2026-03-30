@@ -395,15 +395,20 @@ class ApiKeyService {
         await redis.setApiKey(keyData.id, keyData)
 
         logger.success(
-          `🔓 API key activated: ${keyData.id} (${
-            keyData.name
+          `🔓 API key activated: ${keyData.id} (${keyData.name
           }), will expire in ${activationPeriod} ${activationUnit} at ${expiresAt.toISOString()}`
         )
       }
 
       // 检查是否过期
       if (keyData.expiresAt && new Date() > new Date(keyData.expiresAt)) {
-        return { valid: false, error: 'API key has expired' }
+        const subscriptionUrl =
+          'https://dev.dcloud.net.cn/pages/product-account/product-account?pcd=uni_ai_agent'
+        const isResourcePack = /_pack-(10|100|1000|10000)-month$/i.test(keyData.name || '')
+        const expiredError = isResourcePack
+          ? `您订购的资源包已过有效期。您可以重新购买 [<a href="${subscriptionUrl}">资源包</a>]，或选择更灵活的 [<a href="${subscriptionUrl}">订阅套餐</a>] 开启新一轮体验。`
+          : `您订阅的套餐已到期，为确保您的开发不受影响，请 [<a href="${subscriptionUrl}">点此续费</a>]`
+        return { valid: false, error: expiredError }
       }
 
       // 如果API Key属于某个用户，检查用户是否被禁用
