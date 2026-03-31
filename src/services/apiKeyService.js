@@ -1430,8 +1430,26 @@ class ApiKeyService {
           if (needReset && newRateLimits.length > 0) {
             await this.initializeRateLimitWindows(keyId, newRateLimits)
             logger.info(`🔄 Reset rate limit windows for key ${keyId} (structure changed)`)
-          } else if (!needReset) {
-            logger.info(`📝 Updated rate limits for key ${keyId} (window preserved)`)
+          } else {
+            // 结构未变：只启动尚未启动（或已过期）的窗口，不干扰仍在计数的窗口
+            const now = Date.now()
+            const client = redis.getClient()
+            for (let i = 0; i < newRateLimits.length; i++) {
+              const rule = newRateLimits[i]
+              const ruleWindow = parseInt(rule?.window || 0)
+              if (ruleWindow <= 0) continue
+              const suffix = newRateLimits.length === 1 ? '' : `:${i}`
+              const windowStartKey = `rate_limit:window_start:${keyId}${suffix}`
+              const existingStart = await client.get(windowStartKey)
+              if (!existingStart) {
+                const windowDuration = ruleWindow * 60 * 1000
+                await client.set(windowStartKey, now, 'PX', windowDuration)
+                await client.set(`rate_limit:requests:${keyId}${suffix}`, 0, 'PX', windowDuration)
+                await client.set(`rate_limit:tokens:${keyId}${suffix}`, 0, 'PX', windowDuration)
+                await client.set(`rate_limit:cost:${keyId}${suffix}`, 0, 'PX', windowDuration)
+                logger.info(`🕐 Started rate limit window[${i}] for key ${keyId}: ${ruleWindow}min`)
+              }
+            }
           }
         } catch (err) {
           logger.warn(`Failed to process rate limit update for key ${keyId}:`, err.message)
