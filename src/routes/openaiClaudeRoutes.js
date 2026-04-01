@@ -263,6 +263,8 @@ async function handleChatCompletion(req, res, apiKeyData) {
     const rawSessionId =
       req.headers['session_id'] || req.headers['x-session-id'] || req.body?.session_id || null
     const streamedAssistantText = []
+    const streamedReasoningText = []
+    const streamedTranslatedText = []
     let transformedStreamBuffer = ''
 
     const collectStreamAssistantContent = (transformedChunk) => {
@@ -286,9 +288,12 @@ async function handleChatCompletion(req, res, apiKeyData) {
 
         try {
           const parsed = JSON.parse(payload)
-          const content = parsed.choices?.[0]?.delta?.content
-          if (typeof content === 'string' && content) {
-            streamedAssistantText.push(content)
+          const delta = parsed.choices?.[0]?.delta
+          if (typeof delta?.content === 'string' && delta.content) {
+            streamedAssistantText.push(delta.content)
+          }
+          if (typeof delta?.reasoning_content === 'string' && delta.reasoning_content) {
+            streamedReasoningText.push(delta.reasoning_content)
           }
         } catch (_error) {
           // 忽略不完整 chunk，后续 buffer 会继续拼接
@@ -296,16 +301,24 @@ async function handleChatCompletion(req, res, apiKeyData) {
       }
     }
 
-    const buildStreamUsageExtra = () =>
-      buildUsageMetadata({
+    const buildStreamUsageExtra = () => {
+      const blocks = []
+      const thinking = streamedReasoningText.join('')
+      if (thinking) blocks.push({ type: 'thinking', thinking })
+      const translated = streamedTranslatedText.join('')
+      if (translated) blocks.push({ type: 'thinking_translated', thinking: translated })
+      const text = streamedAssistantText.join('')
+      if (text) blocks.push({ type: 'text', text })
+      return buildUsageMetadata({
         body: req.body,
         format: 'openai',
         headers: req.headers,
         requestIp: req,
         sessionId: sessionHash || null,
         rawSessionId: rawSessionId || null,
-        assistantContent: streamedAssistantText.join('') || undefined
+        assistantContent: blocks.length > 0 ? blocks : undefined
       })
+    }
 
     const buildNonStreamUsageExtra = (assistantContent) =>
       buildUsageMetadata({
@@ -418,6 +431,31 @@ async function handleChatCompletion(req, res, apiKeyData) {
 
       // 思考链路翻译：Key 名称命中 TRANSLATE_KEY_NAMES 时生效
       if (shouldTranslateForKey(apiKeyData.name)) {
+        // 在 applyReasoningTranslation 之前 patch res.write，使其成为翻译层的 originalWrite
+        // 翻译后的 reasoning_content 会经过此层，从而捕获用于存储
+        const _innerWrite = res.write.bind(res)
+        let _translatedBuffer = ''
+        res.write = function (chunk, encoding, callback) {
+          const text = Buffer.isBuffer(chunk) ? chunk.toString('utf8') : String(chunk || '')
+          _translatedBuffer += text
+          let eIdx
+          while ((eIdx = _translatedBuffer.indexOf('\n\n')) !== -1) {
+            const event = _translatedBuffer.slice(0, eIdx + 2)
+            _translatedBuffer = _translatedBuffer.slice(eIdx + 2)
+            const dataLine = event.split('\n').find((l) => l.startsWith('data: '))
+            if (dataLine) {
+              const jsonStr = dataLine.slice(6).trim()
+              if (jsonStr && jsonStr !== '[DONE]') {
+                try {
+                  const parsed = JSON.parse(jsonStr)
+                  const rc = parsed.choices?.[0]?.delta?.reasoning_content
+                  if (typeof rc === 'string' && rc) streamedTranslatedText.push(rc)
+                } catch (_e) {}
+              }
+            }
+          }
+          return _innerWrite(chunk, encoding, callback)
+        }
         applyReasoningTranslation(res, {
           keyId: apiKeyData.id,
           model: config.translation.model
