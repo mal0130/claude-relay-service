@@ -581,16 +581,19 @@ const handleResponses = async (req, res) => {
 
     res.status(upstream.status)
 
+    // 翻译控制器（流式时可能被赋值）
+    let translationController = req.reasoningTranslationController || null
+
     if (isStream) {
-      // 思考链路翻译：Key 名称命中 TRANSLATE_KEY_NAMES 时生效
       if (shouldTranslateForKey(apiKeyData.name)) {
         logger.info(
           `🌐 [ReasoningTranslation] 启用翻译 - Key: ${apiKeyData.name}, 路由: openaiRoutes/handleResponses`
         )
-        applyReasoningTranslation(res, {
+        translationController = applyReasoningTranslation(res, {
           keyId: apiKeyData.id,
           model: config.translation.model
         })
+        req.reasoningTranslationController = translationController
       } else {
         logger.info(`🌐 [ReasoningTranslation] 跳过 - Key: ${apiKeyData.name} 不在白名单`)
       }
@@ -813,6 +816,9 @@ const handleResponses = async (req, res) => {
               : undefined
           })
 
+          // 等待翻译完成（未触发翻译时立即 resolve null），翻译数据随 recordUsage 一并写入
+          const transUsage = await translationController?.waitForTranslation()
+
           const streamCosts = await apiKeyService.recordUsage(
             apiKeyData.id,
             actualInputTokens, // 传递实际输入（不含缓存）
@@ -824,7 +830,8 @@ const handleResponses = async (req, res) => {
             'openai',
             null,
             req._serviceTier,
-            _usageExtra
+            _usageExtra,
+            transUsage || null
           )
 
           logger.info(

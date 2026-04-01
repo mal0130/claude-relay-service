@@ -2968,10 +2968,13 @@ router.get('/api-keys/:keyId/usage-records', authenticateAdmin, async (req, res)
     for (const record of pageRecords) {
       const usage = toUsageObject(record)
       const costData = CostCalculator.calculateCost(usage, record.model || 'unknown')
+      const transRealCostNum = record.transRealCost || 0
       const computedCost =
-        typeof record.cost === 'number' ? record.cost : costData?.costs?.total || 0
+        (typeof record.cost === 'number' ? record.cost : costData?.costs?.total || 0) +
+        transRealCostNum
       const realCost =
-        typeof record.realCost === 'number' ? record.realCost : costData?.costs?.total || 0
+        (typeof record.realCost === 'number' ? record.realCost : costData?.costs?.total || 0) +
+        transRealCostNum
       const totalTokens =
         record.totalTokens ||
         usage.input_tokens +
@@ -3011,6 +3014,10 @@ router.get('/api-keys/:keyId/usage-records', authenticateAdmin, async (req, res)
             cacheRead: costData?.costs?.cacheRead || 0,
             total: costData?.costs?.total || computedCost
           },
+        transPromptTokens: record.transPromptTokens || 0,
+        transCompletionTokens: record.transCompletionTokens || 0,
+        transTotalTokens: record.transTotalTokens || 0,
+        transRealCost: record.transRealCost || 0,
         responseTime: record.responseTime || null,
         ...metadata
       })
@@ -3300,10 +3307,13 @@ router.get('/accounts/:accountId/usage-records', authenticateAdmin, async (req, 
     for (const record of pageRecords) {
       const usage = toUsageObject(record)
       const costData = CostCalculator.calculateCost(usage, record.model || 'unknown')
+      const transRealCostNum = record.transRealCost || 0
       const computedCost =
-        typeof record.cost === 'number' ? record.cost : costData?.costs?.total || 0
+        (typeof record.cost === 'number' ? record.cost : costData?.costs?.total || 0) +
+        transRealCostNum
       const realCost =
-        typeof record.realCost === 'number' ? record.realCost : costData?.costs?.total || 0
+        (typeof record.realCost === 'number' ? record.realCost : costData?.costs?.total || 0) +
+        transRealCostNum
       const totalTokens =
         record.totalTokens ||
         usage.input_tokens +
@@ -3342,6 +3352,10 @@ router.get('/accounts/:accountId/usage-records', authenticateAdmin, async (req, 
             cacheRead: costData?.costs?.cacheRead || 0,
             total: costData?.costs?.total || computedCost
           },
+        transPromptTokens: record.transPromptTokens || 0,
+        transCompletionTokens: record.transCompletionTokens || 0,
+        transTotalTokens: record.transTotalTokens || 0,
+        transRealCost: record.transRealCost || 0,
         responseTime: record.responseTime || null,
         ...metadata
       })

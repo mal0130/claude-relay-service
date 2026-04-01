@@ -85,6 +85,18 @@
                 {{ formatNumber(record?.cacheReadTokens) }}
               </span>
             </li>
+            <li
+              v-if="
+                (record?.transPromptTokens || 0) > 0 || (record?.transCompletionTokens || 0) > 0
+              "
+              class="flex items-center justify-between"
+            >
+              <span class="text-gray-500 dark:text-gray-400">翻译（入/出）</span>
+              <span class="font-semibold text-teal-600 dark:text-teal-400">
+                {{ formatNumber(record?.transPromptTokens) }} /
+                {{ formatNumber(record?.transCompletionTokens) }}
+              </span>
+            </li>
             <li class="flex items-center justify-between">
               <span class="text-gray-500 dark:text-gray-400">总计</span>
               <span class="font-semibold text-gray-900 dark:text-gray-100">
@@ -130,6 +142,15 @@
             <span class="text-sm text-gray-500 dark:text-gray-400">缓存读取</span>
             <span class="text-sm font-semibold text-gray-900 dark:text-gray-100">
               {{ formattedCosts.cacheRead }}
+            </span>
+          </div>
+          <div
+            v-if="(record?.transPromptTokens || 0) > 0 || (record?.transCompletionTokens || 0) > 0"
+            class="flex items-center justify-between rounded-md bg-gray-50 px-3 py-2 dark:bg-gray-800"
+          >
+            <span class="text-sm text-gray-500 dark:text-gray-400">翻译费用</span>
+            <span class="text-sm font-semibold text-teal-600 dark:text-teal-400">
+              {{ formattedCosts.translation }}
             </span>
           </div>
         </div>
@@ -190,6 +211,7 @@ const formattedCosts = computed(() => {
     output: formatValue(breakdown.output),
     cacheCreate: formatValue(breakdown.cacheCreate),
     cacheRead: formatValue(breakdown.cacheRead),
+    translation: formatValue(breakdown.translation),
     total: formatValue(breakdown.total)
   }
 })

@@ -173,6 +173,11 @@
                   <th
                     class="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500 dark:text-gray-300"
                   >
+                    翻译(入/出)
+                  </th>
+                  <th
+                    class="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500 dark:text-gray-300"
+                  >
                     总 Token
                   </th>
                   <th
@@ -219,6 +224,13 @@
                     {{ formatNumber(record.cacheCreateTokens) }} /
                     {{ formatNumber(record.cacheReadTokens) }}
                   </td>
+                  <td class="whitespace-nowrap px-4 py-3 text-sm text-teal-600 dark:text-teal-400">
+                    <span v-if="record.transPromptTokens > 0 || record.transCompletionTokens > 0">
+                      {{ formatNumber(record.transPromptTokens) }} /
+                      {{ formatNumber(record.transCompletionTokens) }}
+                    </span>
+                    <span v-else class="text-gray-400 dark:text-gray-600">—</span>
+                  </td>
                   <td class="whitespace-nowrap px-4 py-3 text-sm text-gray-800 dark:text-gray-100">
                     {{ formatNumber(record.totalTokens) }}
                   </td>
@@ -260,6 +272,10 @@
                 <div>
                   缓存创/读：{{ formatNumber(record.cacheCreateTokens) }} /
                   {{ formatNumber(record.cacheReadTokens) }}
+                </div>
+                <div v-if="record.transPromptTokens > 0 || record.transCompletionTokens > 0">
+                  翻译入/出：{{ formatNumber(record.transPromptTokens) }} /
+                  {{ formatNumber(record.transCompletionTokens) }}
                 </div>
                 <div class="text-yellow-600 dark:text-yellow-400">
                   费用：{{ record.costFormatted || formatCost(record.cost) }}
@@ -481,6 +497,8 @@ const exportCsv = async () => {
       '输出Token',
       '缓存创建Token',
       '缓存读取Token',
+      '翻译输入Token',
+      '翻译输出Token',
       '总Token',
       '费用'
     ]
@@ -496,6 +514,8 @@ const exportCsv = async () => {
         record.outputTokens || 0,
         record.cacheCreateTokens || 0,
         record.cacheReadTokens || 0,
+        record.transPromptTokens || 0,
+        record.transCompletionTokens || 0,
         record.totalTokens || 0,
         record.costFormatted || formatCost(record.cost)
       ]

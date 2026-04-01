@@ -45,6 +45,11 @@ function applyReasoningTranslation(res, _options = {}) {
   let pendingReasoningDoneEvents = []
   // 防止 startTranslation() 被重复调用（isResponsesDoneEvent 和 res.end 均可能触发）
   let translationStarted = false
+  // waitForTranslation() 的 Promise resolve 句柄
+  let resolveTranslationWaiter = null
+  const translationWaiterPromise = new Promise((resolve) => {
+    resolveTranslationWaiter = resolve
+  })
   // 按 summary_index 累积翻译后的 reasoning 文本，用于补发各自的 done 事件
   const translatedReasoningBySummary = new Map()
   // 按 summary_index 跟踪是否已向客户端发送 reasoning_summary_text.added
@@ -213,20 +218,36 @@ function applyReasoningTranslation(res, _options = {}) {
     return false
   }
 
+  function buildMergedUsage(baseUsage = getMainUsage()) {
+    if (!baseUsage && !translationUsage) {
+      return null
+    }
+
+    return {
+      ...(baseUsage || {}),
+      ...(translationUsage || {})
+    }
+  }
+
   function buildUsageChunk() {
+    const mergedUsage = buildMergedUsage()
+    if (!mergedUsage) {
+      return ''
+    }
+
     if (streamFormat === 'responses') {
       const payload = {
         type: 'response.completed',
         response: {
           ...(responseObj || {}),
           id: chatId || responseObj?.id || `resp-translated-${Date.now()}`,
-          usage: translationUsage
+          usage: mergedUsage
         }
       }
       return `data: ${JSON.stringify(payload)}\n\n`
     }
 
-    return buildUsageEvent(chatId, translationUsage)
+    return buildUsageEvent(chatId, mergedUsage)
   }
 
   function mergeUsageIntoResponsesChunk(parsed) {
@@ -278,7 +299,10 @@ function applyReasoningTranslation(res, _options = {}) {
 
   function writeStandaloneUsageIfNeeded() {
     if (translationDone && injectedStandaloneUsage) {
-      originalWrite(buildUsageChunk())
+      const usageChunk = buildUsageChunk()
+      if (usageChunk) {
+        originalWrite(usageChunk)
+      }
       injectedStandaloneUsage = false
     }
   }
@@ -490,20 +514,23 @@ function applyReasoningTranslation(res, _options = {}) {
       }
 
       if (!usageInjected) {
-        pendingChunks.push(buildUsageChunk())
-        injectedStandaloneUsage = true
+        const usageChunk = buildUsageChunk()
+        if (usageChunk) {
+          pendingChunks.push(usageChunk)
+          injectedStandaloneUsage = true
+        }
       }
     }
 
     flushBufferedChunks()
   }
 
-  function buildUsageEvent(responseId, transUsage) {
+  function buildUsageEvent(responseId, usage) {
     const payload = {
       id: responseId || `chatcmpl-translated-${Date.now()}`,
       object: 'chat.completion.chunk',
       choices: [{ index: 0, delta: {}, finish_reason: null }],
-      usage: transUsage
+      usage
     }
     return `data: ${JSON.stringify(payload)}\n\n`
   }
@@ -589,11 +616,13 @@ function applyReasoningTranslation(res, _options = {}) {
         translationDone = true
         flushPending(usage)
         maybeLogUsageSummary(usageSummaryFinalized)
+        resolveTranslationWaiter?.(translationUsage)
       })
       .catch((err) => {
         logger.warn(`[ReasoningTranslation] flush 异常: ${err.message}`)
         translationDone = true
         flushPending(null)
+        resolveTranslationWaiter?.(null)
       })
   }
 
@@ -742,6 +771,14 @@ function applyReasoningTranslation(res, _options = {}) {
       }
       externalMainUsage = usage
       maybeLogUsageSummary(usageSummaryFinalized)
+    },
+    // 等待翻译完成，返回 { trans_prompt_tokens, trans_completion_tokens, trans_total_tokens } 或 null
+    waitForTranslation() {
+      if (!translationStarted) {
+        // 翻译从未触发，直接 resolve null
+        return Promise.resolve(null)
+      }
+      return translationWaiterPromise
     }
   }
 }

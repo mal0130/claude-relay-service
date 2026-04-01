@@ -341,6 +341,7 @@ async function handleChatCompletion(req, res, apiKeyData) {
 
       // 使用转换后的响应流 (根据账户类型选择转发服务)
       // 创建 usage 回调函数
+      let translationController = null
       const usageCallback = (usage) => {
         // 记录使用统计
         if (usage && usage.input_tokens !== undefined && usage.output_tokens !== undefined) {
@@ -364,47 +365,48 @@ async function handleChatCompletion(req, res, apiKeyData) {
           }
 
           // 使用新的 recordUsageWithDetails 方法来支持详细的缓存数据
-          apiKeyService
-            .recordUsageWithDetails(
+          ;(async () => {
+            // 等待翻译完成（未触发翻译时立即 resolve null），翻译数据随 recordUsageWithDetails 一并写入
+            const transUsage = (await translationController?.waitForTranslation()) || null
+            const costs = await apiKeyService.recordUsageWithDetails(
               apiKeyData.id,
               usageWithRequestMeta, // 传递 usage + 请求模式元信息（beta/speed）
               model,
               accountId,
               accountType,
-              buildStreamUsageExtra()
+              buildStreamUsageExtra(),
+              transUsage
             )
-            .then((costs) => {
-              queueRateLimitUpdate(
-                req.rateLimitInfo,
-                {
-                  inputTokens: usage.input_tokens || 0,
-                  outputTokens: usage.output_tokens || 0,
-                  cacheCreateTokens,
-                  cacheReadTokens
-                },
-                model,
-                `openai-${accountType}-stream`,
-                req.apiKey?.id,
-                accountType,
-                costs
-              )
-            })
-            .catch((error) => {
-              logger.error('❌ Failed to record usage:', error)
-              queueRateLimitUpdate(
-                req.rateLimitInfo,
-                {
-                  inputTokens: usage.input_tokens || 0,
-                  outputTokens: usage.output_tokens || 0,
-                  cacheCreateTokens,
-                  cacheReadTokens
-                },
-                model,
-                `openai-${accountType}-stream`,
-                req.apiKey?.id,
-                accountType
-              )
-            })
+            queueRateLimitUpdate(
+              req.rateLimitInfo,
+              {
+                inputTokens: usage.input_tokens || 0,
+                outputTokens: usage.output_tokens || 0,
+                cacheCreateTokens,
+                cacheReadTokens
+              },
+              model,
+              `openai-${accountType}-stream`,
+              req.apiKey?.id,
+              accountType,
+              costs
+            )
+          })().catch((error) => {
+            logger.error('❌ Failed to record usage:', error)
+            queueRateLimitUpdate(
+              req.rateLimitInfo,
+              {
+                inputTokens: usage.input_tokens || 0,
+                outputTokens: usage.output_tokens || 0,
+                cacheCreateTokens,
+                cacheReadTokens
+              },
+              model,
+              `openai-${accountType}-stream`,
+              req.apiKey?.id,
+              accountType
+            )
+          })
         }
       }
 
@@ -421,7 +423,7 @@ async function handleChatCompletion(req, res, apiKeyData) {
         logger.info(
           `🌐 [ReasoningTranslation] 启用翻译 - Key: ${apiKeyData.name}, 路由: openaiClaudeRoutes`
         )
-        applyReasoningTranslation(res, {
+        translationController = applyReasoningTranslation(res, {
           keyId: apiKeyData.id,
           model: config.translation.model
         })

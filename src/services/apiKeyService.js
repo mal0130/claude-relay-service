@@ -146,7 +146,9 @@ class ApiKeyService {
       const rule = rateLimits[i]
       const ruleWindow = rule.window || 0
 
-      if (ruleWindow <= 0) continue
+      if (ruleWindow <= 0) {
+        continue
+      }
 
       const suffix = rateLimits.length === 1 ? '' : `:${i}`
       const windowStartKey = `rate_limit:window_start:${keyId}${suffix}`
@@ -395,7 +397,8 @@ class ApiKeyService {
         await redis.setApiKey(keyData.id, keyData)
 
         logger.success(
-          `🔓 API key activated: ${keyData.id} (${keyData.name
+          `🔓 API key activated: ${keyData.id} (${
+            keyData.name
           }), will expire in ${activationPeriod} ${activationUnit} at ${expiresAt.toISOString()}`
         )
       }
@@ -1437,7 +1440,9 @@ class ApiKeyService {
             for (let i = 0; i < newRateLimits.length; i++) {
               const rule = newRateLimits[i]
               const ruleWindow = parseInt(rule?.window || 0)
-              if (ruleWindow <= 0) continue
+              if (ruleWindow <= 0) {
+                continue
+              }
               const suffix = newRateLimits.length === 1 ? '' : `:${i}`
               const windowStartKey = `rate_limit:window_start:${keyId}${suffix}`
               const existingStart = await client.get(windowStartKey)
@@ -1715,7 +1720,8 @@ class ApiKeyService {
     accountType = null,
     timestamp = null,
     serviceTier = null,
-    extra = {}
+    extra = {},
+    translationUsage = null // 可选：{ trans_prompt_tokens, trans_completion_tokens, trans_total_tokens }
   ) {
     try {
       const totalTokens = inputTokens + outputTokens + cacheCreateTokens + cacheReadTokens
@@ -1733,6 +1739,15 @@ class ApiKeyService {
         serviceTier
       )
 
+      // 计算翻译消耗的费用
+      const transPromptTokens = translationUsage?.trans_prompt_tokens || 0
+      const transCompletionTokens = translationUsage?.trans_completion_tokens || 0
+      const transTotalTokens = translationUsage?.trans_total_tokens || 0
+      const promptPrice = parseFloat(config.translation.promptPrice) || 0
+      const completionPrice = parseFloat(config.translation.completionPrice) || 0
+      const transRealCost =
+        (transPromptTokens / 1e6) * promptPrice + (transCompletionTokens / 1e6) * completionPrice
+
       // 检查是否为 1M 上下文请求
       let isLongContextRequest = false
       if (model && model.includes('[1m]')) {
@@ -1740,8 +1755,8 @@ class ApiKeyService {
         isLongContextRequest = totalInputTokens > 200000
       }
 
-      // 计算费用（应用服务倍率）
-      const realCost = costInfo.costs.total
+      // 计算费用（应用服务倍率），翻译费用合并进总费用
+      const realCost = costInfo.costs.total + transRealCost
       let ratedCost = realCost
       if (realCost > 0) {
         const service = serviceRatesService.getService(accountType, model)
@@ -1775,6 +1790,17 @@ class ApiKeyService {
         await this.recordOpusCost(keyId, ratedCost, realCost, model, accountType)
       } else {
         logger.debug(`💰 No cost recorded for ${keyId} - zero cost for model: ${model}`)
+      }
+
+      // 写入翻译 token 聚合统计字段（daily/monthly/hourly/alltime，不影响主 token 计数）
+      if (transTotalTokens > 0) {
+        await redis.recordTranslationTokens(
+          keyId,
+          transPromptTokens,
+          transCompletionTokens,
+          transTotalTokens,
+          transRealCost
+        )
       }
 
       // 获取API Key数据以确定关联的账户
@@ -1817,6 +1843,16 @@ class ApiKeyService {
         }
       }
 
+      // 构建 realCostBreakdown（含翻译费用细分）
+      const realCostBreakdown =
+        costInfo && costInfo.costs
+          ? {
+              ...costInfo.costs,
+              translation: Number(transRealCost.toFixed(6)),
+              total: Number(realCost.toFixed(6))
+            }
+          : undefined
+
       // 记录单次请求的使用详情（同时保存真实成本和倍率成本）
       await redis.addUsageRecord(keyId, {
         timestamp: timestamp || new Date().toISOString(),
@@ -1828,9 +1864,13 @@ class ApiKeyService {
         cacheCreateTokens,
         cacheReadTokens,
         totalTokens,
+        transPromptTokens,
+        transCompletionTokens,
+        transTotalTokens,
+        transRealCost: Number(transRealCost.toFixed(6)),
         cost: Number(ratedCost.toFixed(6)),
         realCost: Number(realCost.toFixed(6)),
-        realCostBreakdown: costInfo && costInfo.costs ? costInfo.costs : undefined,
+        realCostBreakdown,
         ...(process.env.ENABLE_USAGE_DETAIL === 'true' ? extra : {})
       })
 
@@ -1842,6 +1882,11 @@ class ApiKeyService {
         logParts.push(`Cache Read: ${cacheReadTokens}`)
       }
       logParts.push(`Total: ${totalTokens} tokens`)
+      if (transTotalTokens > 0) {
+        logParts.push(
+          `Trans: ${transPromptTokens}+${transCompletionTokens}=${transTotalTokens} tokens ($${transRealCost.toFixed(6)})`
+        )
+      }
 
       logger.database(`📊 Recorded usage: ${keyId} - ${logParts.join(', ')}`)
 
@@ -1849,6 +1894,55 @@ class ApiKeyService {
     } catch (error) {
       logger.error('❌ Failed to record usage:', error)
       return { realCost: 0, ratedCost: 0 }
+    }
+  }
+
+  // 🌐 记录翻译消耗的 token 和费用（独立字段，费用合并到总费用统计中）
+  async recordTranslationUsage(
+    keyId,
+    transPromptTokens = 0,
+    transCompletionTokens = 0,
+    transTotalTokens = 0,
+    model = 'unknown',
+    accountType = null
+  ) {
+    try {
+      if (!transTotalTokens && !transPromptTokens && !transCompletionTokens) {
+        return { realTransCost: 0, ratedTransCost: 0 }
+      }
+
+      const promptPrice = parseFloat(config.translation.promptPrice) || 0
+      const completionPrice = parseFloat(config.translation.completionPrice) || 0
+      const realTransCost =
+        (transPromptTokens / 1e6) * promptPrice + (transCompletionTokens / 1e6) * completionPrice
+
+      let ratedTransCost = realTransCost
+      if (realTransCost > 0) {
+        const service = serviceRatesService.getService(accountType, model)
+        ratedTransCost = await this.calculateRatedCost(keyId, service, realTransCost)
+      }
+
+      // 写入翻译专用字段（不影响现有 token 计数）
+      await redis.recordTranslationTokens(
+        keyId,
+        transPromptTokens,
+        transCompletionTokens,
+        transTotalTokens,
+        realTransCost
+      )
+
+      // 将翻译费用合并到总费用统计中
+      if (realTransCost > 0) {
+        await redis.incrementDailyCost(keyId, ratedTransCost, realTransCost)
+        logger.database(
+          `🌐 Translation cost merged for ${keyId}: rated=$${ratedTransCost.toFixed(6)}, real=$${realTransCost.toFixed(6)}`
+        )
+      }
+
+      return { realTransCost, ratedTransCost }
+    } catch (error) {
+      logger.error('❌ Failed to record translation usage:', error)
+      return { realTransCost: 0, ratedTransCost: 0 }
     }
   }
 
@@ -1891,7 +1985,8 @@ class ApiKeyService {
     model = 'unknown',
     accountId = null,
     accountType = null,
-    extra = {}
+    extra = {},
+    translationUsage = null // 可选：{ trans_prompt_tokens, trans_completion_tokens, trans_total_tokens }
   ) {
     try {
       // 提取 token 数量
@@ -1964,7 +2059,17 @@ class ApiKeyService {
       }
 
       // 计算费用（应用服务倍率）- 需要在 incrementTokenUsage 之前计算
-      const realCostWithDetails = costInfo.totalCost || 0
+      // 翻译费用合并进总费用
+      const transPromptTokens = translationUsage?.trans_prompt_tokens || 0
+      const transCompletionTokens = translationUsage?.trans_completion_tokens || 0
+      const transTotalTokens = translationUsage?.trans_total_tokens || 0
+      const transPromptPrice = parseFloat(config.translation.promptPrice) || 0
+      const transCompletionPrice = parseFloat(config.translation.completionPrice) || 0
+      const transRealCost =
+        (transPromptTokens / 1e6) * transPromptPrice +
+        (transCompletionTokens / 1e6) * transCompletionPrice
+
+      const realCostWithDetails = (costInfo.totalCost || 0) + transRealCost
       let ratedCostWithDetails = realCostWithDetails
       if (realCostWithDetails > 0) {
         const service = serviceRatesService.getService(accountType, model)
@@ -2024,6 +2129,17 @@ class ApiKeyService {
         }
       }
 
+      // 写入翻译 token 聚合统计字段（daily/monthly/hourly/alltime，不影响主 token 计数）
+      if (transTotalTokens > 0) {
+        await redis.recordTranslationTokens(
+          keyId,
+          transPromptTokens,
+          transCompletionTokens,
+          transTotalTokens,
+          transRealCost
+        )
+      }
+
       // 获取API Key数据以确定关联的账户
       const keyData = await redis.getApiKey(keyId)
       if (keyData && Object.keys(keyData).length > 0) {
@@ -2076,6 +2192,10 @@ class ApiKeyService {
         ephemeral5mTokens,
         ephemeral1hTokens,
         totalTokens,
+        transPromptTokens,
+        transCompletionTokens,
+        transTotalTokens,
+        transRealCost: Number(transRealCost.toFixed(6)),
         cost: Number(ratedCostWithDetails.toFixed(6)),
         realCost: Number(realCostWithDetails.toFixed(6)),
         realCostBreakdown: {
@@ -2084,7 +2204,9 @@ class ApiKeyService {
           cacheCreate: costInfo.cacheCreateCost || 0,
           cacheRead: costInfo.cacheReadCost || 0,
           ephemeral5m: costInfo.ephemeral5mCost || 0,
-          ephemeral1h: costInfo.ephemeral1hCost || 0
+          ephemeral1h: costInfo.ephemeral1hCost || 0,
+          translation: Number(transRealCost.toFixed(6)),
+          total: Number(realCostWithDetails.toFixed(6))
         },
         isLongContext: costInfo.isLongContextRequest || false,
         ...(process.env.ENABLE_USAGE_DETAIL === 'true' ? extra : {})
@@ -2128,6 +2250,9 @@ class ApiKeyService {
         ephemeral5mTokens,
         ephemeral1hTokens,
         totalTokens,
+        transPromptTokens,
+        transCompletionTokens,
+        transTotalTokens,
         cost: costInfo.totalCost || 0,
         costBreakdown: {
           input: costInfo.inputCost || 0,
@@ -2135,7 +2260,8 @@ class ApiKeyService {
           cacheCreate: costInfo.cacheCreateCost || 0,
           cacheRead: costInfo.cacheReadCost || 0,
           ephemeral5m: costInfo.ephemeral5mCost || 0,
-          ephemeral1h: costInfo.ephemeral1hCost || 0
+          ephemeral1h: costInfo.ephemeral1hCost || 0,
+          translation: Number(transRealCost.toFixed(6))
         },
         accountId,
         accountType,
@@ -3037,20 +3163,28 @@ class ApiKeyService {
    * @returns {Promise<Object|null>} 可用的备用 Key 数据，如果没有则返回 null
    */
   async findAlternativeKey(externalUid, excludeKeyIds = []) {
-    if (!externalUid) return null
+    if (!externalUid) {
+      return null
+    }
 
     try {
       // 获取该 uid 的所有 Key ID
       const keyIds = await redis.getKeysByUid(externalUid)
-      if (!keyIds || keyIds.length === 0) return null
+      if (!keyIds || keyIds.length === 0) {
+        return null
+      }
 
       // 逐个检查（排除已尝试的）
       for (const keyId of keyIds) {
-        if (excludeKeyIds.includes(keyId)) continue
+        if (excludeKeyIds.includes(keyId)) {
+          continue
+        }
 
         // 获取 Key 数据
         const keyData = await redis.getApiKey(keyId)
-        if (!keyData || Object.keys(keyData).length === 0) continue
+        if (!keyData || Object.keys(keyData).length === 0) {
+          continue
+        }
 
         // 基础验证（复用 validateApiKey 的逻辑）
         const validation = await this.validateApiKey(keyData.apiKey)

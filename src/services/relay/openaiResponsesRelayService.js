@@ -545,8 +545,12 @@ class OpenAIResponsesRelayService {
       `🔍 [ReasoningTranslation] OpenAI-Responses stream entry - key=${apiKeyData?.name}, requestedModel=${requestedModel}, stream=${req.body?.stream}`
     )
 
-    let reasoningTranslationController = null
-    if (shouldTranslateForKey(apiKeyData?.name)) {
+    let reasoningTranslationController = req.reasoningTranslationController || null
+    if (reasoningTranslationController) {
+      logger.info(
+        `🌐 [ReasoningTranslation] 复用 unified 已有控制器 - Key: ${apiKeyData?.name}, 路由: openaiResponsesRelayService`
+      )
+    } else if (shouldTranslateForKey(apiKeyData?.name)) {
       logger.info(
         `🌐 [ReasoningTranslation] 启用翻译 - Key: ${apiKeyData?.name}, 路由: openaiResponsesRelayService`
       )
@@ -708,6 +712,10 @@ class OpenAIResponsesRelayService {
             rawSessionId: _usageSessionId || null,
             assistantContent: streamedOutputText || undefined
           })
+
+          // 等待翻译完成（未触发翻译时立即 resolve null），翻译数据随 recordUsage 一并写入
+          const transUsage = await reasoningTranslationController?.waitForTranslation()
+
           await apiKeyService.recordUsage(
             apiKeyData.id,
             actualInputTokens, // 传递实际输入（不含缓存）
@@ -719,7 +727,8 @@ class OpenAIResponsesRelayService {
             'openai-responses',
             serviceTier,
             null,
-            _usageExtra
+            _usageExtra,
+            transUsage || null
           )
 
           logger.info(

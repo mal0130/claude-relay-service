@@ -1755,6 +1755,73 @@ class RedisClient {
     }
   }
 
+  // 📊 记录翻译消耗的 token 和费用（独立字段，不影响现有 token 计数和请求计数）
+  async recordTranslationTokens(
+    keyId,
+    transPromptTokens = 0,
+    transCompletionTokens = 0,
+    transTotalTokens = 0,
+    realTransCost = 0
+  ) {
+    if (!transPromptTokens && !transCompletionTokens && !transTotalTokens) {
+      return
+    }
+
+    const key = `usage:${keyId}`
+    const now = new Date()
+    const today = getDateStringInTimezone(now)
+    const tzDate = getDateInTimezone(now)
+    const currentMonth = `${tzDate.getUTCFullYear()}-${String(tzDate.getUTCMonth() + 1).padStart(2, '0')}`
+    const currentHour = `${today}:${String(getHourInTimezone(now)).padStart(2, '0')}`
+
+    const daily = `usage:daily:${keyId}:${today}`
+    const monthly = `usage:monthly:${keyId}:${currentMonth}`
+    const hourly = `usage:hourly:${keyId}:${currentHour}`
+
+    const pipeline = this.client.pipeline()
+
+    // API Key 总体统计（无 TTL）
+    pipeline.hincrby(key, 'totalTransPromptTokens', transPromptTokens)
+    pipeline.hincrby(key, 'totalTransCompletionTokens', transCompletionTokens)
+    pipeline.hincrby(key, 'totalTransTotalTokens', transTotalTokens)
+    if (realTransCost > 0) {
+      pipeline.hincrby(key, 'totalTransRealCostMicro', Math.round(realTransCost * 1000000))
+    }
+
+    // 每日统计
+    pipeline.hincrby(daily, 'transPromptTokens', transPromptTokens)
+    pipeline.hincrby(daily, 'transCompletionTokens', transCompletionTokens)
+    pipeline.hincrby(daily, 'transTotalTokens', transTotalTokens)
+    if (realTransCost > 0) {
+      pipeline.hincrby(daily, 'transRealCostMicro', Math.round(realTransCost * 1000000))
+    }
+
+    // 每月统计
+    pipeline.hincrby(monthly, 'transPromptTokens', transPromptTokens)
+    pipeline.hincrby(monthly, 'transCompletionTokens', transCompletionTokens)
+    pipeline.hincrby(monthly, 'transTotalTokens', transTotalTokens)
+    if (realTransCost > 0) {
+      pipeline.hincrby(monthly, 'transRealCostMicro', Math.round(realTransCost * 1000000))
+    }
+
+    // 每小时统计
+    pipeline.hincrby(hourly, 'transPromptTokens', transPromptTokens)
+    pipeline.hincrby(hourly, 'transCompletionTokens', transCompletionTokens)
+    pipeline.hincrby(hourly, 'transTotalTokens', transTotalTokens)
+    if (realTransCost > 0) {
+      pipeline.hincrby(hourly, 'transRealCostMicro', Math.round(realTransCost * 1000000))
+    }
+
+    try {
+      await pipeline.exec()
+      logger.database(
+        `🌐 Recorded translation usage for ${keyId}: prompt=${transPromptTokens} completion=${transCompletionTokens} total=${transTotalTokens} cost=$${realTransCost.toFixed(6)}`
+      )
+    } catch (error) {
+      logger.error(`❌ Failed to record translation tokens for key ${keyId}:`, error)
+    }
+  }
+
   async addUsageRecord(keyId, record, maxRecords = 200) {
     const listKey = `usage:records:${keyId}`
     const client = this.getClientSafe()
