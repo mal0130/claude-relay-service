@@ -550,6 +550,7 @@ class OpenAIResponsesRelayService {
     let rateLimitResetsInSeconds = null
     let streamEnded = false
     let streamedOutputText = ''
+    let streamedThinkingText = ''
 
     // 解析 SSE 事件以捕获 usage 数据和 model
     const parseSSEForUsage = (data) => {
@@ -568,6 +569,11 @@ class OpenAIResponsesRelayService {
             // 捕获流式输出文本
             if (eventData.type === 'response.output_text.delta' && eventData.delta) {
               streamedOutputText += eventData.delta
+            }
+
+            // 捕获流式思考链文本
+            if (eventData.type === 'response.reasoning_summary_text.delta' && eventData.delta) {
+              streamedThinkingText += eventData.delta
             }
 
             // 检查是否是 response.completed 事件（OpenAI-Responses 格式）
@@ -684,7 +690,13 @@ class OpenAIResponsesRelayService {
             requestIp: req,
             sessionId: _usageSessionId || null,
             rawSessionId: _usageSessionId || null,
-            assistantContent: streamedOutputText || undefined
+            assistantContent: (() => {
+              const blocks = []
+              if (streamedThinkingText)
+                blocks.push({ type: 'thinking', thinking: streamedThinkingText })
+              if (streamedOutputText) blocks.push({ type: 'text', text: streamedOutputText })
+              return blocks.length > 0 ? blocks : undefined
+            })()
           })
           await apiKeyService.recordUsage(
             apiKeyData.id,
