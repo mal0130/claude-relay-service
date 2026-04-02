@@ -1760,15 +1760,14 @@ class ApiKeyService {
       // 计算费用（应用服务倍率），翻译费用合并进总费用
       const mainCost = costInfo.costs.total
       const service = serviceRatesService.getService(accountType, model)
-      let mainRatedCost = mainCost
-      if (mainCost > 0) {
-        mainRatedCost = await this.calculateRatedCost(keyId, service, mainCost)
+      const totalForRate = mainCost + transRawCost
+      let rate = 1
+      if (totalForRate > 0) {
+        const ratedTotal = await this.calculateRatedCost(keyId, service, totalForRate)
+        rate = ratedTotal / totalForRate
       }
-      // transCost（消耗金额）= transRawCost × 服务倍率（不含 costRate）
-      const transCost =
-        transRawCost > 0
-          ? await this.calculateRatedCost(keyId, service, transRawCost)
-          : 0
+      const mainRatedCost = mainCost * rate
+      const transCost = transRawCost * rate
       const realCost = mainCost + transRealCost       // 成本总额
       const ratedCost = mainRatedCost + transCost     // 消耗总额
 
@@ -2083,19 +2082,14 @@ class ApiKeyService {
 
       const mainCostWithDetails = costInfo.totalCost || 0
       const service = serviceRatesService.getService(accountType, model)
-      let mainRatedCostWithDetails = mainCostWithDetails
-      if (mainCostWithDetails > 0) {
-        mainRatedCostWithDetails = await this.calculateRatedCost(
-          keyId,
-          service,
-          mainCostWithDetails
-        )
+      const totalForRate = mainCostWithDetails + transRawCost
+      let rate = 1
+      if (totalForRate > 0) {
+        const ratedTotal = await this.calculateRatedCost(keyId, service, totalForRate)
+        rate = ratedTotal / totalForRate
       }
-      // transCost（消耗金额）= transRawCost × 服务倍率（不含 costRate）
-      const transCost =
-        transRawCost > 0
-          ? await this.calculateRatedCost(keyId, service, transRawCost)
-          : 0
+      const mainRatedCostWithDetails = mainCostWithDetails * rate
+      const transCost = transRawCost * rate
       const realCostWithDetails = mainCostWithDetails + transRealCost       // 成本总额
       const ratedCostWithDetails = mainRatedCostWithDetails + transCost     // 消耗总额
 

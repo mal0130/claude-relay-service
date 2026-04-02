@@ -68,6 +68,7 @@ class OpenAIResponsesRelayService {
 
   // 处理请求转发
   async handleRequest(req, res, account, apiKeyData) {
+    const requestStartTime = Date.now()
     let abortController = null
     // 获取会话哈希（如果有的话）——来源必须与 openaiRoutes.js handleResponses 保持一致
     const sessionId =
@@ -214,7 +215,13 @@ class OpenAIResponsesRelayService {
       })
 
       // 发送请求
+      logger.info(
+        `🕐 [Timing] 发送上游请求: setup=${Date.now() - requestStartTime}ms, url=${targetUrl}`
+      )
       const response = await axios(requestOptions)
+      logger.info(
+        `🕐 [Timing] 收到上游响应头: headerReceived=${Date.now() - requestStartTime}ms, status=${response.status}`
+      )
 
       // 处理 429 限流错误
       if (response.status === 429) {
@@ -388,7 +395,8 @@ class OpenAIResponsesRelayService {
           apiKeyData,
           req.body?.model,
           handleClientDisconnect,
-          req
+          req,
+          requestStartTime
         )
       }
 
@@ -539,7 +547,8 @@ class OpenAIResponsesRelayService {
     apiKeyData,
     requestedModel,
     handleClientDisconnect,
-    req
+    req,
+    requestStartTime = Date.now()
   ) {
     logger.info(
       `🔍 [ReasoningTranslation] OpenAI-Responses stream entry - key=${apiKeyData?.name}, requestedModel=${requestedModel}, stream=${req.body?.stream}`
@@ -576,6 +585,7 @@ class OpenAIResponsesRelayService {
     let streamEnded = false
     let streamedOutputText = ''
     let streamedThinkingText = ''
+    let firstByteTime = null
 
     // 解析 SSE 事件以捕获 usage 数据和 model
     const parseSSEForUsage = (data) => {
@@ -650,6 +660,13 @@ class OpenAIResponsesRelayService {
       try {
         const chunkStr = chunk.toString()
 
+        if (!firstByteTime) {
+          firstByteTime = Date.now()
+          logger.info(
+            `🕐 [Timing] 上游首字节: requestStart→firstByte=${firstByteTime - requestStartTime}ms`
+          )
+        }
+
         // 转发数据给客户端
         if (!res.destroyed && !streamEnded) {
           res.write(chunk)
@@ -674,7 +691,7 @@ class OpenAIResponsesRelayService {
       }
     })
 
-    response.data.on('end', async () => {
+    response.data.on('end', () => {
       streamEnded = true
 
       // 处理剩余的 buffer
@@ -682,129 +699,19 @@ class OpenAIResponsesRelayService {
         parseSSEForUsage(buffer)
       }
 
-      // 记录使用统计
-      if (usageData) {
-        try {
-          // OpenAI-Responses 使用 input_tokens/output_tokens，标准 OpenAI 使用 prompt_tokens/completion_tokens
-          const totalInputTokens = usageData.input_tokens || usageData.prompt_tokens || 0
-          const outputTokens = usageData.output_tokens || usageData.completion_tokens || 0
-
-          // 提取缓存相关的 tokens（如果存在）
-          const cacheReadTokens = usageData.input_tokens_details?.cached_tokens || 0
-          const cacheCreateTokens = extractCacheCreationTokens(usageData)
-          // 计算实际输入token（总输入减去缓存部分）
-          const actualInputTokens = Math.max(0, totalInputTokens - cacheReadTokens)
-
-          const totalTokens =
-            usageData.total_tokens || totalInputTokens + outputTokens + cacheCreateTokens
-          const modelToRecord = actualModel || requestedModel || 'gpt-4'
-
-          const serviceTier = req._serviceTier || null
-          logger.info(`🔍 relay _usageExtra session_id header=${req.headers['session_id']}`)
-          const _usageSessionId =
-            req.headers['session_id'] ||
-            req.headers['x-session-id'] ||
-            req.body?.session_id ||
-            req.body?.conversation_id ||
-            req.body?.prompt_cache_key ||
-            req.body?.previous_response_id ||
-            null
-          const _inputBlock = buildInputMessagesBlock(req.body)
-          const _usageExtra = buildUsageMetadata({
-            body: req.body,
-            format: 'openai',
-            headers: req.headers,
-            requestIp: req,
-            sessionId: _usageSessionId || null,
-            rawSessionId: _usageSessionId || null,
-            assistantContent: (() => {
-              const blocks = _inputBlock ? [_inputBlock] : []
-              if (streamedThinkingText)
-                blocks.push({ type: 'thinking', thinking: streamedThinkingText })
-              if (streamedOutputText) blocks.push({ type: 'text', text: streamedOutputText })
-              return blocks.length > 0 ? blocks : undefined
-            })()
-          })
-
-          // 等待翻译完成（未触发翻译时立即 resolve null），翻译数据随 recordUsage 一并写入
-          const transUsage = await reasoningTranslationController?.waitForTranslation()
-
-          await apiKeyService.recordUsage(
-            apiKeyData.id,
-            actualInputTokens, // 传递实际输入（不含缓存）
-            outputTokens,
-            cacheCreateTokens,
-            cacheReadTokens,
-            modelToRecord,
-            account.id,
-            'openai-responses',
-            serviceTier,
-            null,
-            _usageExtra,
-            transUsage || null
-          )
-
-          logger.info(
-            `📊 Recorded usage - Input: ${totalInputTokens}(actual:${actualInputTokens}+cached:${cacheReadTokens}), CacheCreate: ${cacheCreateTokens}, Output: ${outputTokens}, Total: ${totalTokens}, Model: ${modelToRecord}`
-          )
-
-          // 打印出 req headers 信息
-          logger.info(`🔍 extractUserInput request headers: ${JSON.stringify(req.headers)}`)
-
-          // 更新账户的 token 使用统计
-          await openaiResponsesAccountService.updateAccountUsage(account.id, totalTokens)
-
-          // 更新账户使用额度（如果设置了额度限制）
-          if (parseFloat(account.dailyQuota) > 0) {
-            // 使用CostCalculator正确计算费用（考虑缓存token的不同价格）
-            const CostCalculator = require('../../utils/costCalculator')
-            const costInfo = CostCalculator.calculateCost(
-              {
-                input_tokens: actualInputTokens, // 实际输入（不含缓存）
-                output_tokens: outputTokens,
-                cache_creation_input_tokens: cacheCreateTokens,
-                cache_read_input_tokens: cacheReadTokens
-              },
-              modelToRecord,
-              serviceTier
-            )
-            await openaiResponsesAccountService.updateUsageQuota(account.id, costInfo.costs.total)
-          }
-        } catch (error) {
-          logger.error('Failed to record usage:', error)
-        }
-      }
-
-      // 如果在流式响应中检测到限流
-      if (rateLimitDetected) {
-        // 使用统一调度器处理限流（与非流式响应保持一致）
-        const sessionId =
-          req.headers['session_id'] ||
-          req.headers['x-session-id'] ||
-          req.body?.session_id ||
-          req.body?.conversation_id ||
-          req.body?.prompt_cache_key ||
-          null
-        const sessionHash = sessionId
-          ? crypto.createHash('sha256').update(sessionId).digest('hex')
-          : null
-
-        await unifiedOpenAIScheduler.markAccountRateLimited(
-          account.id,
-          'openai-responses',
-          sessionHash,
-          rateLimitResetsInSeconds
-        )
-
-        logger.warn(
-          `🚫 Processing rate limit for OpenAI-Responses account ${account.id} from stream`
-        )
-      }
-
       // 清理监听器
       req.removeListener('close', handleClientDisconnect)
       res.removeListener('close', handleClientDisconnect)
 
+      const streamEndTime = Date.now()
+      logger.info(
+        `🕐 [Timing] 上游流结束: requestStart→streamEnd=${streamEndTime - requestStartTime}ms` +
+        (firstByteTime
+          ? `, firstByte→streamEnd=${streamEndTime - firstByteTime}ms`
+          : ', firstByte=N/A')
+      )
+
+      // 先结束响应，不阻塞客户端
       if (!res.destroyed) {
         res.end()
       }
@@ -814,6 +721,131 @@ class OpenAIResponsesRelayService {
         hasUsage: !!usageData,
         actualModel: actualModel || 'unknown'
       })
+
+        // 异步记录使用统计，不阻塞响应关闭
+        ; (async () => {
+          if (usageData) {
+            try {
+              // OpenAI-Responses 使用 input_tokens/output_tokens，标准 OpenAI 使用 prompt_tokens/completion_tokens
+              const totalInputTokens = usageData.input_tokens || usageData.prompt_tokens || 0
+              const outputTokens = usageData.output_tokens || usageData.completion_tokens || 0
+
+              // 提取缓存相关的 tokens（如果存在）
+              const cacheReadTokens = usageData.input_tokens_details?.cached_tokens || 0
+              const cacheCreateTokens = extractCacheCreationTokens(usageData)
+              // 计算实际输入token（总输入减去缓存部分）
+              const actualInputTokens = Math.max(0, totalInputTokens - cacheReadTokens)
+
+              const totalTokens =
+                usageData.total_tokens || totalInputTokens + outputTokens + cacheCreateTokens
+              const modelToRecord = actualModel || requestedModel || 'gpt-4'
+
+              const serviceTier = req._serviceTier || null
+              logger.info(`🔍 relay _usageExtra session_id header=${req.headers['session_id']}`)
+              const _usageSessionId =
+                req.headers['session_id'] ||
+                req.headers['x-session-id'] ||
+                req.body?.session_id ||
+                req.body?.conversation_id ||
+                req.body?.prompt_cache_key ||
+                req.body?.previous_response_id ||
+                null
+              const _inputBlock = buildInputMessagesBlock(req.body)
+              const _usageExtra = buildUsageMetadata({
+                body: req.body,
+                format: 'openai',
+                headers: req.headers,
+                requestIp: req,
+                sessionId: _usageSessionId || null,
+                rawSessionId: _usageSessionId || null,
+                assistantContent: (() => {
+                  const blocks = _inputBlock ? [_inputBlock] : []
+                  if (streamedThinkingText)
+                    blocks.push({ type: 'thinking', thinking: streamedThinkingText })
+                  if (streamedOutputText) blocks.push({ type: 'text', text: streamedOutputText })
+                  return blocks.length > 0 ? blocks : undefined
+                })()
+              })
+
+              // 等待翻译完成（未触发翻译时立即 resolve null），翻译数据随 recordUsage 一并写入
+              const transUsage = await reasoningTranslationController?.waitForTranslation()
+
+              await apiKeyService.recordUsage(
+                apiKeyData.id,
+                actualInputTokens, // 传递实际输入（不含缓存）
+                outputTokens,
+                cacheCreateTokens,
+                cacheReadTokens,
+                modelToRecord,
+                account.id,
+                'openai-responses',
+                serviceTier,
+                null,
+                _usageExtra,
+                transUsage || null
+              )
+
+              logger.info(
+                `📊 Recorded usage - Input: ${totalInputTokens}(actual:${actualInputTokens}+cached:${cacheReadTokens}), CacheCreate: ${cacheCreateTokens}, Output: ${outputTokens}, Total: ${totalTokens}, Model: ${modelToRecord}`
+              )
+
+              // 打印出 req headers 信息
+              logger.info(`🔍 extractUserInput request headers: ${JSON.stringify(req.headers)}`)
+
+              // 更新账户的 token 使用统计
+              await openaiResponsesAccountService.updateAccountUsage(account.id, totalTokens)
+
+              // 更新账户使用额度（如果设置了额度限制）
+              if (parseFloat(account.dailyQuota) > 0) {
+                // 使用CostCalculator正确计算费用（考虑缓存token的不同价格）
+                const CostCalculator = require('../../utils/costCalculator')
+                const costInfo = CostCalculator.calculateCost(
+                  {
+                    input_tokens: actualInputTokens, // 实际输入（不含缓存）
+                    output_tokens: outputTokens,
+                    cache_creation_input_tokens: cacheCreateTokens,
+                    cache_read_input_tokens: cacheReadTokens
+                  },
+                  modelToRecord,
+                  serviceTier
+                )
+                await openaiResponsesAccountService.updateUsageQuota(account.id, costInfo.costs.total)
+              }
+            } catch (error) {
+              logger.error('Failed to record usage:', error)
+            }
+          }
+
+          // 如果在流式响应中检测到限流
+          if (rateLimitDetected) {
+            try {
+              // 使用统一调度器处理限流（与非流式响应保持一致）
+              const sessionId =
+                req.headers['session_id'] ||
+                req.headers['x-session-id'] ||
+                req.body?.session_id ||
+                req.body?.conversation_id ||
+                req.body?.prompt_cache_key ||
+                null
+              const sessionHash = sessionId
+                ? crypto.createHash('sha256').update(sessionId).digest('hex')
+                : null
+
+              await unifiedOpenAIScheduler.markAccountRateLimited(
+                account.id,
+                'openai-responses',
+                sessionHash,
+                rateLimitResetsInSeconds
+              )
+
+              logger.warn(
+                `🚫 Processing rate limit for OpenAI-Responses account ${account.id} from stream`
+              )
+            } catch (err) {
+              logger.error('Failed to mark rate limit for OpenAI-Responses account:', err)
+            }
+          }
+        })().catch((err) => logger.error('Failed to record OpenAI-Responses usage (async):', err))
     })
 
     response.data.on('error', (error) => {
