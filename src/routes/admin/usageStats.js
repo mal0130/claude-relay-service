@@ -2969,9 +2969,10 @@ router.get('/api-keys/:keyId/usage-records', authenticateAdmin, async (req, res)
       const usage = toUsageObject(record)
       const costData = CostCalculator.calculateCost(usage, record.model || 'unknown')
       const transRealCostNum = record.transRealCost || 0
+      const transCostNum = record.transCost || 0
       const computedCost =
         (typeof record.cost === 'number' ? record.cost : costData?.costs?.total || 0) +
-        transRealCostNum
+        (transCostNum > 0 ? 0 : transRealCostNum) // 有新字段时 cost 已含 transCost，无需再加
       const realCost =
         (typeof record.realCost === 'number' ? record.realCost : costData?.costs?.total || 0) +
         transRealCostNum
@@ -3018,6 +3019,7 @@ router.get('/api-keys/:keyId/usage-records', authenticateAdmin, async (req, res)
         transCompletionTokens: record.transCompletionTokens || 0,
         transTotalTokens: record.transTotalTokens || 0,
         transRealCost: record.transRealCost || 0,
+        transCost: record.transCost || 0,
         responseTime: record.responseTime || null,
         ...metadata
       })
@@ -3308,9 +3310,10 @@ router.get('/accounts/:accountId/usage-records', authenticateAdmin, async (req, 
       const usage = toUsageObject(record)
       const costData = CostCalculator.calculateCost(usage, record.model || 'unknown')
       const transRealCostNum = record.transRealCost || 0
+      const transCostNum = record.transCost || 0
       const computedCost =
         (typeof record.cost === 'number' ? record.cost : costData?.costs?.total || 0) +
-        transRealCostNum
+        (transCostNum > 0 ? 0 : transRealCostNum) // 有新字段时 cost 已含 transCost，无需再加
       const realCost =
         (typeof record.realCost === 'number' ? record.realCost : costData?.costs?.total || 0) +
         transRealCostNum
@@ -3356,6 +3359,7 @@ router.get('/accounts/:accountId/usage-records', authenticateAdmin, async (req, 
         transCompletionTokens: record.transCompletionTokens || 0,
         transTotalTokens: record.transTotalTokens || 0,
         transRealCost: record.transRealCost || 0,
+        transCost: record.transCost || 0,
         responseTime: record.responseTime || null,
         ...metadata
       })
