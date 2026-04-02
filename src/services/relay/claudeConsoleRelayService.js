@@ -1044,6 +1044,7 @@ class ClaudeConsoleRelayService {
 
           let buffer = ''
           let responseText = ''
+          let thinkingText = ''
           let finalUsageReported = false
           const collectedUsageData = {
             model: body.model || account?.defaultModel || null
@@ -1102,6 +1103,10 @@ class ClaudeConsoleRelayService {
 
                       if (data.type === 'content_block_delta' && data.delta?.text) {
                         responseText += data.delta.text
+                      }
+
+                      if (data.type === 'content_block_delta' && data.delta?.thinking) {
+                        thinkingText += data.delta.thinking
                       }
 
                       // 收集usage数据
@@ -1187,12 +1192,13 @@ class ClaudeConsoleRelayService {
                             usageCallback({
                               ...collectedUsageData,
                               accountId,
-                              assistantContent: responseText
-                                ? {
-                                    role: 'assistant',
-                                    content: responseText
-                                  }
-                                : undefined
+                              assistantContent: (() => {
+                                const blocks = []
+                                if (thinkingText)
+                                  blocks.push({ type: 'thinking', thinking: thinkingText })
+                                if (responseText) blocks.push({ type: 'text', text: responseText })
+                                return blocks.length > 0 ? blocks : undefined
+                              })()
                             })
                           }
                           finalUsageReported = true

@@ -702,6 +702,8 @@ const authenticateApiKey = async (req, res, next) => {
       logger.api(
         `🔄 Validation failed: ${typeof validation.error === 'object' ? JSON.stringify(validation.error) : validation.error}, externalUid: ${failedKeyData?.externalUid || 'none'}`
       )
+      let packageWindowLimitError = null
+      let packageWindowLimitStatusCode = null
       if (failedKeyData?.externalUid) {
         logger.api(`🔄 Trying alternative keys for uid: ${failedKeyData.externalUid}`)
 
@@ -797,7 +799,15 @@ const authenticateApiKey = async (req, res, next) => {
             // 检查所有限制（速率、费用等）
             const limitCheck = await checkApiKeyLimits(keyData, req)
             if (!limitCheck.valid) {
-              logger.api(`❌ Key ${keyData.id} limit check failed: ${limitCheck.error}`)
+              logger.api(`❌ Key ${keyData.id} limit check failed: ${JSON.stringify(limitCheck.error)}`)
+              // 若当前是套餐 Key 且失败原因是窗口限制，记录该错误以便后续优先展示
+              const isWindowLimit = ['rate_limit_requests_exceeded', 'rate_limit_cost_exceeded'].includes(
+                limitCheck.error?.code
+              )
+              if (isPackage(keyData.name) && isWindowLimit && !packageWindowLimitError) {
+                packageWindowLimitError = limitCheck.error
+                packageWindowLimitStatusCode = limitCheck.statusCode
+              }
               continue
             }
 
@@ -854,6 +864,12 @@ const authenticateApiKey = async (req, res, next) => {
         logger.security(
           `API key validation failed: ${JSON.stringify(validation.error)} from ${clientIP}`
         )
+
+        // 若存在套餐窗口限制错误，优先返回套餐提示（临时性限制，告知用户窗口恢复时间）
+        if (packageWindowLimitError) {
+          logger.api(`🔄 Overriding error with package window limit message`)
+          return res.status(packageWindowLimitStatusCode || 402).json(packageWindowLimitError)
+        }
 
         // 如果 error 是对象（新格式），直接返回
         if (typeof validation.error === 'object') {

@@ -10,7 +10,7 @@ const crypto = require('crypto')
 const LRUCache = require('../../utils/lruCache')
 const upstreamErrorHelper = require('../../utils/upstreamErrorHelper')
 const webhookService = require('../webhookService')
-const { buildUsageMetadata } = require('../../utils/userInputExtractor')
+const { buildUsageMetadata, buildInputMessagesBlock } = require('../../utils/userInputExtractor')
 const {
   applyReasoningTranslation,
   shouldTranslateForKey
@@ -79,11 +79,11 @@ class OpenAIResponsesRelayService {
       null
     logger.info(
       `🔍 relay sessionId sources: header_session_id=${req.headers['session_id']}, ` +
-        `header_x-session-id=${req.headers['x-session-id']}, ` +
-        `body_session_id=${req.body?.session_id}, ` +
-        `body_conversation_id=${req.body?.conversation_id}, ` +
-        `body_prompt_cache_key=${req.body?.prompt_cache_key}, ` +
-        `body_previous_response_id=${req.body?.previous_response_id}`
+      `header_x-session-id=${req.headers['x-session-id']}, ` +
+      `body_session_id=${req.body?.session_id}, ` +
+      `body_conversation_id=${req.body?.conversation_id}, ` +
+      `body_prompt_cache_key=${req.body?.prompt_cache_key}, ` +
+      `body_previous_response_id=${req.body?.previous_response_id}`
     )
     const sessionHash = sessionId
       ? crypto.createHash('sha256').update(sessionId).digest('hex')
@@ -102,10 +102,10 @@ class OpenAIResponsesRelayService {
           response: responseBody,
           error: rawError
             ? {
-                message: rawError.message,
-                code: rawError.code,
-                data: rawError.response?.data
-              }
+              message: rawError.message,
+              code: rawError.code,
+              data: rawError.response?.data
+            }
             : undefined
         })
         .catch((e) => logger.warn('Failed to send webhook notification:', e))
@@ -235,7 +235,7 @@ class OpenAIResponsesRelayService {
               429,
               resetsInSeconds || upstreamErrorHelper.parseRetryAfter(response.headers)
             )
-            .catch(() => {})
+            .catch(() => { })
         }
 
         // 返回错误响应（使用处理后的数据，避免循环引用）
@@ -306,10 +306,10 @@ class OpenAIResponsesRelayService {
             if (!oaiAutoProtectionDisabled) {
               await upstreamErrorHelper
                 .markTempUnavailable(account.id, 'openai-responses', 401)
-                .catch(() => {})
+                .catch(() => { })
             }
             if (sessionHash) {
-              await unifiedOpenAIScheduler._deleteSessionMapping(sessionHash).catch(() => {})
+              await unifiedOpenAIScheduler._deleteSessionMapping(sessionHash).catch(() => { })
             }
           } catch (markError) {
             logger.error(
@@ -357,7 +357,7 @@ class OpenAIResponsesRelayService {
               )
             }
             if (sessionHash) {
-              await unifiedOpenAIScheduler._deleteSessionMapping(sessionHash).catch(() => {})
+              await unifiedOpenAIScheduler._deleteSessionMapping(sessionHash).catch(() => { })
             }
           } catch (markError) {
             logger.warn(
@@ -431,7 +431,7 @@ class OpenAIResponsesRelayService {
           if (!oaiAutoProtectionDisabled) {
             await upstreamErrorHelper
               .markTempUnavailable(account.id, 'openai-responses', 503)
-              .catch(() => {})
+              .catch(() => { })
           }
         }
       }
@@ -479,10 +479,10 @@ class OpenAIResponsesRelayService {
             if (!oaiAutoProtectionDisabled) {
               await upstreamErrorHelper
                 .markTempUnavailable(account.id, 'openai-responses', 401)
-                .catch(() => {})
+                .catch(() => { })
             }
             if (sessionHash) {
-              await unifiedOpenAIScheduler._deleteSessionMapping(sessionHash).catch(() => {})
+              await unifiedOpenAIScheduler._deleteSessionMapping(sessionHash).catch(() => { })
             }
           } catch (markError) {
             logger.error(
@@ -575,6 +575,7 @@ class OpenAIResponsesRelayService {
     let rateLimitResetsInSeconds = null
     let streamEnded = false
     let streamedOutputText = ''
+    let streamedThinkingText = ''
 
     // 解析 SSE 事件以捕获 usage 数据和 model
     const parseSSEForUsage = (data) => {
@@ -593,6 +594,11 @@ class OpenAIResponsesRelayService {
             // 捕获流式输出文本
             if (eventData.type === 'response.output_text.delta' && eventData.delta) {
               streamedOutputText += eventData.delta
+            }
+
+            // 捕获流式思考链文本
+            if (eventData.type === 'response.reasoning_summary_text.delta' && eventData.delta) {
+              streamedThinkingText += eventData.delta
             }
 
             // 检查是否是 response.completed 事件（OpenAI-Responses 格式）
@@ -703,6 +709,7 @@ class OpenAIResponsesRelayService {
             req.body?.prompt_cache_key ||
             req.body?.previous_response_id ||
             null
+          const _inputBlock = buildInputMessagesBlock(req.body)
           const _usageExtra = buildUsageMetadata({
             body: req.body,
             format: 'openai',
@@ -710,7 +717,13 @@ class OpenAIResponsesRelayService {
             requestIp: req,
             sessionId: _usageSessionId || null,
             rawSessionId: _usageSessionId || null,
-            assistantContent: streamedOutputText || undefined
+            assistantContent: (() => {
+              const blocks = _inputBlock ? [_inputBlock] : []
+              if (streamedThinkingText)
+                blocks.push({ type: 'thinking', thinking: streamedThinkingText })
+              if (streamedOutputText) blocks.push({ type: 'text', text: streamedOutputText })
+              return blocks.length > 0 ? blocks : undefined
+            })()
           })
 
           // 等待翻译完成（未触发翻译时立即 resolve null），翻译数据随 recordUsage 一并写入
@@ -868,13 +881,20 @@ class OpenAIResponsesRelayService {
           req.body?.prompt_cache_key ||
           req.body?.previous_response_id ||
           null
+        const _inputBlock = buildInputMessagesBlock(req.body)
         const _usageExtra = buildUsageMetadata({
           body: req.body,
           format: 'openai',
           headers: req.headers,
           sessionId: _usageSessionId || null,
           rawSessionId: _usageSessionId || null,
-          assistantContent: responseData?.output || responseData?.response?.output || undefined
+          assistantContent: (() => {
+            const rawOutput = responseData?.output || responseData?.response?.output
+            const blocks = _inputBlock ? [_inputBlock] : []
+            if (Array.isArray(rawOutput)) blocks.push(...rawOutput)
+            else if (rawOutput) blocks.push(rawOutput)
+            return blocks.length > 0 ? blocks : undefined
+          })()
         })
         await apiKeyService.recordUsage(
           apiKeyData.id,

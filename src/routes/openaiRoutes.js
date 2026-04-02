@@ -15,7 +15,7 @@ const ProxyHelper = require('../utils/proxyHelper')
 const { updateRateLimitCounters } = require('../utils/rateLimitHelper')
 const { IncrementalSSEParser } = require('../utils/sseParser')
 const { getSafeMessage } = require('../utils/errorSanitizer')
-const { buildUsageMetadata } = require('../utils/userInputExtractor')
+const { buildUsageMetadata, buildInputMessagesBlock } = require('../utils/userInputExtractor')
 const {
   applyReasoningTranslation,
   shouldTranslateForKey
@@ -77,6 +77,46 @@ function extractCodexUsageHeaders(headers) {
 
   const hasData = Object.values(snapshot).some((value) => value !== null)
   return hasData ? snapshot : null
+}
+
+function extractCodexResponseBlocks(responseData) {
+  const blocks = []
+  const output = Array.isArray(responseData?.output) ? responseData.output : []
+
+  for (const item of output) {
+    if (item?.type === 'reasoning') {
+      const thinking = (item.summary || [])
+        .filter((summary) => summary?.type === 'summary_text' && typeof summary.text === 'string')
+        .map((summary) => summary.text)
+        .join('')
+      if (thinking) {
+        blocks.push({ type: 'thinking', thinking })
+      }
+      continue
+    }
+
+    if (item?.type === 'message') {
+      const text = (item.content || [])
+        .filter((part) => part?.type === 'output_text' && typeof part.text === 'string')
+        .map((part) => part.text)
+        .join('')
+      if (text) {
+        blocks.push({ type: 'text', text })
+      }
+    }
+  }
+
+  return blocks
+}
+
+function buildCodexAssistantContent(responseData) {
+  const blocks = extractCodexResponseBlocks(responseData)
+  if (blocks.length > 0) {
+    return blocks
+  }
+
+  const text = responseData?.choices?.[0]?.message?.content
+  return text ? [{ type: 'text', text }] : undefined
 }
 
 async function applyRateLimitTracking(
@@ -321,7 +361,7 @@ const handleResponses = async (req, res) => {
     }
 
     // 使用调度器选择账户
-    ;({ accessToken, accountId, accountType, proxy, account } = await getOpenAIAuthToken(
+    ; ({ accessToken, accountId, accountType, proxy, account } = await getOpenAIAuthToken(
       apiKeyData,
       sessionId,
       requestedModel
@@ -528,8 +568,8 @@ const handleResponses = async (req, res) => {
       if (errorData) {
         const messageCandidate =
           errorData.error &&
-          typeof errorData.error.message === 'string' &&
-          errorData.error.message.trim()
+            typeof errorData.error.message === 'string' &&
+            errorData.error.message.trim()
             ? errorData.error.message.trim()
             : typeof errorData.message === 'string' && errorData.message.trim()
               ? errorData.message.trim()
@@ -653,6 +693,8 @@ const handleResponses = async (req, res) => {
           // 计算实际输入token（总输入减去缓存部分）
           const actualInputTokens = Math.max(0, totalInputTokens - cacheReadTokens)
 
+          const _inputBlock = buildInputMessagesBlock(req.body)
+          const _assistantBlocks = buildCodexAssistantContent(responseData)
           const _usageExtra = buildUsageMetadata({
             body: req.body,
             format: 'openai',
@@ -660,7 +702,12 @@ const handleResponses = async (req, res) => {
             requestIp: req,
             sessionId: sessionHash || null,
             rawSessionId: sessionId || null,
-            assistantContent: responseData?.choices?.[0]?.message || undefined
+            assistantContent: (() => {
+              const blocks = _inputBlock ? [_inputBlock] : []
+              if (Array.isArray(_assistantBlocks)) blocks.push(..._assistantBlocks)
+              else if (_assistantBlocks) blocks.push(_assistantBlocks)
+              return blocks.length > 0 ? blocks : undefined
+            })()
           })
 
           const nonStreamCosts = await apiKeyService.recordUsage(
@@ -711,9 +758,24 @@ const handleResponses = async (req, res) => {
     // 使用增量 SSE 解析器
     const sseParser = new IncrementalSSEParser()
     const streamedOutputText = []
+    const streamedReasoningText = []
 
     // 处理解析出的事件
     const processSSEEvent = (eventData) => {
+      if (
+        eventData.type === 'response.reasoning_summary_text.delta' &&
+        typeof eventData.delta === 'string'
+      ) {
+        streamedReasoningText.push(eventData.delta)
+      }
+
+      if (
+        eventData.type === 'response.reasoning_summary_text.done' &&
+        typeof eventData.text === 'string'
+      ) {
+        streamedReasoningText.push(eventData.text)
+      }
+
       if (eventData.type === 'response.output_text.delta' && typeof eventData.delta === 'string') {
         streamedOutputText.push(eventData.delta)
       }
@@ -800,7 +862,17 @@ const handleResponses = async (req, res) => {
           // 使用响应中的真实 model，如果没有则使用请求中的 model，最后回退到默认值
           const modelToRecord = actualModel || requestedModel || 'gpt-4'
 
+          const assistantBlocks = []
+          const reasoningText = streamedReasoningText.join('')
+          if (reasoningText) {
+            assistantBlocks.push({ type: 'thinking', thinking: reasoningText })
+          }
           const assistantText = streamedOutputText.join('')
+          if (assistantText) {
+            assistantBlocks.push({ type: 'text', text: assistantText })
+          }
+          const _inputBlock = buildInputMessagesBlock(req.body)
+          if (_inputBlock) assistantBlocks.unshift(_inputBlock)
           const _usageExtra = buildUsageMetadata({
             body: req.body,
             format: 'openai',
@@ -808,12 +880,7 @@ const handleResponses = async (req, res) => {
             requestIp: req,
             sessionId: sessionHash || null,
             rawSessionId: sessionId || null,
-            assistantContent: assistantText
-              ? {
-                  role: 'assistant',
-                  content: assistantText
-                }
-              : undefined
+            assistantContent: assistantBlocks.length > 0 ? assistantBlocks : undefined
           })
 
           // 等待翻译完成（未触发翻译时立即 resolve null），翻译数据随 recordUsage 一并写入
