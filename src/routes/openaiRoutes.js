@@ -788,9 +788,12 @@ const handleResponses = async (req, res) => {
         }
       }
 
-      // 记录使用统计
+      // 先结束响应，不阻塞客户端
+      res.end()
+
+      // 异步记录使用统计，不阻塞响应关闭
       if (!usageReported && usageData) {
-        try {
+        ;(async () => {
           const totalInputTokens = usageData.input_tokens || 0
           const outputTokens = usageData.output_tokens || 0
           const cacheReadTokens = usageData.input_tokens_details?.cached_tokens || 0
@@ -852,32 +855,28 @@ const handleResponses = async (req, res) => {
             'openai',
             streamCosts
           )
-        } catch (error) {
-          logger.error('Failed to record OpenAI usage:', error)
-        }
-      }
 
-      // 如果在流式响应中检测到限流
-      if (rateLimitDetected) {
-        logger.warn(`🚫 Processing rate limit for OpenAI account ${accountId} from stream`)
-        await unifiedOpenAIScheduler.markAccountRateLimited(
-          accountId,
-          'openai',
-          sessionHash,
-          rateLimitResetsInSeconds
-        )
-      } else if (upstream.status === 200) {
-        // 流式请求成功，检查并移除限流状态
-        const isRateLimited = await unifiedOpenAIScheduler.isAccountRateLimited(accountId)
-        if (isRateLimited) {
-          logger.info(
-            `✅ Removing rate limit for OpenAI account ${accountId} after successful stream`
-          )
-          await unifiedOpenAIScheduler.removeAccountRateLimit(accountId, 'openai')
-        }
+          // 如果在流式响应中检测到限流
+          if (rateLimitDetected) {
+            logger.warn(`🚫 Processing rate limit for OpenAI account ${accountId} from stream`)
+            await unifiedOpenAIScheduler.markAccountRateLimited(
+              accountId,
+              'openai',
+              sessionHash,
+              rateLimitResetsInSeconds
+            )
+          } else if (upstream.status === 200) {
+            // 流式请求成功，检查并移除限流状态
+            const isRateLimited = await unifiedOpenAIScheduler.isAccountRateLimited(accountId)
+            if (isRateLimited) {
+              logger.info(
+                `✅ Removing rate limit for OpenAI account ${accountId} after successful stream`
+              )
+              await unifiedOpenAIScheduler.removeAccountRateLimit(accountId, 'openai')
+            }
+          }
+        })().catch((err) => logger.error('Failed to record OpenAI usage:', err))
       }
-
-      res.end()
     })
 
     upstream.data.on('error', (err) => {

@@ -439,9 +439,12 @@ function applyReasoningTranslation(res, _options = {}) {
   }
 
   function flushBufferedChunks() {
+    const flushStartTime = Date.now()
     if (contentStartedTime) {
-      const firstOutputDelayMs = Date.now() - contentStartedTime
-      logger.info(`🌐 [ReasoningTranslation] 首次输出延迟=${firstOutputDelayMs}ms（翻译等待时间）`)
+      const firstOutputDelayMs = flushStartTime - contentStartedTime
+      logger.info(
+        `🌐 [ReasoningTranslation] 首次输出延迟=${firstOutputDelayMs}ms（从翻译触发到内容开始输出）`
+      )
     }
     // 先补发被延迟的 reasoning output_item.added/done 事件，保证正确顺序：
     //   翻译后的 reasoning delta → output_item.added(reasoning) → output_item.done(reasoning) → 正文内容
@@ -478,6 +481,9 @@ function applyReasoningTranslation(res, _options = {}) {
     }
     pendingChunks = []
     if (endCalled) {
+      logger.info(
+        `🌐 [ReasoningTranslation] flush完成，调用originalEnd，flush耗时=${Date.now() - flushStartTime}ms`
+      )
       endResponse()
     }
   }
@@ -540,6 +546,11 @@ function applyReasoningTranslation(res, _options = {}) {
       return
     }
     translationStarted = true
+    // responses 格式由 response.completed 触发翻译（而非正文 content 事件），此时 contentStartedTime 为 null
+    // 统一在翻译启动时记录，确保 flushBufferedChunks 能正确打印首次输出延迟
+    if (!contentStartedTime) {
+      contentStartedTime = Date.now()
+    }
     logger.info(`🌐 [ReasoningTranslation] 开始 flush 翻译队列`)
     translator
       .flush()
@@ -757,6 +768,13 @@ function applyReasoningTranslation(res, _options = {}) {
     if (!contentStarted) {
       endCalled = true
       startTranslation()
+      // responses 格式下翻译可能在 res.end() 之前就已完成（如推理内容极短时 flush 瞬间结束）
+      // 此时 flushBufferedChunks 已发送完数据但因 endCalled=false 跳过了 originalEnd
+      // 需要在这里补调，否则 HTTP 连接永远不关闭
+      if (translationDone) {
+        logger.info('🌐 [ReasoningTranslation] 翻译已提前完成，res.end() 补调 originalEnd')
+        originalEnd()
+      }
     } else if (!translationDone) {
       endCalled = true
     } else {
@@ -818,6 +836,10 @@ function shouldTranslateForKey(keyName) {
   if (!isTranslationConfigured()) {
     return false
   }
+  if (config.translation.enabled) {
+    return true // 全局开启，对所有人开放
+  }
+  // 全局关闭，仅对指定 keyName 开放
   const { keyNames } = config.translation
   if (!keyNames || keyNames.length === 0) {
     return false
