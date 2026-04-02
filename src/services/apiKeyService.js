@@ -1745,8 +1745,10 @@ class ApiKeyService {
       const transTotalTokens = translationUsage?.trans_total_tokens || 0
       const promptPrice = parseFloat(config.translation.promptPrice) || 0
       const completionPrice = parseFloat(config.translation.completionPrice) || 0
-      const transRealCost =
+      const transCostRate = parseFloat(config.translation.costRate) || 1
+      const transRawCost =
         (transPromptTokens / 1e6) * promptPrice + (transCompletionTokens / 1e6) * completionPrice
+      const transRealCost = transRawCost * transCostRate
 
       // 检查是否为 1M 上下文请求
       let isLongContextRequest = false
@@ -1756,12 +1758,19 @@ class ApiKeyService {
       }
 
       // 计算费用（应用服务倍率），翻译费用合并进总费用
-      const realCost = costInfo.costs.total + transRealCost
-      let ratedCost = realCost
-      if (realCost > 0) {
-        const service = serviceRatesService.getService(accountType, model)
-        ratedCost = await this.calculateRatedCost(keyId, service, realCost)
+      const mainCost = costInfo.costs.total
+      const service = serviceRatesService.getService(accountType, model)
+      let mainRatedCost = mainCost
+      if (mainCost > 0) {
+        mainRatedCost = await this.calculateRatedCost(keyId, service, mainCost)
       }
+      // transCost（消耗金额）= transRawCost × 服务倍率（不含 costRate）
+      const transCost =
+        transRawCost > 0
+          ? await this.calculateRatedCost(keyId, service, transRawCost)
+          : 0
+      const realCost = mainCost + transRealCost       // 成本总额
+      const ratedCost = mainRatedCost + transCost     // 消耗总额
 
       // 记录API Key级别的使用统计（包含费用）
       await redis.incrementTokenUsage(
@@ -1868,6 +1877,7 @@ class ApiKeyService {
         transCompletionTokens,
         transTotalTokens,
         transRealCost: Number(transRealCost.toFixed(6)),
+        transCost: Number(transCost.toFixed(6)),
         cost: Number(ratedCost.toFixed(6)),
         realCost: Number(realCost.toFixed(6)),
         realCostBreakdown,
@@ -2065,16 +2075,29 @@ class ApiKeyService {
       const transTotalTokens = translationUsage?.trans_total_tokens || 0
       const transPromptPrice = parseFloat(config.translation.promptPrice) || 0
       const transCompletionPrice = parseFloat(config.translation.completionPrice) || 0
-      const transRealCost =
+      const transCostRate = parseFloat(config.translation.costRate) || 1
+      const transRawCost =
         (transPromptTokens / 1e6) * transPromptPrice +
         (transCompletionTokens / 1e6) * transCompletionPrice
+      const transRealCost = transRawCost * transCostRate
 
-      const realCostWithDetails = (costInfo.totalCost || 0) + transRealCost
-      let ratedCostWithDetails = realCostWithDetails
-      if (realCostWithDetails > 0) {
-        const service = serviceRatesService.getService(accountType, model)
-        ratedCostWithDetails = await this.calculateRatedCost(keyId, service, realCostWithDetails)
+      const mainCostWithDetails = costInfo.totalCost || 0
+      const service = serviceRatesService.getService(accountType, model)
+      let mainRatedCostWithDetails = mainCostWithDetails
+      if (mainCostWithDetails > 0) {
+        mainRatedCostWithDetails = await this.calculateRatedCost(
+          keyId,
+          service,
+          mainCostWithDetails
+        )
       }
+      // transCost（消耗金额）= transRawCost × 服务倍率（不含 costRate）
+      const transCost =
+        transRawCost > 0
+          ? await this.calculateRatedCost(keyId, service, transRawCost)
+          : 0
+      const realCostWithDetails = mainCostWithDetails + transRealCost       // 成本总额
+      const ratedCostWithDetails = mainRatedCostWithDetails + transCost     // 消耗总额
 
       // 记录API Key级别的使用统计（包含费用）
       await redis.incrementTokenUsage(
@@ -2196,6 +2219,7 @@ class ApiKeyService {
         transCompletionTokens,
         transTotalTokens,
         transRealCost: Number(transRealCost.toFixed(6)),
+        transCost: Number(transCost.toFixed(6)),
         cost: Number(ratedCostWithDetails.toFixed(6)),
         realCost: Number(realCostWithDetails.toFixed(6)),
         realCostBreakdown: {

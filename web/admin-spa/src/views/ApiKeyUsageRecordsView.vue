@@ -183,6 +183,11 @@
                   <th
                     class="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500 dark:text-gray-300"
                   >
+                    翻译费用
+                  </th>
+                  <th
+                    class="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500 dark:text-gray-300"
+                  >
                     费用
                   </th>
                   <th
@@ -234,6 +239,10 @@
                   <td class="whitespace-nowrap px-4 py-3 text-sm text-gray-800 dark:text-gray-100">
                     {{ formatNumber(record.totalTokens) }}
                   </td>
+                  <td class="whitespace-nowrap px-4 py-3 text-sm text-teal-600 dark:text-teal-400">
+                    <span v-if="record.transCost > 0">{{ formatCost(record.transCost) }}</span>
+                    <span v-else class="text-gray-400 dark:text-gray-600">—</span>
+                  </td>
                   <td
                     class="whitespace-nowrap px-4 py-3 text-sm text-yellow-600 dark:text-yellow-400"
                   >
@@ -276,6 +285,9 @@
                 <div v-if="record.transPromptTokens > 0 || record.transCompletionTokens > 0">
                   翻译入/出：{{ formatNumber(record.transPromptTokens) }} /
                   {{ formatNumber(record.transCompletionTokens) }}
+                </div>
+                <div v-if="record.transCost > 0" class="text-teal-600 dark:text-teal-400">
+                  翻译费用：{{ formatCost(record.transCost) }}
                 </div>
                 <div class="text-yellow-600 dark:text-yellow-400">
                   费用：{{ record.costFormatted || formatCost(record.cost) }}
@@ -500,6 +512,7 @@ const exportCsv = async () => {
       '翻译输入Token',
       '翻译输出Token',
       '总Token',
+      '翻译费用',
       '费用'
     ]
 
@@ -517,6 +530,7 @@ const exportCsv = async () => {
         record.transPromptTokens || 0,
         record.transCompletionTokens || 0,
         record.totalTokens || 0,
+        record.transCost > 0 ? formatCost(record.transCost) : '',
         record.costFormatted || formatCost(record.cost)
       ]
       csvRows.push(row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(','))

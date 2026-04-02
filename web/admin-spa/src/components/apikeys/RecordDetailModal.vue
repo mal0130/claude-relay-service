@@ -211,7 +211,7 @@ const formattedCosts = computed(() => {
     output: formatValue(breakdown.output),
     cacheCreate: formatValue(breakdown.cacheCreate),
     cacheRead: formatValue(breakdown.cacheRead),
-    translation: formatValue(breakdown.translation),
+    translation: formatValue(props.record?.transCost),
     total: formatValue(breakdown.total)
   }
 })
