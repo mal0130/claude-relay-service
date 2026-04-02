@@ -395,10 +395,18 @@ function extractDeveloperTextsGemini(body) {
   return []
 }
 
+function buildInputMessagesBlock(body) {
+  if (process.env.STORE_INPUT_MESSAGES === 'false') return null
+  const messages = body?.input || body?.messages
+  if (!Array.isArray(messages) || messages.length === 0) return null
+  return { type: 'input_messages', messages }
+}
+
 module.exports = {
   extractUserInput,
   extractUserIp,
   extractProcessType,
   buildUsageMetadata,
-  classifyProjectType
+  classifyProjectType,
+  buildInputMessagesBlock
 }

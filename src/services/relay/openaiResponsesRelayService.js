@@ -10,7 +10,7 @@ const crypto = require('crypto')
 const LRUCache = require('../../utils/lruCache')
 const upstreamErrorHelper = require('../../utils/upstreamErrorHelper')
 const webhookService = require('../webhookService')
-const { buildUsageMetadata } = require('../../utils/userInputExtractor')
+const { buildUsageMetadata, buildInputMessagesBlock } = require('../../utils/userInputExtractor')
 
 // lastUsedAt 更新节流（每账户 60 秒内最多更新一次，使用 LRU 防止内存泄漏）
 const lastUsedAtThrottle = new LRUCache(1000) // 最多缓存 1000 个账户
@@ -683,6 +683,7 @@ class OpenAIResponsesRelayService {
             req.body?.prompt_cache_key ||
             req.body?.previous_response_id ||
             null
+          const _inputBlock = buildInputMessagesBlock(req.body)
           const _usageExtra = buildUsageMetadata({
             body: req.body,
             format: 'openai',
@@ -691,7 +692,7 @@ class OpenAIResponsesRelayService {
             sessionId: _usageSessionId || null,
             rawSessionId: _usageSessionId || null,
             assistantContent: (() => {
-              const blocks = []
+              const blocks = _inputBlock ? [_inputBlock] : []
               if (streamedThinkingText)
                 blocks.push({ type: 'thinking', thinking: streamedThinkingText })
               if (streamedOutputText) blocks.push({ type: 'text', text: streamedOutputText })
@@ -849,13 +850,20 @@ class OpenAIResponsesRelayService {
           req.body?.prompt_cache_key ||
           req.body?.previous_response_id ||
           null
+        const _inputBlock = buildInputMessagesBlock(req.body)
         const _usageExtra = buildUsageMetadata({
           body: req.body,
           format: 'openai',
           headers: req.headers,
           sessionId: _usageSessionId || null,
           rawSessionId: _usageSessionId || null,
-          assistantContent: responseData?.output || responseData?.response?.output || undefined
+          assistantContent: (() => {
+            const rawOutput = responseData?.output || responseData?.response?.output
+            const blocks = _inputBlock ? [_inputBlock] : []
+            if (Array.isArray(rawOutput)) blocks.push(...rawOutput)
+            else if (rawOutput) blocks.push(rawOutput)
+            return blocks.length > 0 ? blocks : undefined
+          })()
         })
         await apiKeyService.recordUsage(
           apiKeyData.id,

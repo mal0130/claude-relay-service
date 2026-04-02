@@ -15,7 +15,7 @@ const ProxyHelper = require('../utils/proxyHelper')
 const { updateRateLimitCounters } = require('../utils/rateLimitHelper')
 const { IncrementalSSEParser } = require('../utils/sseParser')
 const { getSafeMessage } = require('../utils/errorSanitizer')
-const { buildUsageMetadata } = require('../utils/userInputExtractor')
+const { buildUsageMetadata, buildInputMessagesBlock } = require('../utils/userInputExtractor')
 
 // Codex CLI 系统提示词（非 Codex CLI 客户端请求时注入，统一端点也使用）
 const CODEX_CLI_INSTRUCTIONS =
@@ -673,6 +673,8 @@ const handleResponses = async (req, res) => {
           // 计算实际输入token（总输入减去缓存部分）
           const actualInputTokens = Math.max(0, totalInputTokens - cacheReadTokens)
 
+          const _inputBlock = buildInputMessagesBlock(req.body)
+          const _assistantBlocks = buildCodexAssistantContent(responseData)
           const _usageExtra = buildUsageMetadata({
             body: req.body,
             format: 'openai',
@@ -680,7 +682,12 @@ const handleResponses = async (req, res) => {
             requestIp: req,
             sessionId: sessionHash || null,
             rawSessionId: sessionId || null,
-            assistantContent: buildCodexAssistantContent(responseData)
+            assistantContent: (() => {
+              const blocks = _inputBlock ? [_inputBlock] : []
+              if (Array.isArray(_assistantBlocks)) blocks.push(..._assistantBlocks)
+              else if (_assistantBlocks) blocks.push(_assistantBlocks)
+              return blocks.length > 0 ? blocks : undefined
+            })()
           })
 
           const nonStreamCosts = await apiKeyService.recordUsage(
@@ -844,6 +851,8 @@ const handleResponses = async (req, res) => {
           if (assistantText) {
             assistantBlocks.push({ type: 'text', text: assistantText })
           }
+          const _inputBlock = buildInputMessagesBlock(req.body)
+          if (_inputBlock) assistantBlocks.unshift(_inputBlock)
           const _usageExtra = buildUsageMetadata({
             body: req.body,
             format: 'openai',
