@@ -75,6 +75,46 @@ function extractCodexUsageHeaders(headers) {
   return hasData ? snapshot : null
 }
 
+function extractCodexResponseBlocks(responseData) {
+  const blocks = []
+  const output = Array.isArray(responseData?.output) ? responseData.output : []
+
+  for (const item of output) {
+    if (item?.type === 'reasoning') {
+      const thinking = (item.summary || [])
+        .filter((summary) => summary?.type === 'summary_text' && typeof summary.text === 'string')
+        .map((summary) => summary.text)
+        .join('')
+      if (thinking) {
+        blocks.push({ type: 'thinking', thinking })
+      }
+      continue
+    }
+
+    if (item?.type === 'message') {
+      const text = (item.content || [])
+        .filter((part) => part?.type === 'output_text' && typeof part.text === 'string')
+        .map((part) => part.text)
+        .join('')
+      if (text) {
+        blocks.push({ type: 'text', text })
+      }
+    }
+  }
+
+  return blocks
+}
+
+function buildCodexAssistantContent(responseData) {
+  const blocks = extractCodexResponseBlocks(responseData)
+  if (blocks.length > 0) {
+    return blocks
+  }
+
+  const text = responseData?.choices?.[0]?.message?.content
+  return text ? [{ type: 'text', text }] : undefined
+}
+
 async function applyRateLimitTracking(
   req,
   usageSummary,
@@ -640,7 +680,7 @@ const handleResponses = async (req, res) => {
             requestIp: req,
             sessionId: sessionHash || null,
             rawSessionId: sessionId || null,
-            assistantContent: responseData?.choices?.[0]?.message || undefined
+            assistantContent: buildCodexAssistantContent(responseData)
           })
 
           const nonStreamCosts = await apiKeyService.recordUsage(
@@ -691,9 +731,24 @@ const handleResponses = async (req, res) => {
     // 使用增量 SSE 解析器
     const sseParser = new IncrementalSSEParser()
     const streamedOutputText = []
+    const streamedReasoningText = []
 
     // 处理解析出的事件
     const processSSEEvent = (eventData) => {
+      if (
+        eventData.type === 'response.reasoning_summary_text.delta' &&
+        typeof eventData.delta === 'string'
+      ) {
+        streamedReasoningText.push(eventData.delta)
+      }
+
+      if (
+        eventData.type === 'response.reasoning_summary_text.done' &&
+        typeof eventData.text === 'string'
+      ) {
+        streamedReasoningText.push(eventData.text)
+      }
+
       if (eventData.type === 'response.output_text.delta' && typeof eventData.delta === 'string') {
         streamedOutputText.push(eventData.delta)
       }
@@ -780,7 +835,15 @@ const handleResponses = async (req, res) => {
           // 使用响应中的真实 model，如果没有则使用请求中的 model，最后回退到默认值
           const modelToRecord = actualModel || requestedModel || 'gpt-4'
 
+          const assistantBlocks = []
+          const reasoningText = streamedReasoningText.join('')
+          if (reasoningText) {
+            assistantBlocks.push({ type: 'thinking', thinking: reasoningText })
+          }
           const assistantText = streamedOutputText.join('')
+          if (assistantText) {
+            assistantBlocks.push({ type: 'text', text: assistantText })
+          }
           const _usageExtra = buildUsageMetadata({
             body: req.body,
             format: 'openai',
@@ -788,12 +851,7 @@ const handleResponses = async (req, res) => {
             requestIp: req,
             sessionId: sessionHash || null,
             rawSessionId: sessionId || null,
-            assistantContent: assistantText
-              ? {
-                  role: 'assistant',
-                  content: assistantText
-                }
-              : undefined
+            assistantContent: assistantBlocks.length > 0 ? assistantBlocks : undefined
           })
 
           const streamCosts = await apiKeyService.recordUsage(

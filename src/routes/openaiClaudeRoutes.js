@@ -546,7 +546,19 @@ async function handleChatCompletion(req, res, apiKeyData) {
 
       // 转换为 OpenAI 格式
       const openaiResponse = openaiToClaude.convertResponse(claudeData, req.body.model)
-      const usageExtra = buildNonStreamUsageExtra(openaiResponse?.choices?.[0]?.message)
+      const nonStreamAssistantContent = (() => {
+        if (!Array.isArray(claudeData?.content)) return openaiResponse?.choices?.[0]?.message
+        const blocks = []
+        for (const item of claudeData.content) {
+          if (item.type === 'thinking' && item.thinking) {
+            blocks.push({ type: 'thinking', thinking: item.thinking })
+          } else if (item.type === 'text' && item.text) {
+            blocks.push({ type: 'text', text: item.text })
+          }
+        }
+        return blocks.length > 0 ? blocks : openaiResponse?.choices?.[0]?.message
+      })()
+      const usageExtra = buildNonStreamUsageExtra(nonStreamAssistantContent)
 
       // 记录使用统计
       if (claudeData.usage) {
