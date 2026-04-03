@@ -22,6 +22,8 @@ function applyReasoningTranslation(res, _options = {}) {
   const originalWrite = res.write.bind(res)
   const originalEnd = res.end.bind(res)
 
+  const abortController = new AbortController()
+
   let contentStarted = false
   let contentStartedTime = null
   let pendingChunks = []
@@ -56,6 +58,14 @@ function applyReasoningTranslation(res, _options = {}) {
   const emittedReasoningTextAdded = new Set()
   // 按 summary_index 跟踪是否已向客户端发送 reasoning_summary_part.added
   const emittedReasoningPartAdded = new Set()
+
+  // 客户端断开时中止翻译
+  res.on('close', () => {
+    if (!translationDone) {
+      logger.info('[ReasoningTranslation] 客户端断开，中止翻译')
+      abortController.abort()
+    }
+  })
 
   let clientSeq = 0
   function logClientReasoningEvent(label, payload) {
@@ -147,7 +157,7 @@ function applyReasoningTranslation(res, _options = {}) {
         reasoningSummaryIndex: summaryIndex
       })
     )
-  })
+  }, abortController.signal)
 
   function markResponsesFormat(parsed) {
     if (parsed?.type && String(parsed.type).startsWith('response.')) {
@@ -555,6 +565,11 @@ function applyReasoningTranslation(res, _options = {}) {
     translator
       .flush()
       .then(() => {
+        if (abortController.signal.aborted) {
+          logger.info('[ReasoningTranslation] 客户端已断开，跳过翻译后续处理')
+          resolveTranslationWaiter?.(null)
+          return
+        }
         const { usage } = translator
         const elapsedMs = firstReasoningDeltaTime ? Date.now() - firstReasoningDeltaTime : 0
         if (usage.trans_total_tokens > 0) {
@@ -630,6 +645,11 @@ function applyReasoningTranslation(res, _options = {}) {
         resolveTranslationWaiter?.(translationUsage)
       })
       .catch((err) => {
+        if (abortController.signal.aborted) {
+          logger.info('[ReasoningTranslation] 翻译因客户端断开被取消')
+          resolveTranslationWaiter?.(null)
+          return
+        }
         logger.warn(`[ReasoningTranslation] flush 异常: ${err.message}`)
         translationDone = true
         flushPending(null)
@@ -691,9 +711,6 @@ function applyReasoningTranslation(res, _options = {}) {
     if (reasoningText !== null) {
       // 只有非空文本才推入翻译器和打日志；空 delta 仅做拦截
       if (reasoningText) {
-        logger.info(
-          `🌐 [ReasoningTranslation] 收到 ${getReasoningLogLabel(parsed)}: ${getReasoningPreview(reasoningText)}...`
-        )
         if (!firstReasoningDeltaTime) {
           firstReasoningDeltaTime = Date.now()
         }

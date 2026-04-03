@@ -58,7 +58,7 @@ function findBoundary(text) {
  * @param {(text: string, meta?: object) => void} onToken 每个翻译句子完成时回调（按序）
  * @returns {{ push: Function, flush: Function, usage: object, originalAccumulated: string }}
  */
-function createReasoningTranslator(onToken) {
+function createReasoningTranslator(onToken, abortSignal = null) {
   const { apiKey, baseUrl, model, timeout } = config.translation
 
   let buffer = ''
@@ -69,17 +69,36 @@ function createReasoningTranslator(onToken) {
   let originalAccumulated = ''
   let firstChunkChecked = false
   let skipAllTranslation = false
+  let aborted = false
+  if (abortSignal) {
+    abortSignal.addEventListener(
+      'abort',
+      () => {
+        aborted = true
+      },
+      { once: true }
+    )
+  }
 
   function isSameMeta(a = {}, b = {}) {
     return a.summaryIndex === b.summaryIndex
   }
 
   function dispatch(text, meta = {}) {
+    if (aborted) {
+      return
+    }
     const idx = ++chunkIndex
     originalAccumulated += text
     const promise = translate(text, idx)
     outputChain = outputChain.then(async () => {
+      if (aborted) {
+        return
+      }
       const translated = await promise
+      if (aborted) {
+        return
+      }
       if (translated && translated.trim()) {
         onToken(restoreWhitespace(text, translated), meta)
       }
@@ -128,6 +147,9 @@ function createReasoningTranslator(onToken) {
     if (skipAllTranslation) {
       return text
     }
+    if (aborted) {
+      return ''
+    }
     if (!firstChunkChecked) {
       firstChunkChecked = true
       if (CHINESE_CHAR_RE.test(text)) {
@@ -157,13 +179,26 @@ function createReasoningTranslator(onToken) {
         {
           headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
           responseType: 'stream',
-          timeout
+          timeout,
+          signal: abortSignal
         }
       )
 
       return await new Promise((resolve) => {
         let result = ''
         let lineBuf = ''
+
+        function onAbort() {
+          try {
+            response.data.destroy()
+          } catch (_e) {
+            // 忽略 destroy 错误
+          }
+          resolve('')
+        }
+        if (abortSignal) {
+          abortSignal.addEventListener('abort', onAbort, { once: true })
+        }
 
         response.data.on('data', (chunk) => {
           lineBuf += chunk.toString()
@@ -192,10 +227,23 @@ function createReasoningTranslator(onToken) {
           }
         })
 
-        response.data.on('end', () => resolve(result || text))
-        response.data.on('error', () => resolve(text))
+        response.data.on('end', () => {
+          if (abortSignal) {
+            abortSignal.removeEventListener('abort', onAbort)
+          }
+          resolve(result || text)
+        })
+        response.data.on('error', () => {
+          if (abortSignal) {
+            abortSignal.removeEventListener('abort', onAbort)
+          }
+          resolve(text)
+        })
       })
     } catch (err) {
+      if (aborted || err?.code === 'ERR_CANCELED' || err?.name === 'CanceledError') {
+        return ''
+      }
       logger.warn(`[ReasoningTranslation] #${idx} 翻译失败: ${err.message}，原样返回`)
       return text
     }
@@ -224,13 +272,29 @@ function createReasoningTranslator(onToken) {
     },
 
     async flush() {
+      if (aborted) {
+        return
+      }
       if (buffer.trim()) {
         flushBufferChunk()
       } else {
         buffer = ''
         bufferMeta = {}
       }
-      await outputChain
+      if (abortSignal) {
+        await Promise.race([
+          outputChain,
+          new Promise((resolve) => {
+            if (abortSignal.aborted) {
+              resolve()
+            } else {
+              abortSignal.addEventListener('abort', resolve, { once: true })
+            }
+          })
+        ])
+      } else {
+        await outputChain
+      }
     },
 
     get usage() {
