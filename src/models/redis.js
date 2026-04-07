@@ -1822,7 +1822,7 @@ class RedisClient {
     }
   }
 
-  async addUsageRecord(keyId, record, maxRecords = 200) {
+  async addUsageRecord(keyId, record, maxRecords = 50) {
     const listKey = `usage:records:${keyId}`
     const client = this.getClientSafe()
 
