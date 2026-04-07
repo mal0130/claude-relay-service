@@ -83,7 +83,10 @@ async function routeToBackend(req, res, requestedModel) {
     // 思考链路翻译必须先于 codex 转换器 patch，使 codex 的 originalWrite 指向翻译层
     // 数据流：handleResponses → codex(转换格式) → translation(拦截 reasoning) → client
     let reasoningTranslationController = null
-    if (req.body.stream !== false && shouldTranslateForKey(req.apiKey?.name)) {
+    if (
+      req.body.stream !== false &&
+      shouldTranslateForKey(req.apiKey?.name, req.apiKey?.externalUid)
+    ) {
       reasoningTranslationController = applyReasoningTranslation(res, {
         keyId: req.apiKey?.id,
         model: config.translation.model

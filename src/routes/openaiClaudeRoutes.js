@@ -362,7 +362,7 @@ async function handleChatCompletion(req, res, apiKeyData) {
           const cacheCreateTokens =
             (usage.cache_creation && typeof usage.cache_creation === 'object'
               ? (usage.cache_creation.ephemeral_5m_input_tokens || 0) +
-              (usage.cache_creation.ephemeral_1h_input_tokens || 0)
+                (usage.cache_creation.ephemeral_1h_input_tokens || 0)
               : usage.cache_creation_input_tokens || 0) || 0
           const cacheReadTokens = usage.cache_read_input_tokens || 0
           const usageWithRequestMeta = { ...usage }
@@ -378,7 +378,7 @@ async function handleChatCompletion(req, res, apiKeyData) {
           }
 
           // 使用新的 recordUsageWithDetails 方法来支持详细的缓存数据
-          ; (async () => {
+          ;(async () => {
             // 等待翻译完成（未触发翻译时立即 resolve null），翻译数据随 recordUsageWithDetails 一并写入
             const transUsage = (await translationController?.waitForTranslation()) || null
             const costs = await apiKeyService.recordUsageWithDetails(
@@ -432,7 +432,7 @@ async function handleChatCompletion(req, res, apiKeyData) {
       }
 
       // 思考链路翻译：Key 名称命中 TRANSLATE_KEY_NAMES 时生效
-      if (shouldTranslateForKey(apiKeyData.name)) {
+      if (shouldTranslateForKey(apiKeyData.name, apiKeyData.externalUid)) {
         // 在 applyReasoningTranslation 之前 patch res.write，使其成为翻译层的 originalWrite
         // 翻译后的 reasoning_content 会经过此层，从而捕获用于存储
         const _innerWrite = res.write.bind(res)
@@ -452,7 +452,7 @@ async function handleChatCompletion(req, res, apiKeyData) {
                   const parsed = JSON.parse(jsonStr)
                   const rc = parsed.choices?.[0]?.delta?.reasoning_content
                   if (typeof rc === 'string' && rc) streamedTranslatedText.push(rc)
-                } catch (_e) { }
+                } catch (_e) {}
               }
             }
           }
@@ -573,7 +573,7 @@ async function handleChatCompletion(req, res, apiKeyData) {
         const cacheCreateTokens =
           (usage.cache_creation && typeof usage.cache_creation === 'object'
             ? (usage.cache_creation.ephemeral_5m_input_tokens || 0) +
-            (usage.cache_creation.ephemeral_1h_input_tokens || 0)
+              (usage.cache_creation.ephemeral_1h_input_tokens || 0)
             : usage.cache_creation_input_tokens || 0) || 0
         const cacheReadTokens = usage.cache_read_input_tokens || 0
         const usageWithRequestMeta = { ...usage }

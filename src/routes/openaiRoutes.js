@@ -361,7 +361,7 @@ const handleResponses = async (req, res) => {
     }
 
     // 使用调度器选择账户
-    ; ({ accessToken, accountId, accountType, proxy, account } = await getOpenAIAuthToken(
+    ;({ accessToken, accountId, accountType, proxy, account } = await getOpenAIAuthToken(
       apiKeyData,
       sessionId,
       requestedModel
@@ -568,8 +568,8 @@ const handleResponses = async (req, res) => {
       if (errorData) {
         const messageCandidate =
           errorData.error &&
-            typeof errorData.error.message === 'string' &&
-            errorData.error.message.trim()
+          typeof errorData.error.message === 'string' &&
+          errorData.error.message.trim()
             ? errorData.error.message.trim()
             : typeof errorData.message === 'string' && errorData.message.trim()
               ? errorData.message.trim()
@@ -625,7 +625,7 @@ const handleResponses = async (req, res) => {
     let translationController = req.reasoningTranslationController || null
 
     if (isStream) {
-      if (shouldTranslateForKey(apiKeyData.name)) {
+      if (shouldTranslateForKey(apiKeyData.name, apiKeyData.externalUid)) {
         logger.info(
           `🌐 [ReasoningTranslation] 启用翻译 - Key: ${apiKeyData.name}, 路由: openaiRoutes/handleResponses`
         )

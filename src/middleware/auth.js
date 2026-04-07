@@ -57,9 +57,15 @@ async function getWindowRatedCostFallback(keyId, windowStartTime) {
  * @param {string} subscriptionUrl - 购买链接
  * @returns {string} 提示文案
  */
-function buildQuotaLimitMessage(windowStartMs, windowDurationMs, ruleWindowMinutes, subscriptionUrl) {
+function buildQuotaLimitMessage(
+  windowStartMs,
+  windowDurationMs,
+  ruleWindowMinutes,
+  subscriptionUrl
+) {
   const resetTime = new Date(windowStartMs + windowDurationMs)
-  const windowLabel = ruleWindowMinutes >= 10080 ? '周' : `${Math.round(ruleWindowMinutes / 60)}小时`
+  const windowLabel =
+    ruleWindowMinutes >= 10080 ? '周' : `${Math.round(ruleWindowMinutes / 60)}小时`
   const resetTimeStr = resetTime.toLocaleString('zh-CN', {
     month: 'numeric',
     day: 'numeric',
@@ -320,7 +326,12 @@ async function checkApiKeyLimits(keyData, req) {
               valid: false,
               error: {
                 type: 'insufficient_quota',
-                message: buildQuotaLimitMessage(windowStartTime, windowDuration, ruleWindow, subscriptionUrl),
+                message: buildQuotaLimitMessage(
+                  windowStartTime,
+                  windowDuration,
+                  ruleWindow,
+                  subscriptionUrl
+                ),
                 code: 'rate_limit_requests_exceeded'
               },
               statusCode: 402
@@ -332,7 +343,12 @@ async function checkApiKeyLimits(keyData, req) {
               valid: false,
               error: {
                 type: 'insufficient_quota',
-                message: buildQuotaLimitMessage(windowStartTime, windowDuration, ruleWindow, subscriptionUrl),
+                message: buildQuotaLimitMessage(
+                  windowStartTime,
+                  windowDuration,
+                  ruleWindow,
+                  subscriptionUrl
+                ),
                 code: 'rate_limit_cost_exceeded'
               },
               statusCode: 402
@@ -799,11 +815,14 @@ const authenticateApiKey = async (req, res, next) => {
             // 检查所有限制（速率、费用等）
             const limitCheck = await checkApiKeyLimits(keyData, req)
             if (!limitCheck.valid) {
-              logger.api(`❌ Key ${keyData.id} limit check failed: ${JSON.stringify(limitCheck.error)}`)
-              // 若当前是套餐 Key 且失败原因是窗口限制，记录该错误以便后续优先展示
-              const isWindowLimit = ['rate_limit_requests_exceeded', 'rate_limit_cost_exceeded'].includes(
-                limitCheck.error?.code
+              logger.api(
+                `❌ Key ${keyData.id} limit check failed: ${JSON.stringify(limitCheck.error)}`
               )
+              // 若当前是套餐 Key 且失败原因是窗口限制，记录该错误以便后续优先展示
+              const isWindowLimit = [
+                'rate_limit_requests_exceeded',
+                'rate_limit_cost_exceeded'
+              ].includes(limitCheck.error?.code)
               if (isPackage(keyData.name) && isWindowLimit && !packageWindowLimitError) {
                 packageWindowLimitError = limitCheck.error
                 packageWindowLimitStatusCode = limitCheck.statusCode
@@ -974,7 +993,8 @@ const authenticateApiKey = async (req, res, next) => {
         // 3. 排队功能未启用，直接返回 429（保持现有行为）
         if (!queueConfig.concurrentRequestQueueEnabled) {
           logger.security(
-            `🚦 Concurrency limit exceeded for key: ${validation.keyData.id} (${validation.keyData.name
+            `🚦 Concurrency limit exceeded for key: ${validation.keyData.id} (${
+              validation.keyData.name
             }), current: ${currentConcurrency - 1}, limit: ${concurrencyLimit}`
           )
           // 建议客户端在短暂延迟后重试（并发场景下通常很快会有槽位释放）
@@ -1006,9 +1026,9 @@ const authenticateApiKey = async (req, res, next) => {
           const currentQueueCount = overloadCheck.currentQueueCount || 0
           logger.api(
             `🚨 Queue overloaded for key: ${validation.keyData.id} (${validation.keyData.name}), ` +
-            `P90=${overloadCheck.estimatedWaitMs}ms, timeout=${overloadCheck.timeoutMs}ms, ` +
-            `threshold=${overloadCheck.threshold}, samples=${overloadCheck.sampleCount}, ` +
-            `concurrency=${concurrencyLimit}, queue=${currentQueueCount}/${maxQueueSize}`
+              `P90=${overloadCheck.estimatedWaitMs}ms, timeout=${overloadCheck.timeoutMs}ms, ` +
+              `threshold=${overloadCheck.threshold}, samples=${overloadCheck.sampleCount}, ` +
+              `concurrency=${concurrencyLimit}, queue=${currentQueueCount}/${maxQueueSize}`
           )
           // 记录被拒绝的过载统计
           redis
@@ -1046,7 +1066,7 @@ const authenticateApiKey = async (req, res, next) => {
             queueIncremented = false
             logger.api(
               `🚦 Concurrency queue full for key: ${validation.keyData.id} (${validation.keyData.name}), ` +
-              `queue: ${newQueueCount - 1}, maxQueue: ${maxQueueSize}`
+                `queue: ${newQueueCount - 1}, maxQueue: ${maxQueueSize}`
             )
             // 队列已满，建议客户端在排队超时时间后重试
             const retryAfterSeconds = Math.ceil(queueConfig.concurrentRequestQueueTimeoutMs / 1000)
@@ -1066,7 +1086,7 @@ const authenticateApiKey = async (req, res, next) => {
           // 6. 已成功进入排队，记录统计并开始等待槽位
           logger.api(
             `⏳ Request entering queue for key: ${validation.keyData.id} (${validation.keyData.name}), ` +
-            `queue position: ${newQueueCount}`
+              `queue position: ${newQueueCount}`
           )
           redis
             .incrConcurrencyQueueStats(validation.keyData.id, 'entered')
@@ -1159,7 +1179,7 @@ const authenticateApiKey = async (req, res, next) => {
           // 8. 排队成功，slot.acquired 表示已在 waitForConcurrencySlot 中获取到槽位
           logger.api(
             `✅ Queue wait completed for key: ${validation.keyData.id} (${validation.keyData.name}), ` +
-            `waited: ${slot.waitTimeMs}ms`
+              `waited: ${slot.waitTimeMs}ms`
           )
           hasConcurrencySlot = true
           setTemporaryConcurrencyCleanup()
@@ -1174,8 +1194,8 @@ const authenticateApiKey = async (req, res, next) => {
           if (res.destroyed || res.writableEnded || postQueueSocket?.destroyed) {
             logger.warn(
               `⚠️ Client no longer waiting after queue for key: ${validation.keyData.id} (${validation.keyData.name}), ` +
-              `waited: ${slot.waitTimeMs}ms | destroyed: ${res.destroyed}, ` +
-              `writableEnded: ${res.writableEnded}, socketDestroyed: ${postQueueSocket?.destroyed}`
+                `waited: ${slot.waitTimeMs}ms | destroyed: ${res.destroyed}, ` +
+                `writableEnded: ${res.writableEnded}, socketDestroyed: ${postQueueSocket?.destroyed}`
             )
             // 释放刚获取的槽位
             hasConcurrencySlot = false
@@ -1199,10 +1219,10 @@ const authenticateApiKey = async (req, res, next) => {
           if (socketIdentityChanged) {
             logger.error(
               `❌ [Queue] Socket identity changed during queue wait! ` +
-              `key: ${validation.keyData.id} (${validation.keyData.name}), ` +
-              `waited: ${slot.waitTimeMs}ms | ` +
-              `tokenMatch: ${queueData?.queueToken === savedToken}, ` +
-              `socketMatch: ${queueData?.originalSocket === savedSocket}`
+                `key: ${validation.keyData.id} (${validation.keyData.name}), ` +
+                `waited: ${slot.waitTimeMs}ms | ` +
+                `tokenMatch: ${queueData?.queueToken === savedToken}, ` +
+                `socketMatch: ${queueData?.originalSocket === savedSocket}`
             )
             // 释放刚获取的槽位
             hasConcurrencySlot = false
@@ -1437,7 +1457,12 @@ const authenticateApiKey = async (req, res, next) => {
           )
           return res.status(429).json({
             error: 'Rate limit exceeded',
-            message: buildQuotaLimitMessage(windowStart, windowDuration, ruleWindow, subscriptionUrl),
+            message: buildQuotaLimitMessage(
+              windowStart,
+              windowDuration,
+              ruleWindow,
+              subscriptionUrl
+            ),
             currentRequests,
             requestLimit: ruleRequests,
             resetAt: new Date(windowStart + windowDuration).toISOString()
@@ -1453,7 +1478,12 @@ const authenticateApiKey = async (req, res, next) => {
             )
             return res.status(429).json({
               error: 'Rate limit exceeded',
-              message: buildQuotaLimitMessage(windowStart, windowDuration, ruleWindow, subscriptionUrl),
+              message: buildQuotaLimitMessage(
+                windowStart,
+                windowDuration,
+                ruleWindow,
+                subscriptionUrl
+              ),
               currentTokens,
               tokenLimit,
               resetAt: new Date(windowStart + windowDuration).toISOString()
@@ -1463,12 +1493,18 @@ const authenticateApiKey = async (req, res, next) => {
         if (ruleCost > 0) {
           if (currentCost >= ruleCost) {
             logger.security(
-              `💰 Rate limit exceeded (cost, rule ${i}) for key: ${validation.keyData.id} (${validation.keyData.name
+              `💰 Rate limit exceeded (cost, rule ${i}) for key: ${validation.keyData.id} (${
+                validation.keyData.name
               }), cost: $${currentCost.toFixed(2)}/$${ruleCost}, window: ${ruleWindow}min`
             )
             return res.status(429).json({
               error: 'Rate limit exceeded',
-              message: buildQuotaLimitMessage(windowStart, windowDuration, ruleWindow, subscriptionUrl),
+              message: buildQuotaLimitMessage(
+                windowStart,
+                windowDuration,
+                ruleWindow,
+                subscriptionUrl
+              ),
               currentCost,
               costLimit: ruleCost,
               resetAt: new Date(windowStart + windowDuration).toISOString()
@@ -1505,7 +1541,8 @@ const authenticateApiKey = async (req, res, next) => {
 
       if (dailyCost >= dailyCostLimit) {
         logger.security(
-          `💰 Daily cost limit exceeded for key: ${validation.keyData.id} (${validation.keyData.name
+          `💰 Daily cost limit exceeded for key: ${validation.keyData.id} (${
+            validation.keyData.name
           }), cost: $${dailyCost.toFixed(2)}/$${dailyCostLimit}`
         )
 
@@ -1524,7 +1561,8 @@ const authenticateApiKey = async (req, res, next) => {
 
       // 记录当前费用使用情况
       logger.api(
-        `💰 Cost usage for key: ${validation.keyData.id} (${validation.keyData.name
+        `💰 Cost usage for key: ${validation.keyData.id} (${
+          validation.keyData.name
         }), current: $${dailyCost.toFixed(2)}/$${dailyCostLimit}`
       )
     }
@@ -1536,7 +1574,8 @@ const authenticateApiKey = async (req, res, next) => {
 
       if (totalCost >= totalCostLimit) {
         logger.security(
-          `💰 Total cost limit exceeded for key: ${validation.keyData.id} (${validation.keyData.name
+          `💰 Total cost limit exceeded for key: ${validation.keyData.id} (${
+            validation.keyData.name
           }), cost: $${totalCost.toFixed(2)}/$${totalCostLimit}`
         )
 
@@ -1553,7 +1592,8 @@ const authenticateApiKey = async (req, res, next) => {
       }
 
       logger.api(
-        `💰 Total cost usage for key: ${validation.keyData.id} (${validation.keyData.name
+        `💰 Total cost usage for key: ${validation.keyData.id} (${
+          validation.keyData.name
         }), current: $${totalCost.toFixed(2)}/$${totalCostLimit}`
       )
     }
@@ -1571,7 +1611,8 @@ const authenticateApiKey = async (req, res, next) => {
 
         if (weeklyOpusCost >= weeklyOpusCostLimit) {
           logger.security(
-            `💰 Weekly Claude cost limit exceeded for key: ${validation.keyData.id} (${validation.keyData.name
+            `💰 Weekly Claude cost limit exceeded for key: ${validation.keyData.id} (${
+              validation.keyData.name
             }), cost: $${weeklyOpusCost.toFixed(2)}/$${weeklyOpusCostLimit}`
           )
 
@@ -1595,7 +1636,8 @@ const authenticateApiKey = async (req, res, next) => {
 
         // 记录当前 Claude 费用使用情况
         logger.api(
-          `💰 Claude weekly cost usage for key: ${validation.keyData.id} (${validation.keyData.name
+          `💰 Claude weekly cost usage for key: ${validation.keyData.id} (${
+            validation.keyData.name
           }), current: $${weeklyOpusCost.toFixed(2)}/$${weeklyOpusCostLimit}`
         )
       }
@@ -1624,7 +1666,8 @@ const authenticateApiKey = async (req, res, next) => {
       dailyCostLimit: validation.keyData.dailyCostLimit,
       dailyCost: validation.keyData.dailyCost,
       totalCostLimit: validation.keyData.totalCostLimit,
-      totalCost: validation.keyData.totalCost
+      totalCost: validation.keyData.totalCost,
+      externalUid: validation.keyData.externalUid || ''
     }
 
     const authDuration = Date.now() - startTime

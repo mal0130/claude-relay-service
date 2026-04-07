@@ -849,19 +849,25 @@ function isTranslationConfigured() {
   return !!(config.translation.enabled && config.translation.apiKey)
 }
 
-function shouldTranslateForKey(keyName) {
-  if (!isTranslationConfigured()) {
+function shouldTranslateForKey(keyName, externalUid = null) {
+  // 翻译服务必须配置了 API Key 才能运行
+  if (!config.translation.apiKey) {
     return false
   }
+  // 全局开关开启，对所有人开放
   if (config.translation.enabled) {
-    return true // 全局开启，对所有人开放
+    return true
   }
-  // 全局关闭，仅对指定 keyName 开放
-  const { keyNames } = config.translation
-  if (!keyNames || keyNames.length === 0) {
-    return false
+  // 全局关闭：检查 keyName 白名单
+  const { keyNames, whiteUids } = config.translation
+  if (keyNames && keyNames.length > 0 && keyName && keyNames.includes(keyName)) {
+    return true
   }
-  return keyNames.includes(keyName)
+  // 全局关闭：检查 externalUid 白名单
+  if (externalUid && whiteUids && whiteUids.length > 0 && whiteUids.includes(externalUid)) {
+    return true
+  }
+  return false
 }
 
 module.exports = { applyReasoningTranslation, isTranslationConfigured, shouldTranslateForKey }
