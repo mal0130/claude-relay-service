@@ -1768,8 +1768,8 @@ class ApiKeyService {
       }
       const mainRatedCost = mainCost * rate
       const transCost = transRawCost * rate
-      const realCost = mainCost + transRealCost       // 成本总额
-      const ratedCost = mainRatedCost + transCost     // 消耗总额
+      const realCost = mainCost + transRealCost // 成本总额
+      const ratedCost = mainRatedCost + transCost // 消耗总额
 
       // 记录API Key级别的使用统计（包含费用）
       await redis.incrementTokenUsage(
@@ -1800,14 +1800,15 @@ class ApiKeyService {
         logger.debug(`💰 No cost recorded for ${keyId} - zero cost for model: ${model}`)
       }
 
-      // 写入翻译 token 聚合统计字段（daily/monthly/hourly/alltime，不影响主 token 计数）
+      // 写��翻译 token 聚合统计字段（daily/monthly/hourly/alltime，不影响主 token 计数）
       if (transTotalTokens > 0) {
         await redis.recordTranslationTokens(
           keyId,
           transPromptTokens,
           transCompletionTokens,
           transTotalTokens,
-          transRealCost
+          transRealCost,
+          transCost
         )
       }
 
@@ -1937,7 +1938,8 @@ class ApiKeyService {
         transPromptTokens,
         transCompletionTokens,
         transTotalTokens,
-        realTransCost
+        realTransCost,
+        ratedTransCost
       )
 
       // 将翻译费用合并到总费用统计中
@@ -2090,8 +2092,8 @@ class ApiKeyService {
       }
       const mainRatedCostWithDetails = mainCostWithDetails * rate
       const transCost = transRawCost * rate
-      const realCostWithDetails = mainCostWithDetails + transRealCost       // 成本总额
-      const ratedCostWithDetails = mainRatedCostWithDetails + transCost     // 消耗总额
+      const realCostWithDetails = mainCostWithDetails + transRealCost // 成本总额
+      const ratedCostWithDetails = mainRatedCostWithDetails + transCost // 消耗总额
 
       // 记录API Key级别的使用统计（包含费用）
       await redis.incrementTokenUsage(
@@ -2146,14 +2148,15 @@ class ApiKeyService {
         }
       }
 
-      // 写入翻译 token 聚合统计字段（daily/monthly/hourly/alltime，不影响主 token 计数）
+      // 写入翻�� token 聚合统计字段（daily/monthly/hourly/alltime，不影响主 token 计数）
       if (transTotalTokens > 0) {
         await redis.recordTranslationTokens(
           keyId,
           transPromptTokens,
           transCompletionTokens,
           transTotalTokens,
-          transRealCost
+          transRealCost,
+          transCost
         )
       }
 

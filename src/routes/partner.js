@@ -344,6 +344,9 @@ async function getUsageDetails(apiKey) {
     pipeline.get(`usage:cost:daily:${keyId}:${dateStr}`)
     queryMap.push({ type: 'cost', date: dateStr })
 
+    pipeline.get(`usage:cost:translation:daily:${keyId}:${dateStr}`)
+    queryMap.push({ type: 'translationCost', date: dateStr })
+
     for (const model of models) {
       pipeline.hgetall(`usage:${keyId}:model:daily:${model}:${dateStr}`)
       queryMap.push({ type: 'model', date: dateStr, model })
@@ -366,7 +369,11 @@ async function getUsageDetails(apiKey) {
       cacheCreateTokens: 0,
       cacheReadTokens: 0,
       totalTokens: 0,
-      cost: 0
+      cost: 0,
+      transPromptTokens: 0,
+      transCompletionTokens: 0,
+      transTotalTokens: 0,
+      translationCost: 0
     }
   })
 
@@ -384,8 +391,15 @@ async function getUsageDetails(apiKey) {
         day.outputTokens += parseInt(data.outputTokens || 0)
         day.cacheCreateTokens += parseInt(data.cacheCreateTokens || 0)
         day.cacheReadTokens += parseInt(data.cacheReadTokens || 0)
+        day.transPromptTokens += parseInt(data.transPromptTokens || 0)
+        day.transCompletionTokens += parseInt(data.transCompletionTokens || 0)
+        day.transTotalTokens += parseInt(data.transTotalTokens || 0)
       }
     } else if (query.type === 'cost') {
+      dailyMap[query.date].cost += parseFloat(data || 0)
+    } else if (query.type === 'translationCost') {
+      dailyMap[query.date].translationCost += parseFloat(data || 0)
+    } else if (query.type === 'model') {
       dailyMap[query.date].cost += parseFloat(data || 0)
     } else if (query.type === 'model') {
       if (Object.keys(data).length > 0) {
@@ -482,6 +496,10 @@ async function getUsageDetails(apiKey) {
         cacheReadTokens: day.cacheReadTokens,
         totalTokens: day.totalTokens,
         cost: parseFloat(day.cost.toFixed(6)),
+        transPromptTokens: day.transPromptTokens,
+        transCompletionTokens: day.transCompletionTokens,
+        transTotalTokens: day.transTotalTokens,
+        translationCost: parseFloat(day.translationCost.toFixed(6)),
         models: dayModels
       }
     })
@@ -508,7 +526,13 @@ async function getUsageDetails(apiKey) {
     cacheCreateTokens: dailyUsage.reduce((sum, day) => sum + day.cacheCreateTokens, 0),
     cacheReadTokens: dailyUsage.reduce((sum, day) => sum + day.cacheReadTokens, 0),
     totalTokens: dailyUsage.reduce((sum, day) => sum + day.totalTokens, 0),
-    cost: parseFloat(dailyUsage.reduce((sum, day) => sum + day.cost, 0).toFixed(6))
+    cost: parseFloat(dailyUsage.reduce((sum, day) => sum + day.cost, 0).toFixed(6)),
+    transPromptTokens: dailyUsage.reduce((sum, day) => sum + day.transPromptTokens, 0),
+    transCompletionTokens: dailyUsage.reduce((sum, day) => sum + day.transCompletionTokens, 0),
+    transTotalTokens: dailyUsage.reduce((sum, day) => sum + day.transTotalTokens, 0),
+    translationCost: parseFloat(
+      dailyUsage.reduce((sum, day) => sum + day.translationCost, 0).toFixed(6)
+    )
   }
 
   return {
@@ -609,7 +633,11 @@ router.post('/api-key/usage-details', authenticatePartner, async (req, res) => {
         cacheCreateTokens: 0,
         cacheReadTokens: 0,
         totalTokens: 0,
-        cost: 0
+        cost: 0,
+        transPromptTokens: 0,
+        transCompletionTokens: 0,
+        transTotalTokens: 0,
+        translationCost: 0
       },
       dailyUsage: [],
       modelStats: []
@@ -627,6 +655,10 @@ router.post('/api-key/usage-details', authenticatePartner, async (req, res) => {
       aggregated.totalStats.cacheReadTokens += result.totalStats.cacheReadTokens
       aggregated.totalStats.totalTokens += result.totalStats.totalTokens
       aggregated.totalStats.cost += result.totalStats.cost
+      aggregated.totalStats.transPromptTokens += result.totalStats.transPromptTokens || 0
+      aggregated.totalStats.transCompletionTokens += result.totalStats.transCompletionTokens || 0
+      aggregated.totalStats.transTotalTokens += result.totalStats.transTotalTokens || 0
+      aggregated.totalStats.translationCost += result.totalStats.translationCost || 0
 
       // 2. 聚合模型统计
       for (const mStat of result.modelStats) {
@@ -656,6 +688,10 @@ router.post('/api-key/usage-details', authenticatePartner, async (req, res) => {
             cacheReadTokens: dayStat.cacheReadTokens,
             totalTokens: dayStat.totalTokens,
             cost: dayStat.cost,
+            transPromptTokens: dayStat.transPromptTokens || 0,
+            transCompletionTokens: dayStat.transCompletionTokens || 0,
+            transTotalTokens: dayStat.transTotalTokens || 0,
+            translationCost: dayStat.translationCost || 0,
             models: {}
           }
           // 初始化当日模型
@@ -671,6 +707,10 @@ router.post('/api-key/usage-details', authenticatePartner, async (req, res) => {
           exist.cacheReadTokens += dayStat.cacheReadTokens
           exist.totalTokens += dayStat.totalTokens
           exist.cost += dayStat.cost
+          exist.transPromptTokens += dayStat.transPromptTokens || 0
+          exist.transCompletionTokens += dayStat.transCompletionTokens || 0
+          exist.transTotalTokens += dayStat.transTotalTokens || 0
+          exist.translationCost += dayStat.translationCost || 0
 
           // 合并当日模型数据
           for (const m of dayStat.models) {
@@ -710,6 +750,10 @@ router.post('/api-key/usage-details', authenticatePartner, async (req, res) => {
           cacheReadTokens: day.cacheReadTokens,
           totalTokens: day.totalTokens,
           cost: parseFloat(day.cost.toFixed(6)),
+          transPromptTokens: day.transPromptTokens,
+          transCompletionTokens: day.transCompletionTokens,
+          transTotalTokens: day.transTotalTokens,
+          translationCost: parseFloat(day.translationCost.toFixed(6)),
           models
         }
       })
@@ -724,6 +768,9 @@ router.post('/api-key/usage-details', authenticatePartner, async (req, res) => {
 
     // 6. 修正总费用精度
     aggregated.totalStats.cost = parseFloat(aggregated.totalStats.cost.toFixed(6))
+    aggregated.totalStats.translationCost = parseFloat(
+      aggregated.totalStats.translationCost.toFixed(6)
+    )
 
     return res.json({
       code: 0,

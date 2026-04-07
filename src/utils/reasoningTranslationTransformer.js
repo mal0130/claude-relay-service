@@ -867,6 +867,11 @@ function shouldTranslateForKey(keyName, externalUid = null) {
   if (externalUid && whiteUids && whiteUids.length > 0 && whiteUids.includes(externalUid)) {
     return true
   }
+  // 全局关闭：检查 keyName 后缀（如内部员工邮箱域名 @dcloud.io）
+  const { keyNameSuffix } = config.translation
+  if (keyNameSuffix && keyName && keyName.includes(keyNameSuffix)) {
+    return true
+  }
   return false
 }
 

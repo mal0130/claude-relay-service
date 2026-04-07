@@ -1761,7 +1761,8 @@ class RedisClient {
     transPromptTokens = 0,
     transCompletionTokens = 0,
     transTotalTokens = 0,
-    realTransCost = 0
+    realTransCost = 0,
+    ratedTransCost = 0
   ) {
     if (!transPromptTokens && !transCompletionTokens && !transTotalTokens) {
       return
@@ -1777,6 +1778,7 @@ class RedisClient {
     const daily = `usage:daily:${keyId}:${today}`
     const monthly = `usage:monthly:${keyId}:${currentMonth}`
     const hourly = `usage:hourly:${keyId}:${currentHour}`
+    const translationDailyKey = `usage:cost:translation:daily:${keyId}:${today}`
 
     const pipeline = this.client.pipeline()
 
@@ -1794,6 +1796,12 @@ class RedisClient {
     pipeline.hincrby(daily, 'transTotalTokens', transTotalTokens)
     if (realTransCost > 0) {
       pipeline.hincrby(daily, 'transRealCostMicro', Math.round(realTransCost * 1000000))
+    }
+
+    // 每日翻译倍率费用（独立 key，供用量明细查询，TTL 30天）
+    if (ratedTransCost > 0) {
+      pipeline.incrbyfloat(translationDailyKey, ratedTransCost)
+      pipeline.expire(translationDailyKey, 86400 * 30)
     }
 
     // 每月统计
