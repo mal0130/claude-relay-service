@@ -1359,6 +1359,68 @@ show_status() {
     echo -e "\n${BLUE}===========================${NC}"
 }
 
+# 轮转日志（无需重启服务）
+rotate_logs() {
+    if ! check_installation; then
+        print_error "服务未安装，请先运行: $0 install"
+        return 1
+    fi
+
+    local log_dir="$APP_DIR/logs"
+    local log_file="$log_dir/service.log"
+    local keep=${1:-7}  # 默认保留 7 个归档
+
+    if [ ! -f "$log_file" ]; then
+        print_warning "日志文件不存在: $log_file"
+        return 0
+    fi
+
+    local file_size=$(du -k "$log_file" 2>/dev/null | cut -f1)
+    if [ "${file_size:-0}" -eq 0 ]; then
+        print_info "日志文件已为空，无需轮转"
+        return 0
+    fi
+
+    local archive="$log_dir/service-$(date +%Y%m%d-%H%M%S).log"
+
+    # 压缩存档当前日志
+    if command_exists gzip; then
+        cp "$log_file" "$archive"
+        gzip -f "$archive"
+        archive="${archive}.gz"
+        print_success "已归档: $archive"
+    else
+        cp "$log_file" "$archive"
+        print_success "已归档: $archive"
+    fi
+
+    # 清空原文件（进程 fd 不变，无需重启）
+    truncate -s 0 "$log_file" 2>/dev/null || : > "$log_file"
+    print_success "日志已清空，服务继续写入 service.log"
+
+    # 清理超出保留数量的旧归档
+    local archives
+    if command_exists gzip; then
+        archives=$(ls -t "$log_dir"/service-*.log.gz 2>/dev/null)
+    else
+        archives=$(ls -t "$log_dir"/service-*.log 2>/dev/null | grep -v "^${log_file}$")
+    fi
+
+    if [ -n "$archives" ]; then
+        echo "$archives" | tail -n "+$((keep + 1))" | while read -r old_file; do
+            rm -f "$old_file"
+            print_info "已删除旧归档: $old_file"
+        done
+    fi
+
+    echo ""
+    echo -e "${BLUE}=== 日志归档列表 ===${NC}"
+    ls -lh "$log_dir"/service-*.log* 2>/dev/null || echo "  无归档文件"
+    local current_size=$(du -h "$log_file" 2>/dev/null | cut -f1)
+    echo -e "当前 service.log 大小: ${GREEN}${current_size:-0}${NC}"
+    echo -e "${BLUE}====================${NC}"
+}
+
 # 显示帮助
 show_help() {
     echo "Claude Relay Service 管理脚本"
@@ -1375,6 +1437,7 @@ show_help() {
     echo "  status         - 查看状态"
     echo "  switch-branch  - 切换分支"
     echo "  update-pricing - 更新模型价格数据"
+    echo "  rotate-log     - 轮转日志（无需重启服务，默认保留7个归档）"
     echo "  symlink        - 创建 crs 快捷命令"
     echo "  help           - 显示帮助"
     echo ""
@@ -1796,6 +1859,9 @@ main() {
             ;;
         update-pricing)
             update_model_pricing
+            ;;
+        rotate-log)
+            rotate_logs "$2"
             ;;
         symlink)
             # 单独创建软链接
