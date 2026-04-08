@@ -13,6 +13,7 @@ const redis = require('../models/redis')
 const crypto = require('crypto')
 const ProxyHelper = require('../utils/proxyHelper')
 const { updateRateLimitCounters } = require('../utils/rateLimitHelper')
+const { setSessionId } = require('../utils/requestContext')
 const { IncrementalSSEParser } = require('../utils/sseParser')
 const { getSafeMessage } = require('../utils/errorSanitizer')
 const { buildUsageMetadata, buildInputMessagesBlock } = require('../utils/userInputExtractor')
@@ -274,6 +275,7 @@ const handleResponses = async (req, res) => {
   let account = null
   let proxy = null
   let accessToken = null
+  const startTime = Date.now()
 
   try {
     // 从中间件获取 API Key 数据
@@ -303,6 +305,7 @@ const handleResponses = async (req, res) => {
       null
 
     sessionHash = sessionId ? crypto.createHash('sha256').update(sessionId).digest('hex') : null
+    if (sessionId) setSessionId(sessionId)
     logger.info(`🔍 handleResponses headers keys: ${Object.keys(req.headers).join(', ')}`)
     logger.info(`🔍 handleResponses sessionId=${sessionId}, sessionHash=${sessionHash}`)
 
@@ -426,6 +429,9 @@ const handleResponses = async (req, res) => {
       : 'https://chatgpt.com/backend-api/codex/responses'
 
     // 根据 stream 参数决定请求类型
+    logger.info(
+      `→ 上游请求 endpoint=${codexEndpoint} model=${req.body?.model} stream=${isStream} inputItems=${req.body?.input?.length ?? 0}`
+    )
     if (isStream) {
       // 流式请求
       upstream = await axios.post(codexEndpoint, req.body, {
@@ -436,6 +442,8 @@ const handleResponses = async (req, res) => {
       // 非流式请求
       upstream = await axios.post(codexEndpoint, req.body, axiosConfig)
     }
+
+    logger.info(`← 上游响应 status=${upstream.status} elapsed=${Date.now() - startTime}ms`)
 
     const codexUsageSnapshot = extractCodexUsageHeaders(upstream.headers)
     if (codexUsageSnapshot) {
@@ -724,6 +732,10 @@ const handleResponses = async (req, res) => {
         }
 
         // 返回响应
+        logger.info(
+          `✅ 非流式完成 elapsed=${Date.now() - startTime}ms model=${actualModel} input=${usageData?.input_tokens ?? 0} output=${usageData?.output_tokens ?? 0}`,
+          config.logging.truncate ? {} : { response: responseData }
+        )
         res.json(responseData)
         return
       } catch (error) {
@@ -739,6 +751,8 @@ const handleResponses = async (req, res) => {
     const sseParser = new IncrementalSSEParser()
     const streamedOutputText = []
     const streamedReasoningText = []
+    const completedOutputItems = []
+    let completedResponse = null
 
     // 处理解析出的事件
     const processSSEEvent = (eventData) => {
@@ -772,8 +786,13 @@ const handleResponses = async (req, res) => {
         streamedOutputText.push(eventData.part.text)
       }
 
+      if (eventData.type === 'response.output_item.done' && eventData.item) {
+        completedOutputItems.push(eventData.item)
+      }
+
       // 检查是否是 response.completed 事件
       if (eventData.type === 'response.completed' && eventData.response) {
+        completedResponse = eventData.response
         // 从响应中获取真实的 model
         if (eventData.response.model) {
           actualModel = eventData.response.model
@@ -899,6 +918,17 @@ const handleResponses = async (req, res) => {
           logger.error('Failed to record OpenAI usage:', error)
         }
       }
+
+      logger.info(
+        `✅ 流式完成 elapsed=${Date.now() - startTime}ms model=${actualModel || requestedModel} input=${usageData?.input_tokens ?? 0} output=${usageData?.output_tokens ?? 0}`,
+        config.logging.truncate
+          ? {}
+          : {
+              response: completedResponse
+                ? { ...completedResponse, output: completedOutputItems }
+                : { output: completedOutputItems }
+            }
+      )
 
       // 如果在流式响应中检测到限流
       if (rateLimitDetected) {

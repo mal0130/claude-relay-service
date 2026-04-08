@@ -5,7 +5,7 @@ const { formatDateWithTimezone } = require('../utils/dateHelper')
 const path = require('path')
 const fs = require('fs')
 const os = require('os')
-const { getReqId } = require('./requestContext')
+const { getReqId, getSessionId } = require('./requestContext')
 
 // 安全的 JSON 序列化函数，处理循环引用和特殊字符
 const safeStringify = (obj, maxDepth = Infinity) => {
@@ -136,7 +136,11 @@ const createConsoleFormat = () =>
       const shortTime = timestamp ? timestamp.split(' ').pop() : ''
 
       const reqId = getReqId()
-      let logMessage = reqId ? `[${reqId}] ${shortTime} ${message}` : `${shortTime} ${message}`
+      const sessionId = getSessionId()
+      let prefix = ''
+      if (reqId) prefix += `[${reqId}]`
+      if (sessionId) prefix += `[sid:${sessionId}]`
+      let logMessage = prefix ? `${prefix} ${shortTime} ${message}` : `${shortTime} ${message}`
 
       // 收集要显示的 metadata
       const entries = Object.entries(rest).filter(([k]) => !CONSOLE_SKIP_KEYS.has(k))
@@ -169,6 +173,10 @@ const createFileFormat = () =>
       const reqId = getReqId()
       if (reqId) {
         entry.reqId = reqId
+      }
+      const sessionId = getSessionId()
+      if (sessionId) {
+        entry.sessionId = sessionId
       }
       // 合并所有 metadata
       for (const [k, v] of Object.entries(rest)) {

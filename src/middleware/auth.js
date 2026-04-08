@@ -690,8 +690,11 @@ const authenticateApiKey = async (req, res, next) => {
       })
     }
 
-    // 打印headers
-    logger.info(`🔍 headers: ${JSON.stringify(req.headers)}`)
+    // 打印headers（脱敏）
+    const safeHeaders = { ...req.headers }
+    if (safeHeaders.authorization) safeHeaders.authorization = '***'
+    if (safeHeaders['x-api-key']) safeHeaders['x-api-key'] = '***'
+    logger.info(`🔍 headers: ${JSON.stringify(safeHeaders)}`)
 
     // 完整验证（包含所有限制检查）
     let validation = await validateApiKeyWithAllChecks(apiKey, req, res)

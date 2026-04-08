@@ -108,6 +108,7 @@ class OpenAIResponsesRelayService {
     }
 
     try {
+      const startTime = Date.now()
       // 获取完整的账户信息（包含解密的 API Key）
       const fullAccount = await openaiResponsesAccountService.getAccount(account.id)
       if (!fullAccount) {
@@ -210,7 +211,11 @@ class OpenAIResponsesRelayService {
       })
 
       // 发送请求
+      logger.info(
+        `→ 上游请求 endpoint=${targetUrl} model=${req.body?.model} stream=${req.body?.stream || false} inputItems=${req.body?.input?.length ?? 0}`
+      )
       const response = await axios(requestOptions)
+      logger.info(`← 上游响应 status=${response.status} elapsed=${Date.now() - startTime}ms`)
 
       // 处理 429 限流错误
       if (response.status === 429) {
@@ -384,12 +389,21 @@ class OpenAIResponsesRelayService {
           apiKeyData,
           req.body?.model,
           handleClientDisconnect,
-          req
+          req,
+          startTime
         )
       }
 
       // 处理非流式响应
-      return this._handleNormalResponse(response, res, account, apiKeyData, req.body?.model, req)
+      return this._handleNormalResponse(
+        response,
+        res,
+        account,
+        apiKeyData,
+        req.body?.model,
+        req,
+        startTime
+      )
     } catch (error) {
       // 清理 AbortController
       if (abortController && !abortController.signal.aborted) {
@@ -535,7 +549,8 @@ class OpenAIResponsesRelayService {
     apiKeyData,
     requestedModel,
     handleClientDisconnect,
-    req
+    req,
+    startTime = Date.now()
   ) {
     // 设置 SSE 响应头
     res.setHeader('Content-Type', 'text/event-stream')
@@ -549,6 +564,8 @@ class OpenAIResponsesRelayService {
     let rateLimitDetected = false
     let rateLimitResetsInSeconds = null
     let streamEnded = false
+    const completedOutputItems = []
+    let completedResponse = null
     let streamedOutputText = ''
     let streamedThinkingText = ''
 
@@ -577,7 +594,12 @@ class OpenAIResponsesRelayService {
             }
 
             // 检查是否是 response.completed 事件（OpenAI-Responses 格式）
+            if (eventData.type === 'response.output_item.done' && eventData.item) {
+              completedOutputItems.push(eventData.item)
+            }
+
             if (eventData.type === 'response.completed' && eventData.response) {
+              completedResponse = eventData.response
               // 从响应中获取真实的 model
               if (eventData.response.model) {
                 actualModel = eventData.response.model
@@ -717,9 +739,6 @@ class OpenAIResponsesRelayService {
             `📊 Recorded usage - Input: ${totalInputTokens}(actual:${actualInputTokens}+cached:${cacheReadTokens}), CacheCreate: ${cacheCreateTokens}, Output: ${outputTokens}, Total: ${totalTokens}, Model: ${modelToRecord}`
           )
 
-          // 打印出 req headers 信息
-          logger.info(`🔍 extractUserInput request headers: ${JSON.stringify(req.headers)}`)
-
           // 更新账户的 token 使用统计
           await openaiResponsesAccountService.updateAccountUsage(account.id, totalTokens)
 
@@ -783,6 +802,16 @@ class OpenAIResponsesRelayService {
         hasUsage: !!usageData,
         actualModel: actualModel || 'unknown'
       })
+      logger.info(
+        `✅ 流式完成 elapsed=${Date.now() - startTime}ms model=${actualModel || requestedModel} input=${usageData?.input_tokens ?? 0} output=${usageData?.output_tokens ?? 0}`,
+        config.logging.truncate
+          ? {}
+          : {
+              response: completedResponse
+                ? { ...completedResponse, output: completedOutputItems }
+                : { output: completedOutputItems }
+            }
+      )
     })
 
     response.data.on('error', (error) => {
@@ -816,7 +845,15 @@ class OpenAIResponsesRelayService {
   }
 
   // 处理非流式响应
-  async _handleNormalResponse(response, res, account, apiKeyData, requestedModel, req) {
+  async _handleNormalResponse(
+    response,
+    res,
+    account,
+    apiKeyData,
+    requestedModel,
+    req,
+    startTime = Date.now()
+  ) {
     const responseData = response.data
 
     // 提取 usage 数据和实际 model
@@ -908,6 +945,10 @@ class OpenAIResponsesRelayService {
     }
 
     // 返回响应
+    logger.info(
+      `✅ 非流式完成 elapsed=${Date.now() - startTime}ms model=${actualModel} input=${usageData?.input_tokens ?? 0} output=${usageData?.output_tokens ?? 0}`,
+      config.logging.truncate ? {} : { response: responseData }
+    )
     res.status(response.status).json(responseData)
 
     logger.info('Normal response completed', {
