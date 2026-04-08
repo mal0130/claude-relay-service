@@ -71,7 +71,42 @@ const safeStringify = (obj, maxDepth = Infinity) => {
 
   try {
     const processed = replacer('', obj)
-    return JSON.stringify(processed)
+    const result = JSON.stringify(processed)
+    // 体积保护: 超过 50KB 时对大字段做截断，保留顶层结构
+    if (
+      config.logging.truncate &&
+      result.length > 50000 &&
+      processed &&
+      typeof processed === 'object'
+    ) {
+      const truncated = { ...processed, _truncated: true, _totalChars: result.length }
+      // 第一轮: 截断单个大字段
+      for (const [k, v] of Object.entries(truncated)) {
+        if (k.startsWith('_')) {
+          continue
+        }
+        const fieldStr = typeof v === 'string' ? v : JSON.stringify(v)
+        if (fieldStr && fieldStr.length > 10000) {
+          truncated[k] = `${fieldStr.substring(0, 10000)}...[truncated]`
+        }
+      }
+      // 第二轮: 如果总长度仍超 50KB，逐字段缩减到 2KB
+      let secondResult = JSON.stringify(truncated)
+      if (secondResult.length > 50000) {
+        for (const [k, v] of Object.entries(truncated)) {
+          if (k.startsWith('_')) {
+            continue
+          }
+          const fieldStr = typeof v === 'string' ? v : JSON.stringify(v)
+          if (fieldStr && fieldStr.length > 2000) {
+            truncated[k] = `${fieldStr.substring(0, 2000)}...[truncated]`
+          }
+        }
+        secondResult = JSON.stringify(truncated)
+      }
+      return secondResult
+    }
+    return result
   } catch (error) {
     // 如果JSON.stringify仍然失败，使用更保守的方法
     try {
