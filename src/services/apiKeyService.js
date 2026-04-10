@@ -146,7 +146,9 @@ class ApiKeyService {
       const rule = rateLimits[i]
       const ruleWindow = rule.window || 0
 
-      if (ruleWindow <= 0) continue
+      if (ruleWindow <= 0) {
+        continue
+      }
 
       const suffix = rateLimits.length === 1 ? '' : `:${i}`
       const windowStartKey = `rate_limit:window_start:${keyId}${suffix}`
@@ -395,7 +397,8 @@ class ApiKeyService {
         await redis.setApiKey(keyData.id, keyData)
 
         logger.success(
-          `🔓 API key activated: ${keyData.id} (${keyData.name
+          `🔓 API key activated: ${keyData.id} (${
+            keyData.name
           }), will expire in ${activationPeriod} ${activationUnit} at ${expiresAt.toISOString()}`
         )
       }
@@ -1437,7 +1440,9 @@ class ApiKeyService {
             for (let i = 0; i < newRateLimits.length; i++) {
               const rule = newRateLimits[i]
               const ruleWindow = parseInt(rule?.window || 0)
-              if (ruleWindow <= 0) continue
+              if (ruleWindow <= 0) {
+                continue
+              }
               const suffix = newRateLimits.length === 1 ? '' : `:${i}`
               const windowStartKey = `rate_limit:window_start:${keyId}${suffix}`
               const existingStart = await client.get(windowStartKey)
@@ -3037,20 +3042,28 @@ class ApiKeyService {
    * @returns {Promise<Object|null>} 可用的备用 Key 数据，如果没有则返回 null
    */
   async findAlternativeKey(externalUid, excludeKeyIds = []) {
-    if (!externalUid) return null
+    if (!externalUid) {
+      return null
+    }
 
     try {
       // 获取该 uid 的所有 Key ID
       const keyIds = await redis.getKeysByUid(externalUid)
-      if (!keyIds || keyIds.length === 0) return null
+      if (!keyIds || keyIds.length === 0) {
+        return null
+      }
 
       // 逐个检查（排除已尝试的）
       for (const keyId of keyIds) {
-        if (excludeKeyIds.includes(keyId)) continue
+        if (excludeKeyIds.includes(keyId)) {
+          continue
+        }
 
         // 获取 Key 数据
         const keyData = await redis.getApiKey(keyId)
-        if (!keyData || Object.keys(keyData).length === 0) continue
+        if (!keyData || Object.keys(keyData).length === 0) {
+          continue
+        }
 
         // 基础验证（复用 validateApiKey 的逻辑）
         const validation = await this.validateApiKey(keyData.apiKey)

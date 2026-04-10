@@ -304,11 +304,17 @@ async function handleChatCompletion(req, res, apiKeyData) {
     const buildStreamUsageExtra = () => {
       const blocks = []
       const thinking = streamedReasoningText.join('')
-      if (thinking) blocks.push({ type: 'thinking', thinking })
+      if (thinking) {
+        blocks.push({ type: 'thinking', thinking })
+      }
       const translated = streamedTranslatedText.join('')
-      if (translated) blocks.push({ type: 'thinking_translated', thinking: translated })
+      if (translated) {
+        blocks.push({ type: 'thinking_translated', thinking: translated })
+      }
       const text = streamedAssistantText.join('')
-      if (text) blocks.push({ type: 'text', text })
+      if (text) {
+        blocks.push({ type: 'text', text })
+      }
       return buildUsageMetadata({
         body: req.body,
         format: 'openai',
@@ -449,7 +455,9 @@ async function handleChatCompletion(req, res, apiKeyData) {
                 try {
                   const parsed = JSON.parse(jsonStr)
                   const rc = parsed.choices?.[0]?.delta?.reasoning_content
-                  if (typeof rc === 'string' && rc) streamedTranslatedText.push(rc)
+                  if (typeof rc === 'string' && rc) {
+                    streamedTranslatedText.push(rc)
+                  }
                 } catch (_e) {}
               }
             }
@@ -547,7 +555,9 @@ async function handleChatCompletion(req, res, apiKeyData) {
       // 转换为 OpenAI 格式
       const openaiResponse = openaiToClaude.convertResponse(claudeData, req.body.model)
       const nonStreamAssistantContent = (() => {
-        if (!Array.isArray(claudeData?.content)) return openaiResponse?.choices?.[0]?.message
+        if (!Array.isArray(claudeData?.content)) {
+          return openaiResponse?.choices?.[0]?.message
+        }
         const blocks = []
         for (const item of claudeData.content) {
           if (item.type === 'thinking' && item.thinking) {

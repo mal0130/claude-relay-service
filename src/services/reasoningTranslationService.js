@@ -19,25 +19,35 @@ const CHINESE_CHAR_RE = /[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]/
 
 /** 在 text 中找句子边界，返回切分位置；未找到返回 -1 */
 function findBoundary(text) {
-  if (text.length < MIN_CHUNK) return -1
+  if (text.length < MIN_CHUNK) {
+    return -1
+  }
 
   if (text.length >= MAX_CHUNK) {
     const slice = text.slice(0, MAX_CHUNK)
     for (const sep of ['\n\n', '.\n', '. ', '!\n', '! ', '?\n', '? ', '\n']) {
       const idx = slice.lastIndexOf(sep)
-      if (idx > 0) return idx + sep.length
+      if (idx > 0) {
+        return idx + sep.length
+      }
     }
     return MAX_CHUNK
   }
 
   const nn = text.indexOf('\n\n')
-  if (nn !== -1) return nn + 2
+  if (nn !== -1) {
+    return nn + 2
+  }
 
   const nl = text.indexOf('\n')
-  if (nl !== -1 && nl + 1 >= MIN_CHUNK) return nl + 1
+  if (nl !== -1 && nl + 1 >= MIN_CHUNK) {
+    return nl + 1
+  }
 
   const m = text.match(/[.!?][ \n]/)
-  if (m) return m.index + m[0].length
+  if (m) {
+    return m.index + m[0].length
+  }
 
   return -1
 }
@@ -57,9 +67,15 @@ function createReasoningTranslator(onToken) {
   const tokenUsage = { prompt: 0, completion: 0, total: 0 }
 
   async function translate(text, idx) {
-    if (!text.trim()) return text
-    if (!apiKey) return text
-    if (CHINESE_CHAR_RE.test(text)) return text
+    if (!text.trim()) {
+      return text
+    }
+    if (!apiKey) {
+      return text
+    }
+    if (CHINESE_CHAR_RE.test(text)) {
+      return text
+    }
 
     try {
       const response = await axios.post(
@@ -94,9 +110,13 @@ function createReasoningTranslator(onToken) {
           while ((nl = lineBuf.indexOf('\n')) !== -1) {
             const line = lineBuf.slice(0, nl).trim()
             lineBuf = lineBuf.slice(nl + 1)
-            if (!line.startsWith('data: ')) continue
+            if (!line.startsWith('data: ')) {
+              continue
+            }
             const jsonStr = line.slice(6).trim()
-            if (jsonStr === '[DONE]') continue
+            if (jsonStr === '[DONE]') {
+              continue
+            }
             try {
               const parsed = JSON.parse(jsonStr)
               result += parsed.choices?.[0]?.delta?.content || ''
@@ -133,7 +153,9 @@ function createReasoningTranslator(onToken) {
 
   return {
     push(delta) {
-      if (!delta) return
+      if (!delta) {
+        return
+      }
       buffer += delta
       let boundary
       while ((boundary = findBoundary(buffer)) !== -1) {

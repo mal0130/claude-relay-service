@@ -5289,7 +5289,9 @@ redisClient.cleanupSystemMetrics = async function () {
  * @returns {Promise<void>}
  */
 redisClient.addKeyToUidIndex = async function (externalUid, keyId) {
-  if (!externalUid || !keyId) return
+  if (!externalUid || !keyId) {
+    return
+  }
   const key = `uid_keys:${externalUid}`
   try {
     await this.client.sadd(key, keyId)
@@ -5306,7 +5308,9 @@ redisClient.addKeyToUidIndex = async function (externalUid, keyId) {
  * @returns {Promise<void>}
  */
 redisClient.removeKeyFromUidIndex = async function (externalUid, keyId) {
-  if (!externalUid || !keyId) return
+  if (!externalUid || !keyId) {
+    return
+  }
   const key = `uid_keys:${externalUid}`
   try {
     await this.client.srem(key, keyId)
@@ -5322,7 +5326,9 @@ redisClient.removeKeyFromUidIndex = async function (externalUid, keyId) {
  * @returns {Promise<string[]>} Key ID 列表
  */
 redisClient.getKeysByUid = async function (externalUid) {
-  if (!externalUid) return []
+  if (!externalUid) {
+    return []
+  }
   const key = `uid_keys:${externalUid}`
   try {
     const keyIds = await this.client.smembers(key)

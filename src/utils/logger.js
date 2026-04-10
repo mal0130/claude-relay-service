@@ -138,8 +138,12 @@ const createConsoleFormat = () =>
       const reqId = getReqId()
       const sessionId = getSessionId()
       let prefix = ''
-      if (reqId) prefix += `[${reqId}]`
-      if (sessionId) prefix += `[sid:${sessionId}]`
+      if (reqId) {
+        prefix += `[${reqId}]`
+      }
+      if (sessionId) {
+        prefix += `[sid:${sessionId}]`
+      }
       let logMessage = prefix ? `${prefix} ${shortTime} ${message}` : `${shortTime} ${message}`
 
       // 收集要显示的 metadata
