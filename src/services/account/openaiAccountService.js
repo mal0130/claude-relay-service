@@ -1314,7 +1314,7 @@ async function checkAndApplyUsageLimitStop(accountId, accountData) {
       const tzTomorrow = new Date(tzNow)
       tzTomorrow.setUTCDate(tzNow.getUTCDate() + 1)
       tzTomorrow.setUTCHours(0, 0, 0, 0)
-      const offset = config.system.timezoneOffset || 8
+      const offset = config.system.timezoneOffset ?? 8
       resumeAt = new Date(tzTomorrow.getTime() - offset * 3600000).toISOString()
     }
   }

@@ -14,15 +14,33 @@
 
 ---
 
+## 已发现问题与修复要求
+
+本功能在评审后确认有 3 个需要一并修复的问题：
+
+1. **限流恢复会绕过使用量停调**
+   - 当账号同时存在 `schedulable=false`、`usageLimitAutoStopped=true` 和 `rateLimitStatus=limited` 时，原调度逻辑会先按限流恢复处理，可能直接把账号恢复成可调度，绕过使用量停调判断。
+   - 修复要求：`usageLimitAutoStopped` 的恢复判断必须独立于 `rateLimitStatus`，即使账号带有限流标记，也要先检查使用量停调是否仍然生效。
+
+2. **关闭保护开关后不会立即解除已触发的停调**
+   - 管理员在后台取消对应保护开关并保存后，原实现只更新开关字段，不清理 `usageLimitAutoStopped` / `usageLimitStopReason` / `usageLimitResumeAt`，导致账号仍然被卡住。
+   - 修复要求：当当前停调原因对应的保护开关被关闭时，更新接口要立即清理 usage-limit stop state，并恢复 `schedulable`。
+
+3. **UTC（`timezoneOffset=0`）部署下恢复时间计算错误**
+   - 原代码使用 `config.system.timezoneOffset || 8`，会把合法的 `0` 当成 falsy，从而错误回退到 `8`。
+   - 修复要求：使用 `?? 8` 或显式 `undefined` 判断，保留 `0`。
+
+---
+
 ## 关键文件
 
-| 文件 | 职责 |
-|------|------|
-| `src/services/account/openaiAccountService.js` | 账户服务，添加检查+停止+恢复逻辑 |
-| `src/routes/openaiRoutes.js` | 每次请求后调用 `updateCodexUsageSnapshot()`，在此后触发检查（约第 448 行） |
-| `src/services/scheduler/unifiedOpenAIScheduler.js` | `_ensureAccountReadyForScheduling()`（第55行），添加自动恢复检查 |
-| `src/routes/admin/openaiAccounts.js` | 创建/更新 API，接收三个新配置参数 |
-| `web/admin-spa/src/components/accounts/AccountForm.vue` | 前端表单，`platform==='openai'` 区域添加三个 checkbox |
+| 文件                                                    | 职责                                                                       |
+| ------------------------------------------------------- | -------------------------------------------------------------------------- |
+| `src/services/account/openaiAccountService.js`          | 账户服务，添加检查+停止+恢复逻辑                                           |
+| `src/routes/openaiRoutes.js`                            | 每次请求后调用 `updateCodexUsageSnapshot()`，在此后触发检查（约第 448 行） |
+| `src/services/scheduler/unifiedOpenAIScheduler.js`      | `_ensureAccountReadyForScheduling()`（第55行），添加自动恢复检查           |
+| `src/routes/admin/openaiAccounts.js`                    | 创建/更新 API，接收三个新配置参数                                          |
+| `web/admin-spa/src/components/accounts/AccountForm.vue` | 前端表单，`platform==='openai'` 区域添加三个 checkbox                      |
 
 ---
 
@@ -40,6 +58,7 @@ usageLimitResumeAt       ISO string       预计恢复时间（仅 daily_overuse
 ```
 
 停止原因文案：
+
 - `'5小时限额使用量接近上限，已自动停止调度'`
 - `'周限额使用量接近上限，已自动停止调度'`
 - `'周限额当日均摊用量已超限，已自动停止调度'`
@@ -75,14 +94,14 @@ usageLimitResumeAt       ISO string       预计恢复时间（仅 daily_overuse
 
 周限额 100% 分5天，按指数递减（公比约0.75）：
 
-| 天次 | 当日预算 | 累计上限 |
-|------|----------|----------|
-| 第1天 | 32% | 32% |
-| 第2天 | 24% | 56% |
-| 第3天 | 20% | 76% |
-| 第4天 | 14% | 90% |
-| 第5天 | 10% | 100% |
-| 第6、7天 | 0%（不再分配，靠前5天余量） | 100% |
+| 天次     | 当日预算                    | 累计上限 |
+| -------- | --------------------------- | -------- |
+| 第1天    | 32%                         | 32%      |
+| 第2天    | 24%                         | 56%      |
+| 第3天    | 20%                         | 76%      |
+| 第4天    | 14%                         | 90%      |
+| 第5天    | 10%                         | 100%     |
+| 第6、7天 | 0%（不再分配，靠前5天余量） | 100%     |
 
 实现为硬编码常量数组：`const DAILY_BUDGET_CUMULATIVE = [32, 56, 76, 90, 100]`
 
@@ -113,7 +132,7 @@ const tzTomorrow = new Date(tzNow)
 tzTomorrow.setUTCDate(tzNow.getUTCDate() + 1)
 tzTomorrow.setUTCHours(0, 0, 0, 0)
 // 转回真实 UTC
-const offset = config.system.timezoneOffset || 8
+const offset = config.system.timezoneOffset ?? 8
 const resumeAt = new Date(tzTomorrow.getTime() - offset * 3600000)
 ```
 
@@ -150,44 +169,30 @@ if (usageSnapshot) {
 
 ### Step 3：`unifiedOpenAIScheduler.js`
 
-在 `_ensureAccountReadyForScheduling()`（第 62-88 行）的 `schedulable=false` 分支中，在现有限流恢复检查后追加：
+在 `_ensureAccountReadyForScheduling()` 中，`usageLimitAutoStopped` 的恢复判断不能再依赖 `hasRateLimitFlag === false`。应调整为：
+
+- 只要 `usageLimitAutoStopped === 'true'`，就先判断 usage-limit 是否可恢复
+- 若仍未到恢复时间，直接返回 `usage_limit_stopped`
+- 若已达到恢复条件，先清理 usage-limit stop state，再继续后续限流检查
+- 即使账号同时还带有旧的限流标记，也不能跳过 usage-limit 判断
+
+可以抽出类似 `getUsageLimitResumeState(account)` 的辅助函数：
 
 ```js
-if (account.usageLimitAutoStopped === 'true') {
-  const reason = account.usageLimitStopReason || ''
-  const updatedAt = account.codexUsageUpdatedAt
-  const now = Date.now()
-  let canResume = false
+const usageLimitState = getUsageLimitResumeState(account)
 
-  if (reason.includes('5小时')) {
-    // 5小时限额：实时计算重置时间
-    const resetAfter = parseFloat(account.codexPrimaryResetAfterSeconds)
-    if (updatedAt && !isNaN(resetAfter)) {
-      canResume = now >= new Date(updatedAt).getTime() + resetAfter * 1000
-    }
-  } else if (reason.includes('周限')) {
-    // 周限额：实时计算重置时间
-    const resetAfter = parseFloat(account.codexSecondaryResetAfterSeconds)
-    if (updatedAt && !isNaN(resetAfter)) {
-      canResume = now >= new Date(updatedAt).getTime() + resetAfter * 1000
-    }
-  } else if (reason.includes('日限')) {
-    // 日均摊：固定次日时区零点
-    const resumeAt = account.usageLimitResumeAt ? new Date(account.usageLimitResumeAt) : null
-    canResume = resumeAt && now >= resumeAt.getTime()
+if (usageLimitState) {
+  if (!usageLimitState.canResume) {
+    return { canUse: false, reason: 'usage_limit_stopped' }
   }
 
-  if (canResume) {
-    await openaiAccountService.updateAccount(accountId, {
-      schedulable: 'true',
-      usageLimitAutoStopped: 'false',
-      usageLimitStoppedAt: '',
-      usageLimitStopReason: '',
-      usageLimitResumeAt: ''
-    })
-    return { canUse: true }
-  }
-  return { canUse: false, reason: 'usage_limit_stopped' }
+  await openaiAccountService.updateAccount(accountId, {
+    schedulable: 'true',
+    usageLimitAutoStopped: 'false',
+    usageLimitStoppedAt: '',
+    usageLimitStopReason: '',
+    usageLimitResumeAt: ''
+  })
 }
 ```
 
@@ -196,9 +201,25 @@ if (account.usageLimitAutoStopped === 'true') {
 ### Step 4：`openaiAccounts.js`
 
 参考 `claudeAccounts.js` 第 621、681 行的 `autoStopOnWarning` 处理，在创建/更新接口中接收并传递：
+
 - `autoStopOnFiveHourLimit`
 - `autoStopOnWeeklyLimit`
 - `autoStopOnDailyOveruse`
+
+另外，更新接口需要补一段“人工解除 usage-limit stop”逻辑：如果当前停调原因对应的保护开关被关闭，则立即清理：
+
+```js
+if (
+  currentAccount.usageLimitAutoStopped === 'true' &&
+  isUsageStopDisabled(currentAccount.usageLimitStopReason, nextUsageProtectionFlags)
+) {
+  updateData.schedulable = true
+  updateData.usageLimitAutoStopped = false
+  updateData.usageLimitStoppedAt = ''
+  updateData.usageLimitStopReason = ''
+  updateData.usageLimitResumeAt = ''
+}
+```
 
 ### Step 5：前端 `AccountForm.vue`
 
@@ -224,6 +245,7 @@ autoStopOnDailyOveruse: props.account?.autoStopOnDailyOveruse || false,
 ## 格式化
 
 修改文件后运行：
+
 ```
 npx prettier --write src/services/account/openaiAccountService.js src/routes/openaiRoutes.js src/services/scheduler/unifiedOpenAIScheduler.js src/routes/admin/openaiAccounts.js web/admin-spa/src/components/accounts/AccountForm.vue
 ```

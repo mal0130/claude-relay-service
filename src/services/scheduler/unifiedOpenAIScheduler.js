@@ -11,6 +11,34 @@ class UnifiedOpenAIScheduler {
     this.SESSION_MAPPING_PREFIX = 'unified_openai_session_mapping:'
   }
 
+  _getUsageLimitResumeState(account) {
+    if (account.usageLimitAutoStopped !== 'true') {
+      return null
+    }
+
+    const reason = account.usageLimitStopReason || ''
+    const updatedAt = account.codexUsageUpdatedAt
+    const now = Date.now()
+    let canResume = false
+
+    if (reason.includes('5小时')) {
+      const resetAfter = parseFloat(account.codexPrimaryResetAfterSeconds)
+      if (updatedAt && !isNaN(resetAfter)) {
+        canResume = now >= new Date(updatedAt).getTime() + resetAfter * 1000
+      }
+    } else if (reason.includes('当日均摊')) {
+      const resumeAt = account.usageLimitResumeAt ? new Date(account.usageLimitResumeAt) : null
+      canResume = resumeAt !== null && now >= resumeAt.getTime()
+    } else if (reason.includes('周限额使用量接近上限')) {
+      const resetAfter = parseFloat(account.codexSecondaryResetAfterSeconds)
+      if (updatedAt && !isNaN(resetAfter)) {
+        canResume = now >= new Date(updatedAt).getTime() + resetAfter * 1000
+      }
+    }
+
+    return { canResume }
+  }
+
   // 🔧 辅助方法：检查账户是否被限流（兼容字符串和对象格式）
   _isRateLimited(rateLimitStatus) {
     if (!rateLimitStatus) {
@@ -56,48 +84,36 @@ class UnifiedOpenAIScheduler {
     const hasRateLimitFlag = this._hasRateLimitFlag(account.rateLimitStatus)
     let rateLimitChecked = false
     let stillLimited = false
+    let usageLimitResumed = false
 
     const accountSchedulable = isSchedulable(account.schedulable)
+    const usageLimitState = this._getUsageLimitResumeState(account)
 
     if (!accountSchedulable) {
-      if (!hasRateLimitFlag) {
-        // 检查是否是使用量限制停止
-        if (account.usageLimitAutoStopped === 'true') {
-          const reason = account.usageLimitStopReason || ''
-          const updatedAt = account.codexUsageUpdatedAt
-          const now = Date.now()
-          let canResume = false
-
-          if (reason.includes('5小时')) {
-            const resetAfter = parseFloat(account.codexPrimaryResetAfterSeconds)
-            if (updatedAt && !isNaN(resetAfter)) {
-              canResume = now >= new Date(updatedAt).getTime() + resetAfter * 1000
-            }
-          } else if (reason.includes('当日均摊')) {
-            const resumeAt = account.usageLimitResumeAt
-              ? new Date(account.usageLimitResumeAt)
-              : null
-            canResume = resumeAt !== null && now >= resumeAt.getTime()
-          } else if (reason.includes('周限额使用量接近上限')) {
-            const resetAfter = parseFloat(account.codexSecondaryResetAfterSeconds)
-            if (updatedAt && !isNaN(resetAfter)) {
-              canResume = now >= new Date(updatedAt).getTime() + resetAfter * 1000
-            }
+      if (usageLimitState) {
+        if (usageLimitState.canResume) {
+          await openaiAccountService.updateAccount(accountId, {
+            schedulable: 'true',
+            usageLimitAutoStopped: 'false',
+            usageLimitStoppedAt: '',
+            usageLimitStopReason: '',
+            usageLimitResumeAt: ''
+          })
+          if (sanitized) {
+            account.schedulable = true
+            account.usageLimitAutoStopped = false
+          } else {
+            account.schedulable = 'true'
+            account.usageLimitAutoStopped = 'false'
           }
-
-          if (canResume) {
-            await openaiAccountService.updateAccount(accountId, {
-              schedulable: 'true',
-              usageLimitAutoStopped: 'false',
-              usageLimitStoppedAt: '',
-              usageLimitStopReason: '',
-              usageLimitResumeAt: ''
-            })
-            logger.info(`✅ OpenAI账号 ${account.name || accountId} 使用量已重置，恢复调度权限`)
-            return { canUse: true }
-          }
+          usageLimitResumed = true
+          logger.info(`✅ OpenAI账号 ${account.name || accountId} 使用量已重置，恢复调度权限`)
+        } else {
           return { canUse: false, reason: 'usage_limit_stopped' }
         }
+      }
+
+      if (!hasRateLimitFlag && !usageLimitResumed) {
         return { canUse: false, reason: 'not_schedulable' }
       }
 
@@ -105,6 +121,10 @@ class UnifiedOpenAIScheduler {
       rateLimitChecked = true
       if (stillLimited) {
         return { canUse: false, reason: 'rate_limited' }
+      }
+
+      if (usageLimitState && !usageLimitState.canResume) {
+        return { canUse: false, reason: 'usage_limit_stopped' }
       }
 
       // 限流已恢复，矫正本地状态
