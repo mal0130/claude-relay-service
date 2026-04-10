@@ -4482,6 +4482,13 @@ const getSchedulableReason = (account) => {
     if (account.status === 'error' && account.errorMessage) {
       return account.errorMessage
     }
+    if (
+      account.usageLimitAutoStopped === 'true' ||
+      account.usageLimitAutoStopped === true ||
+      account.usageLimitStopReason
+    ) {
+      return account.usageLimitStopReason || '使用量达到限制，已自动停止调度'
+    }
   }
 
   // OpenAI-Responses 账户的错误状态

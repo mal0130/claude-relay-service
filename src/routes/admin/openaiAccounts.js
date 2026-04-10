@@ -331,7 +331,10 @@ router.post('/', authenticateAdmin, async (req, res) => {
       rateLimitDuration,
       priority,
       needsImmediateRefresh, // 是否需要立即刷新
-      requireRefreshSuccess // 是否必须刷新成功才能创建
+      requireRefreshSuccess, // 是否必须刷新成功才能创建
+      autoStopOnFiveHourLimit,
+      autoStopOnWeeklyLimit,
+      autoStopOnDailyOveruse
     } = req.body
 
     if (!name) {
@@ -353,7 +356,10 @@ router.post('/', authenticateAdmin, async (req, res) => {
       accountInfo: accountInfo || {},
       proxy: proxy || null,
       isActive: true,
-      schedulable: true
+      schedulable: true,
+      autoStopOnFiveHourLimit: autoStopOnFiveHourLimit === true,
+      autoStopOnWeeklyLimit: autoStopOnWeeklyLimit === true,
+      autoStopOnDailyOveruse: autoStopOnDailyOveruse === true
     }
 
     // 如果需要立即刷新且必须成功（OpenAI 手动模式）

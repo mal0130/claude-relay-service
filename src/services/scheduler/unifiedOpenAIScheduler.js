@@ -61,6 +61,43 @@ class UnifiedOpenAIScheduler {
 
     if (!accountSchedulable) {
       if (!hasRateLimitFlag) {
+        // 检查是否是使用量限制停止
+        if (account.usageLimitAutoStopped === 'true') {
+          const reason = account.usageLimitStopReason || ''
+          const updatedAt = account.codexUsageUpdatedAt
+          const now = Date.now()
+          let canResume = false
+
+          if (reason.includes('5小时')) {
+            const resetAfter = parseFloat(account.codexPrimaryResetAfterSeconds)
+            if (updatedAt && !isNaN(resetAfter)) {
+              canResume = now >= new Date(updatedAt).getTime() + resetAfter * 1000
+            }
+          } else if (reason.includes('当日均摊')) {
+            const resumeAt = account.usageLimitResumeAt
+              ? new Date(account.usageLimitResumeAt)
+              : null
+            canResume = resumeAt !== null && now >= resumeAt.getTime()
+          } else if (reason.includes('周限额使用量接近上限')) {
+            const resetAfter = parseFloat(account.codexSecondaryResetAfterSeconds)
+            if (updatedAt && !isNaN(resetAfter)) {
+              canResume = now >= new Date(updatedAt).getTime() + resetAfter * 1000
+            }
+          }
+
+          if (canResume) {
+            await openaiAccountService.updateAccount(accountId, {
+              schedulable: 'true',
+              usageLimitAutoStopped: 'false',
+              usageLimitStoppedAt: '',
+              usageLimitStopReason: '',
+              usageLimitResumeAt: ''
+            })
+            logger.info(`✅ OpenAI账号 ${account.name || accountId} 使用量已重置，恢复调度权限`)
+            return { canUse: true }
+          }
+          return { canUse: false, reason: 'usage_limit_stopped' }
+        }
         return { canUse: false, reason: 'not_schedulable' }
       }
 
