@@ -1034,7 +1034,8 @@ router.post('/api-key/:keyId/update', authenticatePartner, async (req, res) => {
       activationDays,
       activationUnit,
       user_id,
-      pack_consent
+      pack_consent,
+      reset_window
     } = req.body
 
     const keyData = await findApiKey(keyId, null)
@@ -1296,7 +1297,17 @@ router.post('/api-key/:keyId/update', authenticatePartner, async (req, res) => {
       }
     }
 
-    if (Object.keys(updates).length === 0) {
+    if (reset_window !== undefined && reset_window !== 1 && reset_window !== 2) {
+      return res.status(400).json({
+        code: 1001,
+        msg: 'reset_window must be 1 (reset) or 2 (no reset)',
+        data: null
+      })
+    }
+
+    const hasResetWindow = reset_window === 1
+
+    if (Object.keys(updates).length === 0 && !hasResetWindow) {
       return res.status(400).json({
         code: 1001,
         msg: 'No valid updates provided',
@@ -1304,7 +1315,19 @@ router.post('/api-key/:keyId/update', authenticatePartner, async (req, res) => {
       })
     }
 
-    await apiKeyService.updateApiKey(keyId, updates)
+    if (Object.keys(updates).length > 0) {
+      await apiKeyService.updateApiKey(keyId, updates)
+    }
+
+    if (hasResetWindow) {
+      const effectiveRateLimits = parseRateLimits(
+        updates.rateLimits !== undefined ? updates.rateLimits : keyData.rateLimits
+      )
+      if (effectiveRateLimits.length > 0) {
+        await apiKeyService.initializeRateLimitWindows(keyId, effectiveRateLimits)
+      }
+      logger.info(`🔄 Reset window limits for API Key: ${keyId}`)
+    }
 
     logger.success(`✅ Partner updated API Key: ${keyId} (${keyData.name})`)
 
