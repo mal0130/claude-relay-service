@@ -39,7 +39,9 @@ function applyReasoningTranslation(res, options = {}) {
   })
 
   function mergeUsageIfNeeded(parsed) {
-    if (!parsed?.usage || !translationUsage?.trans_total_tokens) return false
+    if (!parsed?.usage || !translationUsage?.trans_total_tokens) {
+      return false
+    }
 
     Object.assign(parsed.usage, translationUsage)
     return true
@@ -54,9 +56,13 @@ function applyReasoningTranslation(res, options = {}) {
       for (let i = 0; i < pendingChunks.length; i++) {
         const text = pendingChunks[i]
         const dataLine = text.split('\n').find((l) => l.startsWith('data: '))
-        if (!dataLine) continue
+        if (!dataLine) {
+          continue
+        }
         const jsonStr = dataLine.slice(6).trim()
-        if (jsonStr === '[DONE]') continue
+        if (jsonStr === '[DONE]') {
+          continue
+        }
         try {
           const parsed = JSON.parse(jsonStr)
           if (parsed.usage) {
@@ -76,9 +82,13 @@ function applyReasoningTranslation(res, options = {}) {
       }
     }
 
-    for (const chunk of pendingChunks) originalWrite(chunk)
+    for (const chunk of pendingChunks) {
+      originalWrite(chunk)
+    }
     pendingChunks = []
-    if (endCalled) originalEnd()
+    if (endCalled) {
+      originalEnd()
+    }
   }
 
   function buildUsageEvent(chatId, transUsage) {
@@ -95,7 +105,7 @@ function applyReasoningTranslation(res, options = {}) {
     translator
       .flush()
       .then(() => {
-        const usage = translator.usage
+        const { usage } = translator
         if (usage.trans_total_tokens > 0) {
           logger.debug(
             `[ReasoningTranslation] 翻译 token: prompt=${usage.trans_prompt_tokens} completion=${usage.trans_completion_tokens} total=${usage.trans_total_tokens}`
@@ -114,9 +124,13 @@ function applyReasoningTranslation(res, options = {}) {
   function processEvent(eventText) {
     const dataLine = eventText.split('\n').find((l) => l.startsWith('data: '))
     if (!dataLine) {
-      if (!contentStarted) originalWrite(eventText)
-      else if (!translationDone) pendingChunks.push(eventText)
-      else originalWrite(eventText)
+      if (!contentStarted) {
+        originalWrite(eventText)
+      } else if (!translationDone) {
+        pendingChunks.push(eventText)
+      } else {
+        originalWrite(eventText)
+      }
       return
     }
 
@@ -126,8 +140,11 @@ function applyReasoningTranslation(res, options = {}) {
         originalWrite(buildUsageEvent(chatId, translationUsage))
         injectedStandaloneUsage = false
       }
-      if (!translationDone) pendingChunks.push(eventText)
-      else originalWrite(eventText)
+      if (!translationDone) {
+        pendingChunks.push(eventText)
+      } else {
+        originalWrite(eventText)
+      }
       return
     }
 
@@ -139,7 +156,9 @@ function applyReasoningTranslation(res, options = {}) {
       return
     }
 
-    if (!chatId && parsed.id) chatId = parsed.id
+    if (!chatId && parsed.id) {
+      chatId = parsed.id
+    }
 
     if (mergeUsageIfNeeded(parsed)) {
       if (injectedStandaloneUsage && parsed.usage?.trans_total_tokens > 0) {
@@ -180,7 +199,9 @@ function applyReasoningTranslation(res, options = {}) {
     const text = Buffer.isBuffer(chunk) ? chunk.toString('utf8') : String(chunk || '')
     sseBuffer += text
     drainBuffer()
-    if (typeof callback === 'function') callback()
+    if (typeof callback === 'function') {
+      callback()
+    }
     return true
   }
 
@@ -223,9 +244,13 @@ function isTranslationConfigured() {
 }
 
 function shouldTranslateForKey(keyName) {
-  if (!isTranslationConfigured()) return false
+  if (!isTranslationConfigured()) {
+    return false
+  }
   const { keyNames } = config.translation
-  if (!keyNames || keyNames.length === 0) return false
+  if (!keyNames || keyNames.length === 0) {
+    return false
+  }
   return keyNames.includes(keyName)
 }
 

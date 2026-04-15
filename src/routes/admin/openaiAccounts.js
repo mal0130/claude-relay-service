@@ -18,6 +18,28 @@ const { formatAccountExpiry, mapExpiryField } = require('./utils')
 
 const router = express.Router()
 
+function toBoolean(value) {
+  return value === true || value === 'true'
+}
+
+function isUsageStopDisabled(stopReason, flags) {
+  if (!stopReason) {
+    return false
+  }
+
+  if (stopReason.includes('5小时')) {
+    return !flags.autoStopOnFiveHourLimit
+  }
+  if (stopReason.includes('周限额使用量接近上限')) {
+    return !flags.autoStopOnWeeklyLimit
+  }
+  if (stopReason.includes('当日均摊')) {
+    return !flags.autoStopOnDailyOveruse
+  }
+
+  return false
+}
+
 // OpenAI OAuth 配置
 const OPENAI_CONFIG = {
   BASE_URL: 'https://auth.openai.com',
@@ -331,7 +353,10 @@ router.post('/', authenticateAdmin, async (req, res) => {
       rateLimitDuration,
       priority,
       needsImmediateRefresh, // 是否需要立即刷新
-      requireRefreshSuccess // 是否必须刷新成功才能创建
+      requireRefreshSuccess, // 是否必须刷新成功才能创建
+      autoStopOnFiveHourLimit,
+      autoStopOnWeeklyLimit,
+      autoStopOnDailyOveruse
     } = req.body
 
     if (!name) {
@@ -353,7 +378,10 @@ router.post('/', authenticateAdmin, async (req, res) => {
       accountInfo: accountInfo || {},
       proxy: proxy || null,
       isActive: true,
-      schedulable: true
+      schedulable: true,
+      autoStopOnFiveHourLimit: autoStopOnFiveHourLimit === true,
+      autoStopOnWeeklyLimit: autoStopOnWeeklyLimit === true,
+      autoStopOnDailyOveruse: autoStopOnDailyOveruse === true
     }
 
     // 如果需要立即刷新且必须成功（OpenAI 手动模式）
@@ -661,6 +689,38 @@ router.put('/:id', authenticateAdmin, async (req, res) => {
         mappedUpdates.accountInfo.emailVerified !== undefined
           ? mappedUpdates.accountInfo.emailVerified
           : currentAccount.emailVerified
+    }
+
+    const nextUsageProtectionFlags = {
+      autoStopOnFiveHourLimit: Object.prototype.hasOwnProperty.call(
+        mappedUpdates,
+        'autoStopOnFiveHourLimit'
+      )
+        ? toBoolean(mappedUpdates.autoStopOnFiveHourLimit)
+        : toBoolean(currentAccount.autoStopOnFiveHourLimit),
+      autoStopOnWeeklyLimit: Object.prototype.hasOwnProperty.call(
+        mappedUpdates,
+        'autoStopOnWeeklyLimit'
+      )
+        ? toBoolean(mappedUpdates.autoStopOnWeeklyLimit)
+        : toBoolean(currentAccount.autoStopOnWeeklyLimit),
+      autoStopOnDailyOveruse: Object.prototype.hasOwnProperty.call(
+        mappedUpdates,
+        'autoStopOnDailyOveruse'
+      )
+        ? toBoolean(mappedUpdates.autoStopOnDailyOveruse)
+        : toBoolean(currentAccount.autoStopOnDailyOveruse)
+    }
+
+    if (
+      currentAccount.usageLimitAutoStopped === 'true' &&
+      isUsageStopDisabled(currentAccount.usageLimitStopReason, nextUsageProtectionFlags)
+    ) {
+      updateData.schedulable = true
+      updateData.usageLimitAutoStopped = false
+      updateData.usageLimitStoppedAt = ''
+      updateData.usageLimitStopReason = ''
+      updateData.usageLimitResumeAt = ''
     }
 
     const updatedAccount = await openaiAccountService.updateAccount(id, updateData)

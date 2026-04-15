@@ -45,7 +45,8 @@
     "data:export:encrypted": "node scripts/data-transfer-enhanced.js export --decrypt=false",
     "data:import:enhanced": "node scripts/data-transfer-enhanced.js import",
     "data:debug": "node scripts/debug-redis-keys.js",
-    "test:pricing-fallback": "node scripts/test-pricing-fallback.js"
+    "test:pricing-fallback": "node scripts/test-pricing-fallback.js",
+    "mock:openai-account": "node scripts/mock-openai-account.js"
   },
   "dependencies": {
     "@aws-sdk/client-bedrock-runtime": "^3.861.0",

@@ -305,7 +305,9 @@ const handleResponses = async (req, res) => {
       null
 
     sessionHash = sessionId ? crypto.createHash('sha256').update(sessionId).digest('hex') : null
-    if (sessionId) setSessionId(sessionId)
+    if (sessionId) {
+      setSessionId(sessionId)
+    }
     logger.info(`🔍 handleResponses headers keys: ${Object.keys(req.headers).join(', ')}`)
     logger.info(`🔍 handleResponses sessionId=${sessionId}, sessionHash=${sessionHash}`)
 
@@ -449,6 +451,10 @@ const handleResponses = async (req, res) => {
     if (codexUsageSnapshot) {
       try {
         await openaiAccountService.updateCodexUsageSnapshot(accountId, codexUsageSnapshot)
+        const latestAccount = await openaiAccountService.getAccount(accountId)
+        if (latestAccount) {
+          await openaiAccountService.checkAndApplyUsageLimitStop(accountId, latestAccount)
+        }
       } catch (codexError) {
         logger.error('⚠️ 更新 Codex 使用统计失败:', codexError)
       }
@@ -692,8 +698,11 @@ const handleResponses = async (req, res) => {
             rawSessionId: sessionId || null,
             assistantContent: (() => {
               const blocks = _inputBlock ? [_inputBlock] : []
-              if (Array.isArray(_assistantBlocks)) blocks.push(..._assistantBlocks)
-              else if (_assistantBlocks) blocks.push(_assistantBlocks)
+              if (Array.isArray(_assistantBlocks)) {
+                blocks.push(..._assistantBlocks)
+              } else if (_assistantBlocks) {
+                blocks.push(_assistantBlocks)
+              }
               return blocks.length > 0 ? blocks : undefined
             })()
           })
@@ -871,7 +880,9 @@ const handleResponses = async (req, res) => {
             assistantBlocks.push({ type: 'text', text: assistantText })
           }
           const _inputBlock = buildInputMessagesBlock(req.body)
-          if (_inputBlock) assistantBlocks.unshift(_inputBlock)
+          if (_inputBlock) {
+            assistantBlocks.unshift(_inputBlock)
+          }
           const _usageExtra = buildUsageMetadata({
             body: req.body,
             format: 'openai',

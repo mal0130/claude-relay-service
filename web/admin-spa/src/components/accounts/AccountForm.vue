@@ -1999,6 +1999,13 @@
               </p>
             </div>
 
+            <OpenAIUsageProtectionFields
+              v-if="form.platform === 'openai'"
+              v-model:auto-stop-on-daily-overuse="form.autoStopOnDailyOveruse"
+              v-model:auto-stop-on-five-hour-limit="form.autoStopOnFiveHourLimit"
+              v-model:auto-stop-on-weekly-limit="form.autoStopOnWeeklyLimit"
+            />
+
             <!-- 手动输入 Token 字段 -->
             <div
               v-if="
@@ -3424,6 +3431,14 @@
             v-model:temp-unavailable-5xx-ttl-seconds="form.tempUnavailable5xxTtlSeconds"
           />
 
+          <OpenAIUsageProtectionFields
+            v-if="form.platform === 'openai'"
+            v-model:auto-stop-on-daily-overuse="form.autoStopOnDailyOveruse"
+            v-model:auto-stop-on-five-hour-limit="form.autoStopOnFiveHourLimit"
+            v-model:auto-stop-on-weekly-limit="form.autoStopOnWeeklyLimit"
+            container-class="mt-2 space-y-3"
+          />
+
           <!-- OpenAI-Responses 特定字段（编辑模式）-->
           <div v-if="form.platform === 'openai-responses'" class="space-y-4">
             <div>
@@ -4050,6 +4065,7 @@ import { useAccountsStore } from '@/stores/accounts'
 import ProxyConfig from './ProxyConfig.vue'
 import OAuthFlow from './OAuthFlow.vue'
 import TempUnavailablePolicyFields from './TempUnavailablePolicyFields.vue'
+import OpenAIUsageProtectionFields from './OpenAIUsageProtectionFields.vue'
 import ConfirmModal from '@/components/common/ConfirmModal.vue'
 import GroupManagementModal from './GroupManagementModal.vue'
 import ApiKeyManagementModal from './ApiKeyManagementModal.vue'
@@ -4322,6 +4338,9 @@ const form = ref({
   authenticationMethod: props.account?.authenticationMethod || '',
   subscriptionType: 'claude_max', // 默认为 Claude Max，兼容旧数据
   autoStopOnWarning: props.account?.autoStopOnWarning || false, // 5小时限制自动停止调度
+  autoStopOnFiveHourLimit: toFormBoolean(props.account?.autoStopOnFiveHourLimit), // OpenAI 5小时限额95%停止
+  autoStopOnWeeklyLimit: toFormBoolean(props.account?.autoStopOnWeeklyLimit), // OpenAI 周限额95%停止
+  autoStopOnDailyOveruse: toFormBoolean(props.account?.autoStopOnDailyOveruse), // OpenAI 按日均摊限流
   useUnifiedUserAgent: props.account?.useUnifiedUserAgent || false, // 使用统一Claude Code版本
   useUnifiedClientId: props.account?.useUnifiedClientId || false, // 使用统一的客户端标识
   unifiedClientId: props.account?.unifiedClientId || '', // 统一的客户端标识
@@ -5477,6 +5496,9 @@ const createAccount = async () => {
       data.needsImmediateRefresh = true
       data.requireRefreshSuccess = true // 必须刷新成功才能创建账户
       data.priority = form.value.priority || 50
+      data.autoStopOnFiveHourLimit = !!form.value.autoStopOnFiveHourLimit
+      data.autoStopOnWeeklyLimit = !!form.value.autoStopOnWeeklyLimit
+      data.autoStopOnDailyOveruse = !!form.value.autoStopOnDailyOveruse
     } else if (form.value.platform === 'droid') {
       data.priority = form.value.priority || 50
       data.endpointType = form.value.endpointType || 'anthropic'
@@ -5811,6 +5833,12 @@ const updateAccount = async () => {
     if (props.account.platform === 'droid') {
       data.priority = form.value.priority || 50
       data.endpointType = form.value.endpointType || 'anthropic'
+    }
+
+    if (props.account.platform === 'openai') {
+      data.autoStopOnFiveHourLimit = !!form.value.autoStopOnFiveHourLimit
+      data.autoStopOnWeeklyLimit = !!form.value.autoStopOnWeeklyLimit
+      data.autoStopOnDailyOveruse = !!form.value.autoStopOnDailyOveruse
     }
 
     // Claude 官方账号优先级和订阅类型更新
@@ -6448,6 +6476,9 @@ watch(
         accountType: newAccount.accountType || 'shared',
         subscriptionType: subscriptionType,
         autoStopOnWarning: newAccount.autoStopOnWarning || false,
+        autoStopOnFiveHourLimit: toFormBoolean(newAccount.autoStopOnFiveHourLimit),
+        autoStopOnWeeklyLimit: toFormBoolean(newAccount.autoStopOnWeeklyLimit),
+        autoStopOnDailyOveruse: toFormBoolean(newAccount.autoStopOnDailyOveruse),
         interceptWarmup:
           newAccount.interceptWarmup === true || newAccount.interceptWarmup === 'true',
         useUnifiedUserAgent: newAccount.useUnifiedUserAgent || false,

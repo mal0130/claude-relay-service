@@ -43,6 +43,10 @@ function toNumberOrNull(value) {
   return Number.isFinite(num) ? num : null
 }
 
+function toBoolean(value) {
+  return value === true || value === 'true'
+}
+
 function computeResetMeta(updatedAt, resetAfterSeconds) {
   if (!updatedAt || resetAfterSeconds === null || resetAfterSeconds === undefined) {
     return {
@@ -502,6 +506,19 @@ async function createAccount(accountData) {
       accountData.disableAutoProtection === true || accountData.disableAutoProtection === 'true'
         ? 'true'
         : 'false',
+    // 使用量自动停止调度
+    autoStopOnFiveHourLimit:
+      accountData.autoStopOnFiveHourLimit === true || accountData.autoStopOnFiveHourLimit === 'true'
+        ? 'true'
+        : 'false',
+    autoStopOnWeeklyLimit:
+      accountData.autoStopOnWeeklyLimit === true || accountData.autoStopOnWeeklyLimit === 'true'
+        ? 'true'
+        : 'false',
+    autoStopOnDailyOveruse:
+      accountData.autoStopOnDailyOveruse === true || accountData.autoStopOnDailyOveruse === 'true'
+        ? 'true'
+        : 'false',
     lastRefresh: now,
     createdAt: now,
     updatedAt: now
@@ -745,6 +762,9 @@ async function getAllAccounts() {
         ...accountData,
         isActive: accountData.isActive === 'true',
         schedulable: accountData.schedulable !== 'false',
+        autoStopOnFiveHourLimit: toBoolean(accountData.autoStopOnFiveHourLimit),
+        autoStopOnWeeklyLimit: toBoolean(accountData.autoStopOnWeeklyLimit),
+        autoStopOnDailyOveruse: toBoolean(accountData.autoStopOnDailyOveruse),
         openaiOauth: maskedOauth,
         accessToken: maskedAccessToken,
         refreshToken: maskedRefreshToken,
@@ -813,6 +833,9 @@ async function getAccountOverview(accountId) {
     platform: accountData.platform || 'openai',
     isActive: accountData.isActive === 'true',
     schedulable: accountData.schedulable !== 'false',
+    autoStopOnFiveHourLimit: toBoolean(accountData.autoStopOnFiveHourLimit),
+    autoStopOnWeeklyLimit: toBoolean(accountData.autoStopOnWeeklyLimit),
+    autoStopOnDailyOveruse: toBoolean(accountData.autoStopOnDailyOveruse),
     rateLimitStatus: rateLimitInfo || {
       status: 'normal',
       isRateLimited: false,
@@ -1230,6 +1253,106 @@ async function updateCodexUsageSnapshot(accountId, usageSnapshot) {
   await client.hset(`${OPENAI_ACCOUNT_KEY_PREFIX}${accountId}`, updates)
 }
 
+// 周限额按日均摊的累计上限（指数递减5天，第6/7天不分配新额度）
+// 第1天32%、第2天24%、第3天20%、第4天14%、第5天10%，累计：32/56/76/90/100
+const DAILY_BUDGET_CUMULATIVE = [32, 56, 76, 90, 100]
+
+// 5小时/周限额自动停止调度的阈值（百分比）
+const USAGE_LIMIT_STOP_THRESHOLD = 95
+
+// 检查并应用使用量限制停止调度逻辑
+async function checkAndApplyUsageLimitStop(accountId, accountData) {
+  // 已停止则跳过，防止重复触发
+  if (accountData.usageLimitAutoStopped === 'true') {
+    return
+  }
+
+  const primaryUsedPercent = toNumberOrNull(accountData.codexPrimaryUsedPercent)
+  const secondaryUsedPercent = toNumberOrNull(accountData.codexSecondaryUsedPercent)
+  const secondaryResetAfterSeconds = toNumberOrNull(accountData.codexSecondaryResetAfterSeconds)
+  const secondaryWindowMinutes = toNumberOrNull(accountData.codexSecondaryWindowMinutes)
+
+  let stopReason = null
+  let resumeAt = null
+
+  // 功能1：5小时限额达到阈值
+  if (accountData.autoStopOnFiveHourLimit === 'true' && primaryUsedPercent !== null) {
+    if (primaryUsedPercent >= USAGE_LIMIT_STOP_THRESHOLD) {
+      stopReason = '5小时限额使用量接近上限，已自动停止调度'
+    }
+  }
+
+  // 功能2：周限额达到阈值
+  if (
+    !stopReason &&
+    accountData.autoStopOnWeeklyLimit === 'true' &&
+    secondaryUsedPercent !== null
+  ) {
+    if (secondaryUsedPercent >= USAGE_LIMIT_STOP_THRESHOLD) {
+      stopReason = '周限额使用量接近上限，已自动停止调度'
+    }
+  }
+
+  // 功能3：周限额按日均摊（指数递减5天）
+  if (
+    !stopReason &&
+    accountData.autoStopOnDailyOveruse === 'true' &&
+    secondaryUsedPercent !== null &&
+    secondaryResetAfterSeconds !== null &&
+    secondaryWindowMinutes !== null
+  ) {
+    const elapsedMinutes = secondaryWindowMinutes - secondaryResetAfterSeconds / 60
+    const elapsedDays = elapsedMinutes / (24 * 60)
+    const dayIndex = Math.min(Math.floor(elapsedDays), DAILY_BUDGET_CUMULATIVE.length - 1)
+    const dailyBudgetMax = DAILY_BUDGET_CUMULATIVE[Math.max(0, dayIndex)]
+
+    if (secondaryUsedPercent > dailyBudgetMax) {
+      stopReason = '周限额当日均摊用量已超限，已自动停止调度'
+      // 计算次日本地时区零点作为恢复时间
+      const now = new Date()
+      const tzNow = redisClient.getDateInTimezone(now)
+      const tzTomorrow = new Date(tzNow)
+      tzTomorrow.setUTCDate(tzNow.getUTCDate() + 1)
+      tzTomorrow.setUTCHours(0, 0, 0, 0)
+      const offset = config.system.timezoneOffset ?? 8
+      resumeAt = new Date(tzTomorrow.getTime() - offset * 3600000).toISOString()
+    }
+  }
+
+  if (!stopReason) {
+    return
+  }
+
+  const now = new Date().toISOString()
+  const updates = {
+    schedulable: 'false',
+    usageLimitAutoStopped: 'true',
+    usageLimitStoppedAt: now,
+    usageLimitStopReason: stopReason,
+    usageLimitResumeAt: resumeAt || ''
+  }
+
+  await updateAccount(accountId, updates)
+
+  logger.warn(
+    `⛔ OpenAI 账号 ${accountData.name || accountId} 因使用量限制已自动停止调度：${stopReason}`
+  )
+
+  try {
+    const webhookNotifier = require('../../utils/webhookNotifier')
+    await webhookNotifier.sendAccountAnomalyNotification({
+      accountId,
+      accountName: accountData.name,
+      platform: 'openai',
+      status: 'warning',
+      errorCode: 'OPENAI_USAGE_LIMIT_WARNING',
+      reason: stopReason
+    })
+  } catch (err) {
+    logger.error('发送使用量限制 Webhook 通知失败:', err)
+  }
+}
+
 module.exports = {
   createAccount,
   getAccount,
@@ -1248,6 +1371,7 @@ module.exports = {
   updateAccountUsage,
   recordUsage, // 别名，指向updateAccountUsage
   updateCodexUsageSnapshot,
+  checkAndApplyUsageLimitStop,
   encrypt,
   decrypt,
   encryptor // 暴露加密器以便测试和监控
