@@ -847,6 +847,22 @@ uninstall_service() {
 }
 
 # 启动服务
+should_write_service_log() {
+    local arg
+    for arg in "$@"; do
+        case "$arg" in
+            --log-output)
+                return 0
+                ;;
+            --no-log-output)
+                return 1
+                ;;
+        esac
+    done
+
+    return 1
+}
+
 start_service() {
     if ! check_installation; then
         print_error "服务未安装，请先运行: $0 install"
@@ -867,7 +883,16 @@ start_service() {
     mkdir -p "$APP_DIR/logs"
     
     # 检查pm2是否可用并且不是从package.json脚本调用的
-    if command_exists pm2 && [ "$1" != "--no-pm2" ]; then
+    local use_pm2=true
+    local arg
+    for arg in "$@"; do
+        if [ "$arg" = "--no-pm2" ]; then
+            use_pm2=false
+            break
+        fi
+    done
+
+    if command_exists pm2 && [ "$use_pm2" = true ]; then
         print_info "使用 pm2 启动服务..."
         # 直接使用pm2启动，避免循环调用
         pm2 start "$APP_DIR/src/app.js" --name "claude-relay" --log "$APP_DIR/logs/pm2.log" 2>/dev/null
@@ -879,10 +904,10 @@ start_service() {
             pm2 save 2>/dev/null || true
         else
             print_warning "pm2 启动失败，尝试直接启动..."
-            start_service_direct
+            start_service_direct "$@"
         fi
     else
-        start_service_direct
+        start_service_direct "$@"
     fi
     
     sleep 2
@@ -891,8 +916,13 @@ start_service() {
     if pgrep -f "node.*src/app.js" > /dev/null; then
         show_status
     else
-        print_error "服务启动失败，请查看日志: $APP_DIR/logs/service.log"
-        if [ -f "$APP_DIR/logs/service.log" ]; then
+        if should_write_service_log "$@"; then
+            print_error "服务启动失败，请查看日志: $APP_DIR/logs/service.log"
+        else
+            print_error "服务启动失败，可使用 '$0 start --no-pm2 --log-output' 查看 service.log"
+        fi
+
+        if should_write_service_log "$@" && [ -f "$APP_DIR/logs/service.log" ]; then
             echo "最近的错误日志："
             tail -n 20 "$APP_DIR/logs/service.log"
         fi
@@ -903,11 +933,17 @@ start_service() {
 # 直接启动服务（不使用pm2）
 start_service_direct() {
     print_info "使用后台进程启动服务..."
+
+    local output_target="/dev/null"
+    if should_write_service_log "$@"; then
+        output_target="$APP_DIR/logs/service.log"
+        print_info "输出将写入: $output_target"
+    fi
     
     # 使用setsid创建新会话，确保进程完全脱离终端
     if command_exists setsid; then
         # setsid方式（推荐）
-        setsid nohup node "$APP_DIR/src/app.js" > "$APP_DIR/logs/service.log" 2>&1 < /dev/null &
+        setsid nohup node "$APP_DIR/src/app.js" > "$output_target" 2>&1 < /dev/null &
         local pid=$!
         sleep 1
         
@@ -922,7 +958,7 @@ start_service_direct() {
         fi
     else
         # 备用方式：使用nohup和disown
-        nohup node "$APP_DIR/src/app.js" > "$APP_DIR/logs/service.log" 2>&1 < /dev/null &
+        nohup node "$APP_DIR/src/app.js" > "$output_target" 2>&1 < /dev/null &
         local pid=$!
         disown $pid 2>/dev/null || true
         echo $pid > "$APP_DIR/.pid"
@@ -994,7 +1030,7 @@ restart_service() {
         # 清除可能的僵尸进程检测
         if ! pgrep -f "node.*src/app.js" > /dev/null; then
             # 进程确实已停止，可以启动
-            if start_service; then
+            if start_service "$@"; then
                 return 0
             fi
         fi
@@ -1426,14 +1462,16 @@ show_help() {
     echo "Claude Relay Service 管理脚本"
     echo ""
     echo "用法: $0 [命令]"
+    echo "      $0 start [--no-pm2] [--log-output|--no-log-output]"
+    echo "      $0 restart [--no-pm2] [--log-output|--no-log-output]"
     echo ""
     echo "命令:"
     echo "  install        - 安装服务"
     echo "  update         - 更新服务"
     echo "  uninstall      - 卸载服务"
-    echo "  start          - 启动服务"
+    echo "  start          - 启动服务（直启默认不写 service.log）"
     echo "  stop           - 停止服务"
-    echo "  restart        - 重启服务"
+    echo "  restart        - 重启服务（支持透传启动参数）"
     echo "  status         - 查看状态"
     echo "  switch-branch  - 切换分支"
     echo "  update-pricing - 更新模型价格数据"
@@ -1843,13 +1881,13 @@ main() {
             uninstall_service
             ;;
         start)
-            start_service
+            start_service "${@:2}"
             ;;
         stop)
             stop_service
             ;;
         restart)
-            restart_service
+            restart_service "${@:2}"
             ;;
         status)
             show_status
