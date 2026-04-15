@@ -2117,9 +2117,17 @@ const requestLogger = (req, res, next) => {
     // 构建树形 metadata
     const meta = { requestId }
 
-    // 请求体（非 GET 且有内容时显示）
+    // 请求体（非 GET 且有内容时显示，截断大 input/messages 数组只保留最后50条）
     if (req.method !== 'GET' && req.body && Object.keys(req.body).length > 0) {
-      meta.req = req.body
+      const { tools: _tools, ...rest } = req.body
+      const _arr = rest.input || rest.messages
+      if (Array.isArray(_arr) && _arr.length > 50) {
+        const _key = rest.input ? 'input' : 'messages'
+        meta.req = { ...rest, [_key]: _arr.slice(-50), _inputTruncated: _arr.length }
+      } else {
+        meta.req = rest
+      }
+      if (_tools !== undefined) meta.req._toolsOmitted = Array.isArray(_tools) ? _tools.length : true
     }
 
     // 查询参数（GET 请求且有查询参数时单独显示）
