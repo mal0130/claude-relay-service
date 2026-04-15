@@ -618,7 +618,7 @@ update_service() {
             # 如果之前在运行，重新启动服务
             if [ "$was_running" = true ]; then
                 print_info "重新启动服务..."
-                start_service
+                start_service "$@"
             fi
             return 0
         fi
@@ -759,7 +759,7 @@ update_service() {
     # 如果之前在运行，则重新启动服务
     if [ "$was_running" = true ]; then
         print_info "重新启动服务..."
-        start_service
+        start_service "$@"
     fi
     
     print_success "更新完成！"
@@ -1875,7 +1875,7 @@ main() {
             create_symlink
             ;;
         update)
-            update_service
+            update_service "${@:2}"
             ;;
         uninstall)
             uninstall_service
