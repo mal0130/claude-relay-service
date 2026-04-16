@@ -946,16 +946,16 @@ start_service() {
 
         if [ "$pm2_instances" = "max" ]; then
             print_info "启用 pm2 cluster 模式，实例数: max"
-            pm2_args+=(--instances max --exec-mode cluster)
+            pm2_args+=(-i max)
         elif [[ "$pm2_instances" =~ ^[0-9]+$ ]] && [ "$pm2_instances" -gt 1 ]; then
             print_info "启用 pm2 cluster 模式，实例数: $pm2_instances"
-            pm2_args+=(--instances "$pm2_instances" --exec-mode cluster)
+            pm2_args+=(-i "$pm2_instances")
         else
             print_info "使用 pm2 fork 模式，实例数: 1"
         fi
 
         # 直接使用pm2启动，避免循环调用
-        pm2 "${pm2_args[@]}" 2>/dev/null
+        pm2 "${pm2_args[@]}"
         sleep 2
         
         # 检查是否启动成功
