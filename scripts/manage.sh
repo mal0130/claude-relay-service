@@ -863,6 +863,33 @@ should_write_service_log() {
     return 1
 }
 
+get_pm2_instances() {
+    local args=("$@")
+    local index=0
+
+    while [ $index -lt ${#args[@]} ]; do
+        case "${args[$index]}" in
+            --instances)
+                index=$((index + 1))
+                if [ $index -lt ${#args[@]} ]; then
+                    echo "${args[$index]}"
+                    return 0
+                fi
+                print_error "--instances 需要指定实例数量，例如 --instances 2" >&2
+                return 1
+                ;;
+            --instances=*)
+                echo "${args[$index]#--instances=}"
+                return 0
+                ;;
+        esac
+        index=$((index + 1))
+    done
+
+    echo "1"
+    return 0
+}
+
 start_service() {
     if ! check_installation; then
         print_error "服务未安装，请先运行: $0 install"
@@ -892,10 +919,43 @@ start_service() {
         fi
     done
 
+    local pm2_instances
+    if ! pm2_instances=$(get_pm2_instances "$@"); then
+        return 1
+    fi
+    if [ "$pm2_instances" != "max" ] && ! [[ "$pm2_instances" =~ ^[0-9]+$ ]]; then
+        print_error "--instances 仅支持正整数或 max，例如 --instances 2"
+        return 1
+    fi
+    if [[ "$pm2_instances" =~ ^[0-9]+$ ]] && [ "$pm2_instances" -lt 1 ]; then
+        print_error "--instances 最小值为 1"
+        return 1
+    fi
+
     if command_exists pm2 && [ "$use_pm2" = true ]; then
         print_info "使用 pm2 启动服务..."
+
+        local pm2_args=(
+            start
+            "$APP_DIR/src/app.js"
+            --name
+            "claude-relay"
+            --log
+            "$APP_DIR/logs/pm2.log"
+        )
+
+        if [ "$pm2_instances" = "max" ]; then
+            print_info "启用 pm2 cluster 模式，实例数: max"
+            pm2_args+=(--instances max --exec-mode cluster)
+        elif [[ "$pm2_instances" =~ ^[0-9]+$ ]] && [ "$pm2_instances" -gt 1 ]; then
+            print_info "启用 pm2 cluster 模式，实例数: $pm2_instances"
+            pm2_args+=(--instances "$pm2_instances" --exec-mode cluster)
+        else
+            print_info "使用 pm2 fork 模式，实例数: 1"
+        fi
+
         # 直接使用pm2启动，避免循环调用
-        pm2 start "$APP_DIR/src/app.js" --name "claude-relay" --log "$APP_DIR/logs/pm2.log" 2>/dev/null
+        pm2 "${pm2_args[@]}" 2>/dev/null
         sleep 2
         
         # 检查是否启动成功
@@ -907,6 +967,9 @@ start_service() {
             start_service_direct "$@"
         fi
     else
+        if [ "$pm2_instances" != "1" ]; then
+            print_warning "未使用 pm2，--instances 参数将被忽略"
+        fi
         start_service_direct "$@"
     fi
     
@@ -1462,14 +1525,15 @@ show_help() {
     echo "Claude Relay Service 管理脚本"
     echo ""
     echo "用法: $0 [命令]"
-    echo "      $0 start [--no-pm2] [--log-output|--no-log-output]"
-    echo "      $0 restart [--no-pm2] [--log-output|--no-log-output]"
+    echo "      $0 start [--no-pm2] [--instances N|max] [--log-output|--no-log-output]"
+    echo "      $0 restart [--no-pm2] [--instances N|max] [--log-output|--no-log-output]"
+    echo "      $0 update [--no-pm2] [--instances N|max] [--log-output|--no-log-output]"
     echo ""
     echo "命令:"
     echo "  install        - 安装服务"
     echo "  update         - 更新服务"
     echo "  uninstall      - 卸载服务"
-    echo "  start          - 启动服务（直启默认不写 service.log）"
+    echo "  start          - 启动服务（pm2 支持 --instances 多核，直启默认不写 service.log）"
     echo "  stop           - 停止服务"
     echo "  restart        - 重启服务（支持透传启动参数）"
     echo "  status         - 查看状态"
