@@ -22,6 +22,7 @@ const { getSafeMessage } = require('../utils/errorSanitizer')
 const ProxyHelper = require('../utils/proxyHelper')
 const upstreamErrorHelper = require('../utils/upstreamErrorHelper')
 const { buildUsageMetadata } = require('../utils/userInputExtractor')
+const { createRequestDetailMeta } = require('../utils/requestDetailHelper')
 
 // 处理 Gemini 上游错误，标记账户为临时不可用
 const handleGeminiUpstreamError = async (
@@ -597,8 +598,12 @@ async function handleMessages(req, res) {
               accountId,
               'gemini',
               null,
-              null,
-              _usageExtra
+              _usageExtra,
+              createRequestDetailMeta(req, {
+                requestBody: req.body,
+                stream,
+                statusCode: res.statusCode || 200
+              })
             )
           }
         }
@@ -635,7 +640,11 @@ async function handleMessages(req, res) {
             headers: req.headers,
             sessionId: sessionHash || null,
             rawSessionId: req.headers['x-session-id'] || req.body?.session_id || null
-          }
+          },
+          requestMeta: createRequestDetailMeta(req, {
+            requestBody: req.body,
+            stream
+          })
         })
       } else {
         geminiResponse = await sendGeminiRequest({
@@ -656,7 +665,11 @@ async function handleMessages(req, res) {
             headers: req.headers,
             sessionId: sessionHash || null,
             rawSessionId: req.headers['x-session-id'] || req.body?.session_id || null
-          }
+          },
+          requestMeta: createRequestDetailMeta(req, {
+            requestBody: req.body,
+            stream
+          })
         })
       }
     }
@@ -745,8 +758,12 @@ async function handleMessages(req, res) {
                 accountId,
                 'gemini',
                 null,
-                null,
-                _usageExtra
+                _usageExtra,
+                createRequestDetailMeta(req, {
+                  requestBody: req.body,
+                  stream: true,
+                  statusCode: res.statusCode
+                })
               )
               .then(() => {
                 logger.info(
@@ -1772,8 +1789,12 @@ async function handleGenerateContent(req, res) {
           account.id,
           'gemini',
           null,
-          null,
-          _usageExtra
+          _usageExtra,
+          createRequestDetailMeta(req, {
+            requestBody: req.body,
+            stream: false,
+            statusCode: res.statusCode || 200
+          })
         )
         logger.info(
           `📊 Recorded Gemini usage - Input: ${usage.promptTokenCount}, Output: ${usage.candidatesTokenCount}, Total: ${usage.totalTokenCount}`
@@ -2132,8 +2153,12 @@ async function handleStreamGenerateContent(req, res) {
             account.id,
             'gemini',
             null,
-            null,
-            _usageExtra
+            _usageExtra,
+            createRequestDetailMeta(req, {
+              requestBody: req.body,
+              stream: true,
+              statusCode: res.statusCode
+            })
           )
           .then((costs) =>
             applyRateLimitTracking(
@@ -2496,8 +2521,12 @@ async function handleStandardGenerateContent(req, res) {
           accountId,
           'gemini',
           null,
-          null,
-          _usageExtra
+          _usageExtra,
+          createRequestDetailMeta(req, {
+            requestBody: req.body,
+            stream: false,
+            statusCode: res.statusCode || 200
+          })
         )
         logger.info(
           `📊 Recorded Gemini usage - Input: ${usage.promptTokenCount}, Output: ${usage.candidatesTokenCount}, Total: ${usage.totalTokenCount}`
@@ -2948,8 +2977,12 @@ async function handleStandardStreamGenerateContent(req, res) {
             accountId,
             'gemini',
             null,
-            null,
-            _usageExtra
+            _usageExtra,
+            createRequestDetailMeta(req, {
+              requestBody: req.body,
+              stream: true,
+              statusCode: res.statusCode
+            })
           )
           .then(() => {
             logger.info(

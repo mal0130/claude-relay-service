@@ -23,6 +23,7 @@ const {
   applyReasoningTranslation,
   shouldTranslateForKey
 } = require('../utils/reasoningTranslationTransformer')
+const { createRequestDetailMeta } = require('../utils/requestDetailHelper')
 const config = require('../../config/config')
 
 // 🔧 辅助函数：检查 API Key 权限
@@ -390,7 +391,12 @@ async function handleChatCompletion(req, res, apiKeyData) {
               model,
               accountId,
               accountType,
-              buildStreamUsageExtra()
+              buildStreamUsageExtra(),
+              createRequestDetailMeta(req, {
+                requestBody: req.body,
+                stream: true,
+                statusCode: res.statusCode
+              })
             )
             .then((costs) => {
               queueRateLimitUpdate(
@@ -458,7 +464,9 @@ async function handleChatCompletion(req, res, apiKeyData) {
                   if (typeof rc === 'string' && rc) {
                     streamedTranslatedText.push(rc)
                   }
-                } catch (_e) {}
+                } catch (_e) {
+                  void _e
+                }
               }
             }
           }
@@ -598,7 +606,12 @@ async function handleChatCompletion(req, res, apiKeyData) {
             claudeRequest.model,
             accountId,
             accountType,
-            usageExtra
+            usageExtra,
+            createRequestDetailMeta(req, {
+              requestBody: req.body,
+              stream: false,
+              statusCode: res.statusCode
+            })
           )
           .then((costs) => {
             queueRateLimitUpdate(

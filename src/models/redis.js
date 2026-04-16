@@ -773,11 +773,26 @@ class RedisClient {
     const parsed = { ...data }
 
     // 布尔字段
-    const boolFields = ['isActive', 'enableModelRestriction', 'isDeleted', 'translateReasoning']
+    const boolFields = [
+      'isActive',
+      'enableModelRestriction',
+      'enableClientRestriction',
+      'enableOpenAIResponsesCodexAdaptation',
+      'enableOpenAIResponsesPayloadRules',
+      'isDeleted',
+      'translateReasoning'
+    ]
     for (const field of boolFields) {
       if (parsed[field] !== undefined) {
         parsed[field] = parsed[field] === 'true'
       }
+    }
+
+    if (parsed.enableOpenAIResponsesCodexAdaptation === undefined) {
+      parsed.enableOpenAIResponsesCodexAdaptation = true
+    }
+    if (parsed.enableOpenAIResponsesPayloadRules === undefined) {
+      parsed.enableOpenAIResponsesPayloadRules = false
     }
 
     // 数字字段
@@ -799,7 +814,13 @@ class RedisClient {
     }
 
     // 数组字段（JSON 解析）
-    const arrayFields = ['tags', 'restrictedModels', 'allowedClients', 'rateLimits']
+    const arrayFields = [
+      'tags',
+      'restrictedModels',
+      'allowedClients',
+      'rateLimits',
+      'openaiResponsesPayloadRules'
+    ]
     for (const field of arrayFields) {
       if (parsed[field]) {
         try {
@@ -808,6 +829,10 @@ class RedisClient {
           parsed[field] = []
         }
       }
+    }
+
+    if (!Array.isArray(parsed.openaiResponsesPayloadRules)) {
+      parsed.openaiResponsesPayloadRules = []
     }
 
     // 对象字段（JSON 解析）

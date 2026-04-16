@@ -8,6 +8,7 @@ const apiKeyService = require('../services/apiKeyService')
 const crypto = require('crypto')
 const upstreamErrorHelper = require('../utils/upstreamErrorHelper')
 const { buildUsageMetadata } = require('../utils/userInputExtractor')
+const { createRequestDetailMeta } = require('../utils/requestDetailHelper')
 
 // 支持的模型列表 - 基于真实的 Azure OpenAI 模型
 const ALLOWED_MODELS = {
@@ -37,7 +38,15 @@ class AtomicUsageReporter {
     this.pendingReports = new Map()
   }
 
-  async reportOnce(requestId, usageData, apiKeyId, modelToRecord, accountId, extra = {}) {
+  async reportOnce(
+    requestId,
+    usageData,
+    apiKeyId,
+    modelToRecord,
+    accountId,
+    extra = {},
+    requestMeta = null
+  ) {
     if (this.reportedUsage.has(requestId)) {
       logger.debug(`Usage already reported for request: ${requestId}`)
       return false
@@ -54,7 +63,8 @@ class AtomicUsageReporter {
       apiKeyId,
       modelToRecord,
       accountId,
-      extra
+      extra,
+      requestMeta
     )
     this.pendingReports.set(requestId, reportPromise)
 
@@ -69,7 +79,15 @@ class AtomicUsageReporter {
     }
   }
 
-  async _performReport(requestId, usageData, apiKeyId, modelToRecord, accountId, extra = {}) {
+  async _performReport(
+    requestId,
+    usageData,
+    apiKeyId,
+    modelToRecord,
+    accountId,
+    extra = {},
+    requestMeta = null
+  ) {
     try {
       const inputTokens = usageData.prompt_tokens || usageData.input_tokens || 0
       const outputTokens = usageData.completion_tokens || usageData.output_tokens || 0
@@ -92,8 +110,8 @@ class AtomicUsageReporter {
         accountId,
         'azure-openai',
         null,
-        null,
-        extra
+        extra,
+        requestMeta
       )
 
       // 同步更新 Azure 账户的 lastUsedAt 和累计使用量
@@ -237,7 +255,12 @@ router.post('/chat/completions', authenticateApiKey, async (req, res) => {
               req.apiKey.id,
               modelToRecord,
               account.id,
-              _usageExtra
+              _usageExtra,
+              createRequestDetailMeta(req, {
+                requestBody: req.body,
+                stream: true,
+                statusCode: res.statusCode
+              })
             )
           }
         },
@@ -267,7 +290,12 @@ router.post('/chat/completions', authenticateApiKey, async (req, res) => {
           req.apiKey.id,
           modelToRecord,
           account.id,
-          _usageExtra
+          _usageExtra,
+          createRequestDetailMeta(req, {
+            requestBody: req.body,
+            stream: false,
+            statusCode: response.status
+          })
         )
       }
     }
@@ -376,7 +404,12 @@ router.post('/responses', authenticateApiKey, async (req, res) => {
               req.apiKey.id,
               modelToRecord,
               account.id,
-              _usageExtra
+              _usageExtra,
+              createRequestDetailMeta(req, {
+                requestBody: req.body,
+                stream: true,
+                statusCode: res.statusCode
+              })
             )
           }
         },
@@ -406,7 +439,12 @@ router.post('/responses', authenticateApiKey, async (req, res) => {
           req.apiKey.id,
           modelToRecord,
           account.id,
-          _usageExtra
+          _usageExtra,
+          createRequestDetailMeta(req, {
+            requestBody: req.body,
+            stream: false,
+            statusCode: response.status
+          })
         )
       }
     }
@@ -514,7 +552,12 @@ router.post('/embeddings', authenticateApiKey, async (req, res) => {
         req.apiKey.id,
         modelToRecord,
         account.id,
-        _usageExtra
+        _usageExtra,
+        createRequestDetailMeta(req, {
+          requestBody: req.body,
+          stream: false,
+          statusCode: response.status
+        })
       )
     }
   } catch (error) {

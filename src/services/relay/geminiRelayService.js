@@ -107,7 +107,14 @@ function convertGeminiResponse(geminiResponse, model, stream = false) {
 }
 
 // 处理流式响应
-async function* handleStreamResponse(response, model, apiKeyId, accountId = null, extra = {}) {
+async function* handleStreamResponse(
+  response,
+  model,
+  apiKeyId,
+  accountId = null,
+  extra = {},
+  requestMeta = null
+) {
   let buffer = ''
   let totalUsage = {
     promptTokenCount: 0,
@@ -171,8 +178,8 @@ async function* handleStreamResponse(response, model, apiKeyId, accountId = null
                   accountId,
                   'gemini',
                   null,
-                  null,
-                  usageExtra
+                  usageExtra,
+                  requestMeta
                 )
                 .catch((error) => {
                   logger.error('❌ Failed to record Gemini usage:', error)
@@ -239,7 +246,8 @@ async function sendGeminiRequest({
   projectId,
   location = 'us-central1',
   accountId = null,
-  extra = {}
+  extra = {},
+  requestMeta = null
 }) {
   // 确保模型名称格式正确
   if (!model.startsWith('models/')) {
@@ -316,7 +324,7 @@ async function sendGeminiRequest({
         : extra
 
     if (stream) {
-      return handleStreamResponse(response, model, apiKeyId, accountId, usageExtra)
+      return handleStreamResponse(response, model, apiKeyId, accountId, usageExtra, requestMeta)
     } else {
       // 非流式响应
       const openaiResponse = convertGeminiResponse(response.data, model, false)
@@ -334,8 +342,8 @@ async function sendGeminiRequest({
             accountId,
             'gemini',
             null,
-            null,
-            usageExtra
+            usageExtra,
+            requestMeta
           )
           .catch((error) => {
             logger.error('❌ Failed to record Gemini usage:', error)
