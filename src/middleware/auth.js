@@ -1008,7 +1008,8 @@ const authenticateApiKey = async (req, res, next) => {
         // 3. 排队功能未启用，直接返回 429（保持现有行为）
         if (!queueConfig.concurrentRequestQueueEnabled) {
           logger.security(
-            `🚦 Concurrency limit exceeded for key: ${validation.keyData.id} (${validation.keyData.name
+            `🚦 Concurrency limit exceeded for key: ${validation.keyData.id} (${
+              validation.keyData.name
             }), current: ${currentConcurrency - 1}, limit: ${concurrencyLimit}`
           )
           // 建议客户端在短暂延迟后重试（并发场景下通常很快会有槽位释放）
@@ -1040,9 +1041,9 @@ const authenticateApiKey = async (req, res, next) => {
           const currentQueueCount = overloadCheck.currentQueueCount || 0
           logger.api(
             `🚨 Queue overloaded for key: ${validation.keyData.id} (${validation.keyData.name}), ` +
-            `P90=${overloadCheck.estimatedWaitMs}ms, timeout=${overloadCheck.timeoutMs}ms, ` +
-            `threshold=${overloadCheck.threshold}, samples=${overloadCheck.sampleCount}, ` +
-            `concurrency=${concurrencyLimit}, queue=${currentQueueCount}/${maxQueueSize}`
+              `P90=${overloadCheck.estimatedWaitMs}ms, timeout=${overloadCheck.timeoutMs}ms, ` +
+              `threshold=${overloadCheck.threshold}, samples=${overloadCheck.sampleCount}, ` +
+              `concurrency=${concurrencyLimit}, queue=${currentQueueCount}/${maxQueueSize}`
           )
           // 记录被拒绝的过载统计
           redis
@@ -1080,7 +1081,7 @@ const authenticateApiKey = async (req, res, next) => {
             queueIncremented = false
             logger.api(
               `🚦 Concurrency queue full for key: ${validation.keyData.id} (${validation.keyData.name}), ` +
-              `queue: ${newQueueCount - 1}, maxQueue: ${maxQueueSize}`
+                `queue: ${newQueueCount - 1}, maxQueue: ${maxQueueSize}`
             )
             // 队列已满，建议客户端在排队超时时间后重试
             const retryAfterSeconds = Math.ceil(queueConfig.concurrentRequestQueueTimeoutMs / 1000)
@@ -1100,7 +1101,7 @@ const authenticateApiKey = async (req, res, next) => {
           // 6. 已成功进入排队，记录统计并开始等待槽位
           logger.api(
             `⏳ Request entering queue for key: ${validation.keyData.id} (${validation.keyData.name}), ` +
-            `queue position: ${newQueueCount}`
+              `queue position: ${newQueueCount}`
           )
           redis
             .incrConcurrencyQueueStats(validation.keyData.id, 'entered')
@@ -1193,7 +1194,7 @@ const authenticateApiKey = async (req, res, next) => {
           // 8. 排队成功，slot.acquired 表示已在 waitForConcurrencySlot 中获取到槽位
           logger.api(
             `✅ Queue wait completed for key: ${validation.keyData.id} (${validation.keyData.name}), ` +
-            `waited: ${slot.waitTimeMs}ms`
+              `waited: ${slot.waitTimeMs}ms`
           )
           hasConcurrencySlot = true
           setTemporaryConcurrencyCleanup()
@@ -1208,8 +1209,8 @@ const authenticateApiKey = async (req, res, next) => {
           if (res.destroyed || res.writableEnded || postQueueSocket?.destroyed) {
             logger.warn(
               `⚠️ Client no longer waiting after queue for key: ${validation.keyData.id} (${validation.keyData.name}), ` +
-              `waited: ${slot.waitTimeMs}ms | destroyed: ${res.destroyed}, ` +
-              `writableEnded: ${res.writableEnded}, socketDestroyed: ${postQueueSocket?.destroyed}`
+                `waited: ${slot.waitTimeMs}ms | destroyed: ${res.destroyed}, ` +
+                `writableEnded: ${res.writableEnded}, socketDestroyed: ${postQueueSocket?.destroyed}`
             )
             // 释放刚获取的槽位
             hasConcurrencySlot = false
@@ -1233,10 +1234,10 @@ const authenticateApiKey = async (req, res, next) => {
           if (socketIdentityChanged) {
             logger.error(
               `❌ [Queue] Socket identity changed during queue wait! ` +
-              `key: ${validation.keyData.id} (${validation.keyData.name}), ` +
-              `waited: ${slot.waitTimeMs}ms | ` +
-              `tokenMatch: ${queueData?.queueToken === savedToken}, ` +
-              `socketMatch: ${queueData?.originalSocket === savedSocket}`
+                `key: ${validation.keyData.id} (${validation.keyData.name}), ` +
+                `waited: ${slot.waitTimeMs}ms | ` +
+                `tokenMatch: ${queueData?.queueToken === savedToken}, ` +
+                `socketMatch: ${queueData?.originalSocket === savedSocket}`
             )
             // 释放刚获取的槽位
             hasConcurrencySlot = false
@@ -1507,7 +1508,8 @@ const authenticateApiKey = async (req, res, next) => {
         if (ruleCost > 0) {
           if (currentCost >= ruleCost) {
             logger.security(
-              `💰 Rate limit exceeded (cost, rule ${i}) for key: ${validation.keyData.id} (${validation.keyData.name
+              `💰 Rate limit exceeded (cost, rule ${i}) for key: ${validation.keyData.id} (${
+                validation.keyData.name
               }), cost: $${currentCost.toFixed(2)}/$${ruleCost}, window: ${ruleWindow}min`
             )
             return res.status(429).json({
@@ -1554,7 +1556,8 @@ const authenticateApiKey = async (req, res, next) => {
 
       if (dailyCost >= dailyCostLimit) {
         logger.security(
-          `💰 Daily cost limit exceeded for key: ${validation.keyData.id} (${validation.keyData.name
+          `💰 Daily cost limit exceeded for key: ${validation.keyData.id} (${
+            validation.keyData.name
           }), cost: $${dailyCost.toFixed(2)}/$${dailyCostLimit}`
         )
 
@@ -1573,7 +1576,8 @@ const authenticateApiKey = async (req, res, next) => {
 
       // 记录当前费用使用情况
       logger.api(
-        `💰 Cost usage for key: ${validation.keyData.id} (${validation.keyData.name
+        `💰 Cost usage for key: ${validation.keyData.id} (${
+          validation.keyData.name
         }), current: $${dailyCost.toFixed(2)}/$${dailyCostLimit}`
       )
     }
@@ -1585,7 +1589,8 @@ const authenticateApiKey = async (req, res, next) => {
 
       if (totalCost >= totalCostLimit) {
         logger.security(
-          `💰 Total cost limit exceeded for key: ${validation.keyData.id} (${validation.keyData.name
+          `💰 Total cost limit exceeded for key: ${validation.keyData.id} (${
+            validation.keyData.name
           }), cost: $${totalCost.toFixed(2)}/$${totalCostLimit}`
         )
 
@@ -1602,7 +1607,8 @@ const authenticateApiKey = async (req, res, next) => {
       }
 
       logger.api(
-        `💰 Total cost usage for key: ${validation.keyData.id} (${validation.keyData.name
+        `💰 Total cost usage for key: ${validation.keyData.id} (${
+          validation.keyData.name
         }), current: $${totalCost.toFixed(2)}/$${totalCostLimit}`
       )
     }
@@ -1620,7 +1626,8 @@ const authenticateApiKey = async (req, res, next) => {
 
         if (weeklyOpusCost >= weeklyOpusCostLimit) {
           logger.security(
-            `💰 Weekly Claude cost limit exceeded for key: ${validation.keyData.id} (${validation.keyData.name
+            `💰 Weekly Claude cost limit exceeded for key: ${validation.keyData.id} (${
+              validation.keyData.name
             }), cost: $${weeklyOpusCost.toFixed(2)}/$${weeklyOpusCostLimit}`
           )
 
@@ -1644,7 +1651,8 @@ const authenticateApiKey = async (req, res, next) => {
 
         // 记录当前 Claude 费用使用情况
         logger.api(
-          `💰 Claude weekly cost usage for key: ${validation.keyData.id} (${validation.keyData.name
+          `💰 Claude weekly cost usage for key: ${validation.keyData.id} (${
+            validation.keyData.name
           }), current: $${weeklyOpusCost.toFixed(2)}/$${weeklyOpusCostLimit}`
         )
       }
@@ -2133,13 +2141,70 @@ const requestLogger = (req, res, next) => {
   const userAgent = req.get('User-Agent') || 'unknown'
   const referer = req.get('Referer') || 'none'
 
-  // 请求开始 → debug 级别（减少正常请求的日志量）
+  // 请求开始 → 入口处记录完整请求内容
   const isDebugRoute = req.originalUrl.includes('event_logging')
   if (req.originalUrl !== '/health') {
-    logger.debug(`▶ [${requestId}] ${req.method} ${req.originalUrl}`, {
-      ip: clientIP,
-      body: req.body && Object.keys(req.body).length > 0 ? req.body : undefined
-    })
+    const _reqMeta = { ip: clientIP }
+    if (req.method !== 'GET' && req.body && Object.keys(req.body).length > 0) {
+      const { tools: _tools, ...rest } = req.body
+      const _arr = rest.input || rest.messages
+      const _MEDIA_TYPES = new Set(['image', 'image_url', 'file', 'document', 'input_image'])
+      const _MEDIA_KEYS = new Set(['image_url', 'image_data', 'base64'])
+      const _dataLen = (v) => {
+        if (typeof v === 'string') {
+          return v.length
+        }
+        try {
+          return JSON.stringify(v)?.length ?? 0
+        } catch {
+          return -1
+        }
+      }
+      const _stripMedia = (val, depth = 0) => {
+        if (depth > 10) {
+          return '[too deep]'
+        }
+        if (Array.isArray(val)) {
+          return val.map((item) => _stripMedia(item, depth + 1))
+        }
+        if (val && typeof val === 'object') {
+          if (_MEDIA_TYPES.has(val.type)) {
+            const dataVal = val.image_url ?? val.data ?? val.url ?? val.source ?? val.base64
+            return {
+              type: val.type,
+              _mediaOmitted: true,
+              _mediaBytes: dataVal ? _dataLen(dataVal) : undefined
+            }
+          }
+          const result = {}
+          for (const [k, v] of Object.entries(val)) {
+            result[k] =
+              _MEDIA_KEYS.has(k) && v ? `[media only, ${_dataLen(v)}B]` : _stripMedia(v, depth + 1)
+          }
+          return result
+        }
+        return val
+      }
+      if (Array.isArray(_arr)) {
+        const kept = _arr.length > 50 ? _arr.slice(-50) : _arr
+        const _key = rest.input ? 'input' : 'messages'
+        _reqMeta.req = {
+          ...rest,
+          [_key]: _stripMedia(kept),
+          ...(_arr.length > 50 ? { _inputTruncated: _arr.length } : {})
+        }
+      } else {
+        _reqMeta.req = _stripMedia(rest)
+      }
+      if (_tools !== undefined) {
+        _reqMeta.req._toolsOmitted = Array.isArray(_tools) ? _tools.length : true
+      }
+    }
+    if (isDebugRoute) {
+      logger.debug(`▶ [${requestId}] ${req.method} ${req.originalUrl}`, _reqMeta)
+    } else {
+      logger.info(`▶ [${requestId}] ${req.method} ${req.originalUrl}`, _reqMeta)
+    }
   }
 
   // 拦截 res.json() 捕获响应体
@@ -2166,62 +2231,6 @@ const requestLogger = (req, res, next) => {
 
     // 构建树形 metadata
     const meta = { requestId }
-
-    // 请求体（非 GET 且有内容时显示，截断大 input/messages 数组只保留最后50条，过滤图片/附件内容）
-    if (req.method !== 'GET' && req.body && Object.keys(req.body).length > 0) {
-      const { tools: _tools, ...rest } = req.body
-      const _arr = rest.input || rest.messages
-      const _MEDIA_TYPES = new Set([
-        'image',
-        'image_url',
-        'file',
-        'document',
-        'input_image'
-      ])
-      const _MEDIA_KEYS = new Set(['image_url', 'image_data', 'base64'])
-      const _dataLen = (v) => {
-        if (typeof v === 'string') return v.length
-        try {
-          return JSON.stringify(v)?.length ?? 0
-        } catch {
-          return -1
-        }
-      }
-      const _stripMedia = (val, depth = 0) => {
-        if (depth > 10) return '[too deep]'
-        if (Array.isArray(val)) return val.map((item) => _stripMedia(item, depth + 1))
-        if (val && typeof val === 'object') {
-          if (_MEDIA_TYPES.has(val.type)) {
-            const dataVal = val.image_url ?? val.data ?? val.url ?? val.source ?? val.base64
-            return {
-              type: val.type,
-              _mediaOmitted: true,
-              _mediaBytes: dataVal ? _dataLen(dataVal) : undefined
-            }
-          }
-          const result = {}
-          for (const [k, v] of Object.entries(val)) {
-            result[k] =
-              _MEDIA_KEYS.has(k) && v ? `[media only, ${_dataLen(v)}B]` : _stripMedia(v, depth + 1)
-          }
-          return result
-        }
-        return val
-      }
-      if (Array.isArray(_arr)) {
-        const kept = _arr.length > 50 ? _arr.slice(-50) : _arr
-        const _key = rest.input ? 'input' : 'messages'
-        meta.req = {
-          ...rest,
-          [_key]: _stripMedia(kept),
-          ...(_arr.length > 50 ? { _inputTruncated: _arr.length } : {})
-        }
-      } else {
-        meta.req = _stripMedia(rest)
-      }
-      if (_tools !== undefined)
-        meta.req._toolsOmitted = Array.isArray(_tools) ? _tools.length : true
-    }
 
     // 查询参数（GET 请求且有查询参数时单独显示）
     const queryIdx = req.originalUrl.indexOf('?')

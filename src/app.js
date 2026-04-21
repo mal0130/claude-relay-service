@@ -220,20 +220,6 @@ class Application {
       // 📏 请求大小限制
       this.app.use(requestSizeLimit)
 
-      // 📝 请求日志（使用自定义logger而不是morgan）
-      this.app.use(requestLogger)
-
-      // 🐛 HTTP调试拦截器（仅在启用调试时生效）
-      if (process.env.DEBUG_HTTP_TRAFFIC === 'true') {
-        try {
-          const { debugInterceptor } = require('./middleware/debugInterceptor')
-          this.app.use(debugInterceptor)
-          logger.info('🐛 HTTP调试拦截器已启用 - 日志输出到 logs/http-debug-*.log')
-        } catch (error) {
-          logger.warn('⚠️ 无法加载HTTP调试拦截器:', error.message)
-        }
-      }
-
       // 🔧 基础中间件
       this.app.use(
         express.json({
@@ -248,6 +234,20 @@ class Application {
       )
       this.app.use(express.urlencoded({ extended: true, limit: '100mb' }))
       this.app.use(securityMiddleware)
+
+      // 📝 请求日志（使用自定义logger而不是morgan，需在 body 解析后注册）
+      this.app.use(requestLogger)
+
+      // 🐛 HTTP调试拦截器（仅在启用调试时生效）
+      if (process.env.DEBUG_HTTP_TRAFFIC === 'true') {
+        try {
+          const { debugInterceptor } = require('./middleware/debugInterceptor')
+          this.app.use(debugInterceptor)
+          logger.info('🐛 HTTP调试拦截器已启用 - 日志输出到 logs/http-debug-*.log')
+        } catch (error) {
+          logger.warn('⚠️ 无法加载HTTP调试拦截器:', error.message)
+        }
+      }
 
       // 🎯 信任代理
       if (config.server.trustProxy) {
