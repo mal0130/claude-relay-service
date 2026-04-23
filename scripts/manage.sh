@@ -817,7 +817,14 @@ uninstall_service() {
     
     # 停止服务
     stop_service
-    
+
+    # 卸载时彻底移除 pm2 应用定义
+    if command_exists pm2 && [ -n "$APP_DIR" ] && [ -d "$APP_DIR" ]; then
+        cd "$APP_DIR" 2>/dev/null
+        pm2 delete claude-relay 2>/dev/null || true
+        pm2 save 2>/dev/null || true
+    fi
+
     # 备份数据
     echo -n "是否备份数据？(y/N): "
     read -n 1 backup
@@ -935,29 +942,42 @@ start_service() {
     if command_exists pm2 && [ "$use_pm2" = true ]; then
         print_info "使用 pm2 启动服务..."
 
-        local pm2_args=(
-            start
-            "$APP_DIR/src/app.js"
-            --name
-            "claude-relay"
-            --log
-            "$APP_DIR/logs/pm2.log"
-        )
+        if pm2 describe claude-relay >/dev/null 2>&1; then
+            print_info "检测到现有 pm2 应用，复用已有配置启动..."
 
-        if [ "$pm2_instances" = "max" ]; then
-            print_info "启用 pm2 cluster 模式，实例数: max"
-            pm2_args+=(-i max)
-        elif [[ "$pm2_instances" =~ ^[0-9]+$ ]] && [ "$pm2_instances" -gt 1 ]; then
-            print_info "启用 pm2 cluster 模式，实例数: $pm2_instances"
-            pm2_args+=(-i "$pm2_instances")
+            if [[ "$pm2_instances" =~ ^[0-9]+$ ]]; then
+                pm2 scale claude-relay "$pm2_instances" >/dev/null 2>&1 || true
+            fi
+
+            pm2 restart claude-relay --update-env
         else
-            print_info "使用 pm2 fork 模式，实例数: 1"
-        fi
+            local pm2_args=(
+                start
+                "$APP_DIR/src/app.js"
+                --name
+                "claude-relay"
+                --output
+                "$APP_DIR/logs/pm2-out.log"
+                --error
+                "$APP_DIR/logs/pm2-error.log"
+                --merge-logs
+            )
 
-        # 直接使用pm2启动，避免循环调用
-        pm2 "${pm2_args[@]}"
+            if [ "$pm2_instances" = "max" ]; then
+                print_info "启用 pm2 cluster 模式，实例数: max"
+                pm2_args+=(-i max)
+            elif [[ "$pm2_instances" =~ ^[0-9]+$ ]] && [ "$pm2_instances" -gt 1 ]; then
+                print_info "启用 pm2 cluster 模式，实例数: $pm2_instances"
+                pm2_args+=(-i "$pm2_instances")
+            else
+                print_info "使用 pm2 fork 模式，实例数: 1"
+            fi
+
+            # 直接使用pm2启动，避免循环调用
+            pm2 "${pm2_args[@]}"
+        fi
         sleep 2
-        
+
         # 检查是否启动成功
         if pm2 list 2>/dev/null | grep -q "claude-relay"; then
             print_success "服务已通过 pm2 启动"
@@ -1032,14 +1052,18 @@ start_service_direct() {
 # 停止服务
 stop_service() {
     print_info "停止服务..."
-    
+
+    local pm2_managed=false
+
     # 尝试使用pm2停止
     if command_exists pm2 && [ -n "$APP_DIR" ] && [ -d "$APP_DIR" ]; then
         cd "$APP_DIR" 2>/dev/null
-        pm2 stop claude-relay 2>/dev/null || true
-        pm2 delete claude-relay 2>/dev/null || true
+        if pm2 describe claude-relay >/dev/null 2>&1; then
+            pm2 stop claude-relay 2>/dev/null || true
+            pm2_managed=true
+        fi
     fi
-    
+
     # 使用PID文件停止
     if [ -f "$APP_DIR/.pid" ]; then
         local pid=$(cat "$APP_DIR/.pid")
@@ -1048,9 +1072,11 @@ stop_service() {
             rm -f "$APP_DIR/.pid"
         fi
     fi
-    
-    # 强制停止所有相关进程
-    pkill -f "node.*src/app.js" 2>/dev/null || true
+
+    # 仅对非 pm2 直启场景执行进程清理，避免误杀 pm2 管理的其它实例
+    if [ "$pm2_managed" = false ]; then
+        pkill -f "node.*src/app.js" 2>/dev/null || true
+    fi
     
     # 等待进程完全退出（最多等待10秒）
     local wait_count=0
@@ -1077,34 +1103,71 @@ stop_service() {
 # 重启服务
 restart_service() {
     print_info "重启服务..."
-    
-    # 停止服务并检查结果
+
+    local use_pm2=true
+    local arg
+    for arg in "$@"; do
+        if [ "$arg" = "--no-pm2" ]; then
+            use_pm2=false
+            break
+        fi
+    done
+
+    local pm2_instances
+    if ! pm2_instances=$(get_pm2_instances "$@"); then
+        return 1
+    fi
+
+    if command_exists pm2 && [ "$use_pm2" = true ] && [ -n "$APP_DIR" ] && [ -d "$APP_DIR" ]; then
+        cd "$APP_DIR" 2>/dev/null
+        if pm2 describe claude-relay >/dev/null 2>&1; then
+            if [ "$pm2_instances" = "max" ]; then
+                print_info "重载 pm2 cluster 服务，实例数: max"
+                pm2 reload claude-relay --update-env
+            elif [[ "$pm2_instances" =~ ^[0-9]+$ ]]; then
+                print_info "重启 pm2 服务，实例数: $pm2_instances"
+                pm2 scale claude-relay "$pm2_instances" >/dev/null 2>&1 || true
+                if [ "$pm2_instances" -gt 1 ]; then
+                    pm2 reload claude-relay --update-env
+                else
+                    pm2 restart claude-relay --update-env
+                fi
+            else
+                pm2 restart claude-relay --update-env
+            fi
+
+            sleep 2
+            if pm2 list 2>/dev/null | grep -q "claude-relay"; then
+                print_success "服务已通过 pm2 重启"
+                pm2 save 2>/dev/null || true
+                return 0
+            fi
+        fi
+    fi
+
+    # 回退到停止后再启动
     if ! stop_service; then
         print_error "停止服务失败"
         return 1
     fi
-    
-    # 短暂等待，确保端口释放
+
     sleep 1
-    
-    # 启动服务，如果失败则重试
+
     local retry_count=0
     while [ $retry_count -lt 3 ]; do
-        # 清除可能的僵尸进程检测
         if ! pgrep -f "node.*src/app.js" > /dev/null; then
-            # 进程确实已停止，可以启动
             if start_service "$@"; then
                 return 0
             fi
         fi
-        
+
         retry_count=$((retry_count + 1))
         if [ $retry_count -lt 3 ]; then
             print_warning "启动失败，等待2秒后重试（第 $retry_count 次）..."
             sleep 2
         fi
     done
-    
+
     print_error "重启服务失败"
     return 1
 }
