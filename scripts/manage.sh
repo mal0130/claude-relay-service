@@ -897,6 +897,81 @@ get_pm2_instances() {
     return 0
 }
 
+has_instances_flag() {
+    local arg
+    for arg in "$@"; do
+        case "$arg" in
+            --instances|--instances=*)
+                return 0
+                ;;
+        esac
+    done
+
+    return 1
+}
+
+get_pm2_exec_mode() {
+    if ! command_exists pm2; then
+        return 1
+    fi
+
+    pm2 jlist 2>/dev/null | node -e "
+const fs = require('fs')
+const input = fs.readFileSync(0, 'utf8')
+const apps = JSON.parse(input || '[]')
+const app = apps.find((item) => item.name === 'claude-relay')
+if (!app) process.exit(1)
+process.stdout.write(app.pm2_env?.exec_mode || '')
+"
+}
+
+get_pm2_current_instances() {
+    if ! command_exists pm2; then
+        return 1
+    fi
+
+    pm2 jlist 2>/dev/null | node -e "
+const fs = require('fs')
+const input = fs.readFileSync(0, 'utf8')
+const apps = JSON.parse(input || '[]')
+const app = apps.find((item) => item.name === 'claude-relay')
+if (!app) process.exit(1)
+const instances = Number(app.pm2_env?.instances)
+if (!Number.isFinite(instances) || instances < 1) process.exit(1)
+process.stdout.write(String(instances))
+"
+}
+
+recreate_pm2_service() {
+    local pm2_instances="$1"
+
+    pm2 delete claude-relay 2>/dev/null || true
+
+    local pm2_args=(
+        start
+        "$APP_DIR/src/app.js"
+        --name
+        "claude-relay"
+        --output
+        "$APP_DIR/logs/pm2-out.log"
+        --error
+        "$APP_DIR/logs/pm2-error.log"
+        --merge-logs
+    )
+
+    if [ "$pm2_instances" = "max" ]; then
+        print_info "启用 pm2 cluster 模式，实例数: max"
+        pm2_args+=(-i max)
+    elif [[ "$pm2_instances" =~ ^[0-9]+$ ]] && [ "$pm2_instances" -gt 1 ]; then
+        print_info "启用 pm2 cluster 模式，实例数: $pm2_instances"
+        pm2_args+=(-i "$pm2_instances")
+    else
+        print_info "使用 pm2 fork 模式，实例数: 1"
+    fi
+
+    pm2 "${pm2_args[@]}"
+}
+
 start_service() {
     if ! check_installation; then
         print_error "服务未安装，请先运行: $0 install"
@@ -930,6 +1005,9 @@ start_service() {
     if ! pm2_instances=$(get_pm2_instances "$@"); then
         return 1
     fi
+    if ! has_instances_flag "$@" && command_exists pm2 && pm2 describe claude-relay >/dev/null 2>&1; then
+        pm2_instances=$(get_pm2_current_instances 2>/dev/null || echo "$pm2_instances")
+    fi
     if [ "$pm2_instances" != "max" ] && ! [[ "$pm2_instances" =~ ^[0-9]+$ ]]; then
         print_error "--instances 仅支持正整数或 max，例如 --instances 2"
         return 1
@@ -945,36 +1023,26 @@ start_service() {
         if pm2 describe claude-relay >/dev/null 2>&1; then
             print_info "检测到现有 pm2 应用，复用已有配置启动..."
 
-            if [[ "$pm2_instances" =~ ^[0-9]+$ ]]; then
-                pm2 scale claude-relay "$pm2_instances" >/dev/null 2>&1 || true
-            fi
+            local exec_mode
+            exec_mode=$(get_pm2_exec_mode 2>/dev/null || true)
 
-            pm2 restart claude-relay --update-env
-        else
-            local pm2_args=(
-                start
-                "$APP_DIR/src/app.js"
-                --name
-                "claude-relay"
-                --output
-                "$APP_DIR/logs/pm2-out.log"
-                --error
-                "$APP_DIR/logs/pm2-error.log"
-                --merge-logs
-            )
-
-            if [ "$pm2_instances" = "max" ]; then
-                print_info "启用 pm2 cluster 模式，实例数: max"
-                pm2_args+=(-i max)
-            elif [[ "$pm2_instances" =~ ^[0-9]+$ ]] && [ "$pm2_instances" -gt 1 ]; then
-                print_info "启用 pm2 cluster 模式，实例数: $pm2_instances"
-                pm2_args+=(-i "$pm2_instances")
+            if { [ "$pm2_instances" = "max" ] || { [[ "$pm2_instances" =~ ^[0-9]+$ ]] && [ "$pm2_instances" -gt 1 ]; }; } \
+                && [ "$exec_mode" != "cluster_mode" ]; then
+                print_info "现有 pm2 应用不是 cluster 模式，重新创建以支持多实例..."
+                recreate_pm2_service "$pm2_instances"
             else
-                print_info "使用 pm2 fork 模式，实例数: 1"
-            fi
+                if [[ "$pm2_instances" =~ ^[0-9]+$ ]]; then
+                    pm2 scale claude-relay "$pm2_instances" >/dev/null 2>&1 || true
+                fi
 
-            # 直接使用pm2启动，避免循环调用
-            pm2 "${pm2_args[@]}"
+                if [ "$pm2_instances" = "max" ] || { [[ "$pm2_instances" =~ ^[0-9]+$ ]] && [ "$pm2_instances" -gt 1 ]; }; then
+                    pm2 reload claude-relay --update-env
+                else
+                    pm2 restart claude-relay --update-env
+                fi
+            fi
+        else
+            recreate_pm2_service "$pm2_instances"
         fi
         sleep 2
 
@@ -1117,23 +1185,35 @@ restart_service() {
     if ! pm2_instances=$(get_pm2_instances "$@"); then
         return 1
     fi
+    if ! has_instances_flag "$@" && command_exists pm2 && pm2 describe claude-relay >/dev/null 2>&1; then
+        pm2_instances=$(get_pm2_current_instances 2>/dev/null || echo "$pm2_instances")
+    fi
 
     if command_exists pm2 && [ "$use_pm2" = true ] && [ -n "$APP_DIR" ] && [ -d "$APP_DIR" ]; then
         cd "$APP_DIR" 2>/dev/null
         if pm2 describe claude-relay >/dev/null 2>&1; then
-            if [ "$pm2_instances" = "max" ]; then
-                print_info "重载 pm2 cluster 服务，实例数: max"
-                pm2 reload claude-relay --update-env
-            elif [[ "$pm2_instances" =~ ^[0-9]+$ ]]; then
-                print_info "重启 pm2 服务，实例数: $pm2_instances"
-                pm2 scale claude-relay "$pm2_instances" >/dev/null 2>&1 || true
-                if [ "$pm2_instances" -gt 1 ]; then
+            local exec_mode
+            exec_mode=$(get_pm2_exec_mode 2>/dev/null || true)
+
+            if { [ "$pm2_instances" = "max" ] || { [[ "$pm2_instances" =~ ^[0-9]+$ ]] && [ "$pm2_instances" -gt 1 ]; }; } \
+                && [ "$exec_mode" != "cluster_mode" ]; then
+                print_info "现有 pm2 应用不是 cluster 模式，重新创建以支持多实例..."
+                recreate_pm2_service "$pm2_instances"
+            else
+                if [ "$pm2_instances" = "max" ]; then
+                    print_info "重载 pm2 cluster 服务，实例数: max"
                     pm2 reload claude-relay --update-env
+                elif [[ "$pm2_instances" =~ ^[0-9]+$ ]]; then
+                    print_info "重启 pm2 服务，实例数: $pm2_instances"
+                    pm2 scale claude-relay "$pm2_instances" >/dev/null 2>&1 || true
+                    if [ "$pm2_instances" -gt 1 ]; then
+                        pm2 reload claude-relay --update-env
+                    else
+                        pm2 restart claude-relay --update-env
+                    fi
                 else
                     pm2 restart claude-relay --update-env
                 fi
-            else
-                pm2 restart claude-relay --update-env
             fi
 
             sleep 2
