@@ -522,6 +522,10 @@ const handleResponses = async (req, res) => {
 
     logger.info(`← 上游响应 status=${upstream.status} elapsed=${Date.now() - startTime}ms`)
 
+    if (upstream.status === 400) {
+      logger.error('❌ OpenAI Codex upstream returned 400:', upstream.data)
+    }
+
     const codexUsageSnapshot = extractCodexUsageHeaders(upstream.headers)
     if (codexUsageSnapshot) {
       try {
