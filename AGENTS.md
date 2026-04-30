@@ -33,6 +33,7 @@ Codex Relay Service — 多平台 AI API 中转服务，作为客户端与上游
 - 敏感数据（OAuth token、refreshToken、credentials）必须 AES 加密存储（参考 `claudeAccountService.js`）
 - API Key 使用 SHA-256 哈希存储，禁止明文
 - 每个请求必须经过完整认证链（API Key → 权限 → 客户端限制 → 模型黑名单）
+- 备用 Key 切换必须复用 `apiKeyService.validateApiKey()` 的等价默认值标准化逻辑；如果因 Redis 中只保存哈希而无法直接调用明文校验，必须抽公共 normalizer 或显式同步新增字段默认值（如 `enableOpenAIResponsesCodexAdaptation` 缺失默认 `true`），避免 `req.apiKey` 字段缺失导致后续路由误判
 - 客户端断开时必须通过 AbortController 清理资源和并发计数
 - 日志中禁止输出完整 token，使用 `tokenMask.js` 脱敏
 

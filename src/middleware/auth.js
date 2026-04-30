@@ -34,6 +34,43 @@ function parseRateLimits(rateLimits) {
   return Array.isArray(parsed) ? parsed : []
 }
 
+function parseBooleanWithDefault(value, defaultValue = false) {
+  if (value === undefined || value === null || value === '') {
+    return defaultValue
+  }
+
+  if (typeof value === 'boolean') {
+    return value
+  }
+
+  if (typeof value === 'string') {
+    return value === 'true'
+  }
+
+  return Boolean(value)
+}
+
+function parseJsonArrayWithDefault(value) {
+  if (value === undefined || value === null || value === '') {
+    return []
+  }
+
+  if (Array.isArray(value)) {
+    return value
+  }
+
+  if (typeof value === 'string') {
+    try {
+      const parsed = JSON.parse(value)
+      return Array.isArray(parsed) ? parsed : []
+    } catch {
+      return []
+    }
+  }
+
+  return []
+}
+
 async function getWindowRatedCostFallback(keyId, windowStartTime) {
   const usageRecords = await redis.getUsageRecords(keyId, 200)
   return Number(
@@ -884,7 +921,18 @@ const authenticateApiKey = async (req, res, next) => {
                 totalCostLimit: parseFloat(keyData.totalCostLimit || 0),
                 totalCost: limitCheck.usage.totalCost,
                 weeklyOpusCostLimit: parseFloat(keyData.weeklyOpusCostLimit || 0),
-                weeklyOpusCost: limitCheck.usage.weeklyOpusCost
+                weeklyOpusCost: limitCheck.usage.weeklyOpusCost,
+                enableOpenAIResponsesCodexAdaptation: parseBooleanWithDefault(
+                  keyData.enableOpenAIResponsesCodexAdaptation,
+                  true
+                ),
+                enableOpenAIResponsesPayloadRules: parseBooleanWithDefault(
+                  keyData.enableOpenAIResponsesPayloadRules,
+                  false
+                ),
+                openaiResponsesPayloadRules: parseJsonArrayWithDefault(
+                  keyData.openaiResponsesPayloadRules
+                )
               }
             }
             break

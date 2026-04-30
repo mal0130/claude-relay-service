@@ -103,6 +103,7 @@ const openaiAccountService = require('../src/services/account/openaiAccountServi
 const openaiResponsesAccountService = require('../src/services/account/openaiResponsesAccountService')
 const openaiResponsesRelayService = require('../src/services/relay/openaiResponsesRelayService')
 const openaiRoutes = require('../src/routes/openaiRoutes')
+const logger = require('../src/utils/logger')
 
 function createHash(value) {
   return crypto.createHash('sha256').update(value).digest('hex')
@@ -125,6 +126,7 @@ function createReq({
     body: JSON.parse(JSON.stringify(body)),
     apiKey: {
       id: 'key_1',
+      name: 'Test Key',
       permissions: ['openai'],
       enableOpenAIResponsesCodexAdaptation: true,
       enableOpenAIResponsesPayloadRules: false,
@@ -180,7 +182,7 @@ describe('openai responses payload toggles', () => {
     openaiAccountService.decrypt.mockReturnValue('decrypted-token')
   })
 
-  test('keeps standard responses payload unchanged for openai-responses when both toggles are off', async () => {
+  test('forces Codex adaptation on for standard responses even when the toggle is off', async () => {
     const req = createReq({
       body: {
         model: 'gpt-5-2025-08-07',
@@ -196,12 +198,18 @@ describe('openai responses payload toggles', () => {
 
     await openaiRoutes.handleResponses(req, createRes())
 
-    expect(req.body).toEqual({
-      model: 'gpt-5-2025-08-07',
-      temperature: 0.2,
-      service_tier: 'priority',
-      prompt_cache_key: 'session-a'
-    })
+    const debugLog = logger.info.mock.calls.find(([message]) =>
+      message.includes('Standard Responses Codex adaptation toggle before force enable')
+    )
+    expect(debugLog?.[0]).toContain('keyId=key_1')
+    expect(debugLog?.[0]).toContain('keyName=Test Key')
+    expect(debugLog?.[0]).toContain('value=false')
+    expect(req.apiKey.enableOpenAIResponsesCodexAdaptation).toBe(true)
+    expect(req.body.model).toBe('gpt-5')
+    expect(req.body.instructions).toBe(openaiRoutes.CODEX_CLI_INSTRUCTIONS)
+    expect(req.body.temperature).toBeUndefined()
+    expect(req.body.service_tier).toBeUndefined()
+    expect(req.body.prompt_cache_key).toBe('session-a')
     expect(unifiedOpenAIScheduler.selectAccountForApiKey).toHaveBeenCalledWith(
       req.apiKey,
       createHash('session-a'),
@@ -232,7 +240,7 @@ describe('openai responses payload toggles', () => {
     )
   })
 
-  test('applies payload rules directly on the original payload when adaptation is off', async () => {
+  test('applies payload rules after forced Codex adaptation when adaptation toggle is off', async () => {
     const req = createReq({
       body: {
         model: 'gpt-4.1',
@@ -253,9 +261,9 @@ describe('openai responses payload toggles', () => {
 
     await openaiRoutes.handleResponses(req, createRes())
 
-    expect(req.body).toEqual({
+    expect(req.body).toMatchObject({
       model: 'gpt-5',
-      temperature: 0.5,
+      instructions: openaiRoutes.CODEX_CLI_INSTRUCTIONS,
       prompt_cache_key: 'new-key',
       text: {
         format: {
@@ -263,7 +271,7 @@ describe('openai responses payload toggles', () => {
         }
       }
     })
-    expect(req.body.instructions).toBeUndefined()
+    expect(req.body.temperature).toBeUndefined()
     expect(unifiedOpenAIScheduler.selectAccountForApiKey).toHaveBeenCalledWith(
       req.apiKey,
       createHash('new-key'),
@@ -302,7 +310,7 @@ describe('openai responses payload toggles', () => {
     )
   })
 
-  test('normalizes dated gpt-5 models only for scheduling and upstream openai requests when adaptation is off', async () => {
+  test('normalizes dated gpt-5 models after forced Codex adaptation for openai requests', async () => {
     unifiedOpenAIScheduler.selectAccountForApiKey.mockResolvedValue({
       accountId: 'openai-1',
       accountType: 'openai'
@@ -347,16 +355,19 @@ describe('openai responses payload toggles', () => {
       'gpt-5'
     )
     expect(req.body.model).toBe('gpt-5')
-    expect(req.body.service_tier).toBe('priority')
+    expect(req.body.instructions).toBe(openaiRoutes.CODEX_CLI_INSTRUCTIONS)
+    expect(req.body.service_tier).toBeUndefined()
     expect(axios.post).toHaveBeenCalled()
-    expect(axios.post.mock.calls[0][1]).toMatchObject({
+    const upstreamBody = axios.post.mock.calls[0][1]
+    expect(upstreamBody).toMatchObject({
       model: 'gpt-5',
-      service_tier: 'priority',
+      instructions: openaiRoutes.CODEX_CLI_INSTRUCTIONS,
       store: false
     })
+    expect(upstreamBody).not.toHaveProperty('service_tier')
   })
 
-  test('normalizes payload-rule gpt-5 aliases for openai scheduling without applying full Codex adaptation', async () => {
+  test('normalizes payload-rule gpt-5 aliases after forced Codex adaptation for openai scheduling', async () => {
     unifiedOpenAIScheduler.selectAccountForApiKey.mockResolvedValue({
       accountId: 'openai-1',
       accountType: 'openai'
@@ -404,13 +415,15 @@ describe('openai responses payload toggles', () => {
       'gpt-5'
     )
     expect(req.body.model).toBe('gpt-5')
-    expect(req.body.text).toEqual({ format: {} })
-    expect(req.body.instructions).toBeUndefined()
-    expect(axios.post.mock.calls[0][1]).toMatchObject({
+    expect(req.body.text).toBeUndefined()
+    expect(req.body.instructions).toBe(openaiRoutes.CODEX_CLI_INSTRUCTIONS)
+    const upstreamBody = axios.post.mock.calls[0][1]
+    expect(upstreamBody).toMatchObject({
       model: 'gpt-5',
-      text: { format: {} },
+      instructions: openaiRoutes.CODEX_CLI_INSTRUCTIONS,
       store: false
     })
+    expect(upstreamBody).not.toHaveProperty('text')
   })
 
   test('records the mutated service_tier for standard responses sent through openai accounts', async () => {
