@@ -426,12 +426,18 @@ class ApiKeyService {
         logger.warn(
           `⚠️ API key not found in hash map: ${hashedKey.substring(0, 16)}... (possible race condition or corrupted hash map)`
         )
-        return { valid: false, error: 'API key not found' }
+        return { valid: false, error: 'API Key 不存在' }
       }
 
       // 检查是否激活
+      const subscriptionUrl =
+        'https://dev.dcloud.net.cn/pages/product-account/product-account?pcd=uni_ai_agent'
+      const isResourcePack = /_pack-(10|100|1000|10000)-month$/i.test(keyData.name || '')
+      const expiredError = isResourcePack
+        ? `您订购的资源包已过有效期。您可以重新购买 [<a href="${subscriptionUrl}">资源包</a>]，或选择更灵活的 [<a href="${subscriptionUrl}">订阅套餐</a>] 开启新一轮体验。`
+        : `您订阅的套餐已到期，为确保您的开发不受影响，请 [<a href="${subscriptionUrl}">点此续费</a>]`
       if (keyData.isActive !== 'true') {
-        return { valid: false, error: 'API key is disabled' }
+        return { valid: false, error: expiredError }
       }
 
       // 处理激活逻辑（仅在 activation 模式下）
@@ -461,20 +467,13 @@ class ApiKeyService {
         await redis.setApiKey(keyData.id, keyData)
 
         logger.success(
-          `🔓 API key activated: ${keyData.id} (${
-            keyData.name
+          `🔓 API key activated: ${keyData.id} (${keyData.name
           }), will expire in ${activationPeriod} ${activationUnit} at ${expiresAt.toISOString()}`
         )
       }
 
       // 检查是否过期
       if (keyData.expiresAt && new Date() > new Date(keyData.expiresAt)) {
-        const subscriptionUrl =
-          'https://dev.dcloud.net.cn/pages/product-account/product-account?pcd=uni_ai_agent'
-        const isResourcePack = /_pack-(10|100|1000|10000)-month$/i.test(keyData.name || '')
-        const expiredError = isResourcePack
-          ? `您订购的资源包已过有效期。您可以重新购买 [<a href="${subscriptionUrl}">资源包</a>]，或选择更灵活的 [<a href="${subscriptionUrl}">订阅套餐</a>] 开启新一轮体验。`
-          : `您订阅的套餐已到期，为确保您的开发不受影响，请 [<a href="${subscriptionUrl}">点此续费</a>]`
         return { valid: false, error: expiredError }
       }
 
