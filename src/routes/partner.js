@@ -1258,6 +1258,7 @@ router.post('/api-key/:keyId/update', authenticatePartner, async (req, res) => {
     if (expiresAt !== undefined) {
       if (expiresAt) {
         updates.expiresAt = new Date(expiresAt).toISOString()
+        updates.isActive = new Date(expiresAt) > new Date()
         if (keyData.isActivated !== 'true') {
           updates.isActivated = 'true'
           updates.activatedAt = new Date().toISOString()
