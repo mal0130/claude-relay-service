@@ -370,6 +370,11 @@ const handleResponses = async (req, res) => {
     const shouldUseToggleControlledFlow = standardResponsesRoute && !compactRoute
 
     if (shouldUseToggleControlledFlow) {
+      logger.info(
+        `🔍 Standard Responses Codex adaptation toggle before force enable: keyId=${apiKeyData.id || 'unknown'}, keyName=${apiKeyData.name || 'unknown'}, value=${apiKeyData.enableOpenAIResponsesCodexAdaptation}, type=${typeof apiKeyData.enableOpenAIResponsesCodexAdaptation}`
+      )
+      apiKeyData.enableOpenAIResponsesCodexAdaptation = true
+
       const shouldApplyCodexAdaptation =
         apiKeyData.enableOpenAIResponsesCodexAdaptation === true && !isCodexCLI
       const shouldApplyPayloadRules = apiKeyData.enableOpenAIResponsesPayloadRules === true
