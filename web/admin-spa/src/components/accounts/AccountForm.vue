@@ -210,18 +210,18 @@
                     class="group relative cursor-pointer overflow-hidden rounded-lg border-2 transition-all duration-200"
                     :class="[
                       platformGroup === 'deepseek'
-                        ? 'border-slate-500 bg-gradient-to-br from-slate-50 to-cyan-50 shadow-md dark:from-slate-900/20 dark:to-cyan-900/20'
-                        : 'border-gray-200 bg-white hover:border-slate-300 hover:shadow dark:border-gray-700 dark:bg-gray-800 dark:hover:border-slate-600'
+                        ? 'border-[#3964fe] bg-gradient-to-br from-[#3964fe]/10 to-[#3964fe]/5 shadow-md dark:from-[#3964fe]/20 dark:to-[#3964fe]/10'
+                        : 'border-gray-200 bg-white hover:border-[#3964fe]/60 hover:shadow dark:border-gray-700 dark:bg-gray-800 dark:hover:border-[#3964fe]'
                     ]"
                     @click="selectPlatformGroup('deepseek')"
                   >
                     <div class="p-3">
                       <div class="flex items-center justify-between">
                         <div
-                          class="flex h-8 w-8 items-center justify-center rounded-md bg-gradient-to-br from-slate-600 to-cyan-600"
+                          class="flex h-8 w-8 items-center justify-center rounded-md bg-[#3964fe]/10"
                         >
                           <svg
-                            class="h-6 w-6 text-white"
+                            class="h-6 w-6 text-[#3964fe]"
                             fill="currentColor"
                             viewBox="0 0 56.2 41.5"
                             xmlns="http://www.w3.org/2000/svg"
@@ -231,7 +231,7 @@
                         </div>
                         <div
                           v-if="platformGroup === 'deepseek'"
-                          class="flex h-5 w-5 items-center justify-center rounded-full bg-slate-500"
+                          class="flex h-5 w-5 items-center justify-center rounded-full bg-[#3964fe]"
                         >
                           <i class="fas fa-check text-xs text-white"></i>
                         </div>
@@ -613,8 +613,8 @@
                         class="group relative flex cursor-pointer items-center rounded-md border p-2 transition-all"
                         :class="[
                           form.platform === 'deepseek'
-                            ? 'border-slate-500 bg-slate-50 dark:border-slate-400 dark:bg-slate-900/30'
-                            : 'border-gray-300 bg-white hover:border-slate-400 hover:bg-slate-50/50 dark:border-gray-600 dark:bg-gray-700 dark:hover:border-slate-500 dark:hover:bg-slate-900/20'
+                            ? 'border-[#3964fe] bg-[#3964fe]/10 dark:border-[#3964fe] dark:bg-[#3964fe]/20'
+                            : 'border-gray-300 bg-white hover:border-[#3964fe]/70 hover:bg-[#3964fe]/5 dark:border-gray-600 dark:bg-gray-700 dark:hover:border-[#3964fe] dark:hover:bg-[#3964fe]/10'
                         ]"
                       >
                         <input
@@ -625,7 +625,7 @@
                         />
                         <div class="flex items-center gap-2">
                           <svg
-                            class="h-5 w-5 text-slate-600 dark:text-slate-400"
+                            class="h-5 w-5 text-[#3964fe]"
                             fill="currentColor"
                             viewBox="0 0 56.2 41.5"
                             xmlns="http://www.w3.org/2000/svg"
@@ -641,7 +641,7 @@
                         </div>
                         <div
                           v-if="form.platform === 'deepseek'"
-                          class="absolute right-1 top-1 flex h-4 w-4 items-center justify-center rounded-full bg-slate-500"
+                          class="absolute right-1 top-1 flex h-4 w-4 items-center justify-center rounded-full bg-[#3964fe]"
                         >
                           <i class="fas fa-check text-xs text-white"></i>
                         </div>
@@ -4145,7 +4145,8 @@
               form.platform !== 'ccr' &&
               form.platform !== 'bedrock' &&
               form.platform !== 'azure_openai' &&
-              form.platform !== 'openai-responses'
+              form.platform !== 'openai-responses' &&
+              form.platform !== 'deepseek'
             "
             class="rounded-lg border border-amber-200 bg-amber-50 p-4 dark:border-amber-700 dark:bg-amber-900/30"
           >

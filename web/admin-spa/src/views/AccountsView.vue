@@ -622,23 +622,19 @@
                     </div>
                     <div
                       v-else-if="account.platform === 'deepseek'"
-                      class="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-gradient-to-r from-slate-100 to-cyan-100 px-2.5 py-1 dark:border-slate-700 dark:from-slate-900/20 dark:to-cyan-900/20"
+                      class="flex items-center gap-1.5 rounded-lg border border-[#3964fe]/20 bg-[#3964fe]/10 px-2.5 py-1 dark:border-[#3964fe]/40 dark:bg-[#3964fe]/15"
                     >
                       <svg
-                        class="h-4 w-4 text-slate-700 dark:text-slate-400"
+                        class="h-4 w-4 text-[#3964fe]"
                         fill="currentColor"
                         viewBox="0 0 56.2 41.5"
                         xmlns="http://www.w3.org/2000/svg"
                       >
                         <path :d="deepSeekWhalePath" />
                       </svg>
-                      <span class="text-xs font-semibold text-slate-800 dark:text-slate-300"
-                        >DeepSeek</span
-                      >
-                      <span class="mx-1 h-4 w-px bg-slate-300 dark:bg-slate-600" />
-                      <span class="text-xs font-medium text-slate-700 dark:text-slate-400"
-                        >API Key</span
-                      >
+                      <span class="text-xs font-semibold text-[#3964fe]">DeepSeek</span>
+                      <span class="mx-1 h-4 w-px bg-[#3964fe]/30" />
+                      <span class="text-xs font-medium text-[#3964fe]">API Key</span>
                     </div>
                     <div
                       v-else-if="
@@ -1484,13 +1480,13 @@
                             : account.platform === 'droid'
                               ? 'bg-gradient-to-br from-cyan-500 to-sky-600'
                               : account.platform === 'deepseek'
-                                ? 'bg-gradient-to-br from-slate-600 to-cyan-600'
+                                ? 'bg-[#3964fe]/10'
                                 : 'bg-gradient-to-br from-blue-500 to-blue-600'
                 ]"
               >
                 <svg
                   v-if="account.platform === 'deepseek'"
-                  class="h-6 w-6 text-white"
+                  class="h-6 w-6 text-[#3964fe]"
                   fill="currentColor"
                   viewBox="0 0 56.2 41.5"
                   xmlns="http://www.w3.org/2000/svg"
@@ -2580,23 +2576,29 @@ const statusOptions = ref([
   { value: 'all', label: '全部状态', icon: 'fa-list' }
 ])
 
+const groupPlatformMeta = {
+  claude: { label: 'Claude', icon: 'fa-brain' },
+  gemini: { label: 'Gemini', icon: 'fa-robot' },
+  openai: { label: 'OpenAI', icon: 'fa-openai' },
+  droid: { label: 'Droid', icon: 'fa-robot' },
+  deepseek: { label: 'DeepSeek', icon: 'fa-fish' }
+}
+
 const groupOptions = computed(() => {
   const options = [
     { value: 'all', label: '所有账户', icon: 'fa-globe' },
     { value: 'ungrouped', label: '未分组账户', icon: 'fa-user' }
   ]
   accountGroups.value.forEach((group) => {
+    const platformMeta = groupPlatformMeta[group.platform] || {
+      label: group.platform || '未知',
+      icon: 'fa-layer-group'
+    }
+
     options.push({
       value: group.id,
-      label: `${group.name} (${group.platform === 'claude' ? 'Claude' : group.platform === 'gemini' ? 'Gemini' : group.platform === 'openai' ? 'OpenAI' : 'Droid'})`,
-      icon:
-        group.platform === 'claude'
-          ? 'fa-brain'
-          : group.platform === 'gemini'
-            ? 'fa-robot'
-            : group.platform === 'openai'
-              ? 'fa-openai'
-              : 'fa-robot'
+      label: `${group.name} (${platformMeta.label})`,
+      icon: platformMeta.icon
     })
   })
   return options
