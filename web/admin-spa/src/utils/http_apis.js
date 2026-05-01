@@ -190,6 +190,14 @@ export const createOpenAIResponsesAccountApi = (data) =>
 export const updateOpenAIResponsesAccountApi = (id, data) =>
   request({ url: `/admin/openai-responses-accounts/${id}`, method: 'PUT', data })
 
+// DeepSeek 账户
+export const getDeepSeekAccountsApi = () =>
+  request({ url: '/admin/deepseek-accounts', method: 'GET' })
+export const createDeepSeekAccountApi = (data) =>
+  request({ url: '/admin/deepseek-accounts', method: 'POST', data })
+export const updateDeepSeekAccountApi = (id, data) =>
+  request({ url: `/admin/deepseek-accounts/${id}`, method: 'PUT', data })
+
 // Azure OpenAI 账户
 export const getAzureOpenAIAccountsApi = () =>
   request({ url: '/admin/azure-openai-accounts', method: 'GET' })

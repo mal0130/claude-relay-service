@@ -5,6 +5,41 @@ const crypto = require('crypto')
 const pricingSource = require('../../config/pricingSource')
 const logger = require('../utils/logger')
 
+const DEEPSEEK_PRICING_SOURCE = 'https://api-docs.deepseek.com/zh-cn/quick_start/pricing'
+const DEEPSEEK_CNY_TO_USD = 0.14
+const deepseekCnyPerMillionToUsdPerToken = (cnyPerMillionTokens) =>
+  (cnyPerMillionTokens * DEEPSEEK_CNY_TO_USD) / 1_000_000
+const DEEPSEEK_V4_FLASH_PRICING = {
+  cache_read_input_token_cost: deepseekCnyPerMillionToUsdPerToken(0.02),
+  input_cost_per_token: deepseekCnyPerMillionToUsdPerToken(1),
+  litellm_provider: 'deepseek',
+  max_input_tokens: 1048576,
+  max_output_tokens: 393216,
+  max_tokens: 393216,
+  mode: 'chat',
+  output_cost_per_token: deepseekCnyPerMillionToUsdPerToken(2),
+  source: DEEPSEEK_PRICING_SOURCE,
+  supported_endpoints: ['/v1/chat/completions'],
+  supports_function_calling: true,
+  supports_native_streaming: true,
+  supports_parallel_function_calling: true,
+  supports_prompt_caching: true,
+  supports_response_schema: true,
+  supports_system_messages: true,
+  supports_tool_choice: true
+}
+const DEEPSEEK_V4_PRO_PRICING = {
+  ...DEEPSEEK_V4_FLASH_PRICING,
+  cache_read_input_token_cost: deepseekCnyPerMillionToUsdPerToken(0.025),
+  input_cost_per_token: deepseekCnyPerMillionToUsdPerToken(3),
+  output_cost_per_token: deepseekCnyPerMillionToUsdPerToken(6),
+  supports_reasoning: true
+}
+const DEEPSEEK_PRICING_FALLBACKS = {
+  'deepseek-v4-flash': DEEPSEEK_V4_FLASH_PRICING,
+  'deepseek-v4-pro': DEEPSEEK_V4_PRO_PRICING
+}
+
 class PricingService {
   constructor() {
     this.dataDir = path.join(process.cwd(), 'data')
@@ -370,6 +405,11 @@ class PricingService {
         logger.info(`💰 Using gpt-5 pricing as fallback for ${modelName}`)
         return fallbackPricing
       }
+    }
+
+    if (DEEPSEEK_PRICING_FALLBACKS[modelName]) {
+      logger.info(`💰 Using built-in DeepSeek pricing fallback for ${modelName}`)
+      return DEEPSEEK_PRICING_FALLBACKS[modelName]
     }
 
     // 对于Bedrock区域前缀模型（如 us.anthropic.claude-sonnet-4-20250514-v1:0），

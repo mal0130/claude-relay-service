@@ -367,6 +367,7 @@ const platformLabelMap = {
   gemini: 'Gemini',
   'gemini-api': 'Gemini API',
   droid: 'Droid',
+  deepseek: 'DeepSeek',
   bedrock: 'Claude AWS Bedrock'
 }
 

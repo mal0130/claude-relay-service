@@ -601,6 +601,16 @@
                 />
                 <span class="text-sm text-gray-700 dark:text-gray-300">Droid</span>
               </label>
+              <label class="flex cursor-pointer items-center">
+                <input
+                  v-model="form.permissions"
+                  class="mr-2 rounded text-blue-600 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-700"
+                  type="checkbox"
+                  value="deepseek"
+                  @change="updatePermissions"
+                />
+                <span class="text-sm text-gray-700 dark:text-gray-300">DeepSeek</span>
+              </label>
             </div>
             <p class="mt-2 text-xs text-gray-500 dark:text-gray-400">
               不选择任何服务表示允许访问全部服务
@@ -906,6 +916,20 @@
                   platform="droid"
                 />
               </div>
+              <div>
+                <label class="mb-1 block text-sm font-medium text-gray-600 dark:text-gray-400"
+                  >DeepSeek 专属账号</label
+                >
+                <AccountSelector
+                  v-model="form.deepseekAccountId"
+                  :accounts="localAccounts.deepseek"
+                  default-option-text="使用共享账号池"
+                  :disabled="form.permissions.length > 0 && !form.permissions.includes('deepseek')"
+                  :groups="localAccounts.deepseekGroups"
+                  placeholder="请选择DeepSeek账号"
+                  platform="deepseek"
+                />
+              </div>
             </div>
             <p class="mt-2 text-xs text-gray-500 dark:text-gray-400">
               修改绑定账号将影响此API Key的请求路由
@@ -1108,10 +1132,12 @@ const props = defineProps({
       openai: [],
       bedrock: [],
       droid: [],
+      deepseek: [],
       claudeGroups: [],
       geminiGroups: [],
       openaiGroups: [],
       droidGroups: [],
+      deepseekGroups: [],
       openaiResponses: []
     })
   }
@@ -1151,10 +1177,12 @@ const localAccounts = ref({
   openai: [],
   bedrock: [],
   droid: [],
+  deepseek: [],
   claudeGroups: [],
   geminiGroups: [],
   openaiGroups: [],
-  droidGroups: []
+  droidGroups: [],
+  deepseekGroups: []
 })
 
 // 支持的客户端列表
@@ -1179,6 +1207,7 @@ const availableServices = [
   { key: 'gemini', label: 'Gemini' },
   { key: 'codex', label: 'Codex' },
   { key: 'droid', label: 'Droid' },
+  { key: 'deepseek', label: 'DeepSeek' },
   { key: 'bedrock', label: 'Bedrock' },
   { key: 'azure', label: 'Azure' },
   { key: 'ccr', label: 'CCR' }
@@ -1215,6 +1244,7 @@ const form = reactive({
   openaiAccountId: '',
   bedrockAccountId: '',
   droidAccountId: '',
+  deepseekAccountId: '',
   enableModelRestriction: false,
   restrictedModels: [],
   modelInput: '',
@@ -1265,6 +1295,24 @@ const normalizeRateLimits = (rateLimits) => {
     requests: rule?.requests ?? '',
     cost: rule?.cost ?? ''
   }))
+}
+
+const normalizeAccountBindings = (accountBindings) => {
+  if (!accountBindings) {
+    return {}
+  }
+  if (typeof accountBindings === 'object' && !Array.isArray(accountBindings)) {
+    return { ...accountBindings }
+  }
+  if (typeof accountBindings === 'string') {
+    try {
+      const parsed = JSON.parse(accountBindings)
+      return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {}
+    } catch {
+      return {}
+    }
+  }
+  return {}
 }
 
 // 更新权限（数组格式，空数组=全部服务）
@@ -1510,6 +1558,15 @@ const updateApiKey = async () => {
       data.droidAccountId = null
     }
 
+    const accountBindings = normalizeAccountBindings(props.apiKey.accountBindings)
+    if (form.deepseekAccountId || accountBindings.deepseek) {
+      accountBindings.deepseek = {
+        mode: 'shared',
+        accountId: form.deepseekAccountId || ''
+      }
+      data.accountBindings = accountBindings
+    }
+
     // 模型限制 - 始终提交这些字段
     data.enableModelRestriction = form.enableModelRestriction
     data.restrictedModels = form.restrictedModels
@@ -1559,6 +1616,7 @@ const refreshAccounts = async () => {
       openaiResponsesData,
       bedrockData,
       droidData,
+      deepseekData,
       groupsData
     ] = await Promise.all([
       httpApis.getClaudeAccountsApi(),
@@ -1569,6 +1627,7 @@ const refreshAccounts = async () => {
       httpApis.getOpenAIResponsesAccountsApi(),
       httpApis.getBedrockAccountsApi(),
       httpApis.getDroidAccountsApi(),
+      httpApis.getDeepSeekAccountsApi(),
       httpApis.getAccountGroupsApi()
     ])
 
@@ -1662,6 +1721,14 @@ const refreshAccounts = async () => {
       }))
     }
 
+    if (deepseekData.success) {
+      localAccounts.value.deepseek = (deepseekData.data || []).map((account) => ({
+        ...account,
+        platform: 'deepseek',
+        isDedicated: account.accountType === 'dedicated'
+      }))
+    }
+
     // 处理分组数据
     if (groupsData.success) {
       const allGroups = groupsData.data || []
@@ -1669,6 +1736,7 @@ const refreshAccounts = async () => {
       localAccounts.value.geminiGroups = allGroups.filter((g) => g.platform === 'gemini')
       localAccounts.value.openaiGroups = allGroups.filter((g) => g.platform === 'openai')
       localAccounts.value.droidGroups = allGroups.filter((g) => g.platform === 'droid')
+      localAccounts.value.deepseekGroups = allGroups.filter((g) => g.platform === 'deepseek')
     }
 
     showToast('账号列表已刷新', 'success')
@@ -1756,10 +1824,15 @@ onMounted(async () => {
         ...account,
         platform: account.platform || 'droid'
       })),
+      deepseek: (props.accounts.deepseek || []).map((account) => ({
+        ...account,
+        platform: account.platform || 'deepseek'
+      })),
       claudeGroups: props.accounts.claudeGroups || [],
       geminiGroups: props.accounts.geminiGroups || [],
       openaiGroups: props.accounts.openaiGroups || [],
-      droidGroups: props.accounts.droidGroups || []
+      droidGroups: props.accounts.droidGroups || [],
+      deepseekGroups: props.accounts.deepseekGroups || []
     }
   }
 
@@ -1797,7 +1870,7 @@ onMounted(async () => {
   form.weeklyResetHour = props.apiKey.weeklyResetHour || 0
   // 处理权限数据，兼容旧格式（字符串）和新格式（数组）
   // 有效的权限值
-  const VALID_PERMS = ['claude', 'gemini', 'openai', 'droid']
+  const VALID_PERMS = ['claude', 'gemini', 'openai', 'droid', 'deepseek']
   let perms = props.apiKey.permissions
   // 如果是字符串，尝试 JSON.parse（Redis 可能返回 "[]" 或 "[\"gemini\"]"）
   if (typeof perms === 'string') {
@@ -1840,6 +1913,8 @@ onMounted(async () => {
 
   form.bedrockAccountId = props.apiKey.bedrockAccountId || ''
   form.droidAccountId = props.apiKey.droidAccountId || ''
+  form.deepseekAccountId =
+    normalizeAccountBindings(props.apiKey.accountBindings).deepseek?.accountId || ''
   form.restrictedModels = props.apiKey.restrictedModels || []
   form.allowedClients = props.apiKey.allowedClients || []
   form.tags = props.apiKey.tags || []

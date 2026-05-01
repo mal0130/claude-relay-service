@@ -11,6 +11,7 @@ const openaiResponsesAccountService = require('./account/openaiResponsesAccountS
 const azureOpenaiAccountService = require('./account/azureOpenaiAccountService')
 const droidAccountService = require('./account/droidAccountService')
 const bedrockAccountService = require('./account/bedrockAccountService')
+const deepseekAccountService = require('./account/deepseekAccountService')
 const {
   sanitizeRequestBodySnapshot,
   getRequestDetailCacheMetrics,
@@ -40,6 +41,7 @@ const accountTypeNames = {
   gemini: 'Gemini',
   'gemini-api': 'Gemini API',
   droid: 'Droid',
+  deepseek: 'DeepSeek',
   bedrock: 'AWS Bedrock',
   unknown: '未知渠道'
 }
@@ -54,6 +56,7 @@ const accountServices = {
   gemini: geminiAccountService,
   'gemini-api': geminiApiAccountService,
   droid: droidAccountService,
+  deepseek: deepseekAccountService,
   bedrock: bedrockAccountService
 }
 
