@@ -10,6 +10,7 @@ const path = require('path')
 const https = require('https')
 const crypto = require('crypto')
 const pricingSource = require('../config/pricingSource')
+const pricingService = require('../src/services/pricingService')
 
 // 颜色输出
 const colors = {
@@ -106,7 +107,7 @@ function downloadPricingData() {
         process.stdout.write(`\rDownloading... ${Math.round(downloadedBytes / 1024)}KB`)
       })
 
-      response.on('end', () => {
+      response.on('end', async () => {
         process.stdout.write('\n') // 换行
         try {
           const jsonData = JSON.parse(data)
@@ -116,30 +117,40 @@ function downloadPricingData() {
             throw new Error('Invalid pricing data structure')
           }
 
+          const enrichedData = await pricingService.enrichPricingDataWithDeepSeek(jsonData)
+
           // 保存到文件
-          const formattedJson = JSON.stringify(jsonData, null, 2)
+          const formattedJson = JSON.stringify(enrichedData, null, 2)
           fs.writeFileSync(config.pricingFile, formattedJson)
 
-          const hash = crypto.createHash('sha256').update(formattedJson).digest('hex')
+          const hash = crypto.createHash('sha256').update(data).digest('hex')
           fs.writeFileSync(config.hashFile, `${hash}\n`)
 
-          const modelCount = Object.keys(jsonData).length
+          const modelCount = Object.keys(enrichedData).length
           const fileSize = Math.round(fs.statSync(config.pricingFile).size / 1024)
 
           log.success(`Downloaded pricing data for ${modelCount} models (${fileSize}KB)`)
 
           // 显示一些统计信息
-          const claudeModels = Object.keys(jsonData).filter((k) => k.includes('claude')).length
-          const gptModels = Object.keys(jsonData).filter((k) => k.includes('gpt')).length
-          const geminiModels = Object.keys(jsonData).filter((k) => k.includes('gemini')).length
+          const claudeModels = Object.keys(enrichedData).filter((k) => k.includes('claude')).length
+          const gptModels = Object.keys(enrichedData).filter((k) => k.includes('gpt')).length
+          const geminiModels = Object.keys(enrichedData).filter((k) => k.includes('gemini')).length
+          const deepseekModels = Object.keys(enrichedData).filter((k) =>
+            k.includes('deepseek')
+          ).length
 
           log.info('Model breakdown:')
           log.info(`  - Claude models: ${claudeModels}`)
           log.info(`  - GPT models: ${gptModels}`)
           log.info(`  - Gemini models: ${geminiModels}`)
-          log.info(`  - Other models: ${modelCount - claudeModels - gptModels - geminiModels}`)
+          log.info(`  - DeepSeek models: ${deepseekModels}`)
+          log.info(
+            `  - Other models: ${
+              modelCount - claudeModels - gptModels - geminiModels - deepseekModels
+            }`
+          )
 
-          resolve(jsonData)
+          resolve(enrichedData)
         } catch (error) {
           reject(new Error(`Failed to parse pricing data: ${error.message}`))
         }
@@ -158,7 +169,7 @@ function downloadPricingData() {
 }
 
 // 使用 fallback 文件
-function useFallback() {
+async function useFallback() {
   log.warn('Attempting to use fallback pricing data...')
 
   if (!fs.existsSync(config.fallbackFile)) {
@@ -168,10 +179,16 @@ function useFallback() {
 
   try {
     const fallbackData = fs.readFileSync(config.fallbackFile, 'utf8')
-    const jsonData = JSON.parse(fallbackData)
+    const jsonData = await pricingService.enrichPricingDataWithDeepSeek(JSON.parse(fallbackData), {
+      allowRemote: false,
+      forceBuiltIn: true
+    })
 
     // 保存到data目录
-    fs.writeFileSync(config.pricingFile, JSON.stringify(jsonData, null, 2))
+    const formattedJson = JSON.stringify(jsonData, null, 2)
+    fs.writeFileSync(config.pricingFile, formattedJson)
+    const hash = crypto.createHash('sha256').update(formattedJson).digest('hex')
+    fs.writeFileSync(config.hashFile, `${hash}\n`)
 
     const modelCount = Object.keys(jsonData).length
     log.warn(`Using fallback pricing data for ${modelCount} models`)
@@ -253,7 +270,7 @@ async function main() {
     }
 
     // 尝试使用 fallback
-    if (useFallback()) {
+    if (await useFallback()) {
       console.log(
         `\n${colors.yellow}⚠️  Using fallback data (update completed with warnings)${colors.reset}`
       )

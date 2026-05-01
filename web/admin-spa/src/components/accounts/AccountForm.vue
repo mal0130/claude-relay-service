@@ -1806,6 +1806,9 @@
                 <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
                   由账号录入时指定，可填写官方或兼容服务商的基础地址，不要包含 /chat/completions。
                 </p>
+                <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                  客户端使用中转地址 <code>/deepseek/v1</code>，此处只填写上游服务商地址。
+                </p>
               </div>
 
               <div>
@@ -3684,6 +3687,9 @@
               />
               <p v-if="errors.baseApi" class="mt-1 text-xs text-red-500">
                 {{ errors.baseApi }}
+              </p>
+              <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                客户端使用中转地址 <code>/deepseek/v1</code>，此处只填写上游服务商地址。
               </p>
             </div>
 
@@ -5609,7 +5615,7 @@ const createAccount = async () => {
   try {
     const proxyPayload = buildProxyPayload(form.value.proxy)
     errors.value.baseApi = ''
-    if (props.account.platform === 'deepseek' && !form.value.baseApi?.trim()) {
+    if (form.value.platform === 'deepseek' && !form.value.baseApi?.trim()) {
       errors.value.baseApi = '请填写 API 基础地址'
       loading.value = false
       return
