@@ -209,9 +209,9 @@ permissions: ['claude', 'openai', 'deepseek']
 | `/glm/...`      | `glm`      |
 | `/kimi/...`     | `kimi`     |
 
-需要注意历史兼容：当前空权限数组表示全部服务。新增平台后，历史“全部权限”API Key 是否自动获得新平台权限需要明确策略。
+历史兼容策略：当前空权限数组或旧值 `all` 表示全部服务。本轮 DeepSeek 上线延续该语义，历史“全部权限”API Key 会自动获得 `deepseek` 权限；只有已显式配置权限数组且不包含 `deepseek` 的 Key 会被拒绝访问 `/deepseek/...`。
 
-推荐策略：新增配置控制新平台是否默认对历史全权限 Key 开放；更安全的默认值是不开启，由管理员显式给 API Key 增加 `deepseek` 权限。
+运维要求：上线前如需限制 DeepSeek，可批量把不应开放的历史 Key 从“全部权限”改为显式权限数组，例如 `['claude', 'openai']`。
 
 ## API Key 账号绑定
 
@@ -452,7 +452,7 @@ config/pricingSource.js
 4. 每 24 小时常规更新一次。
 5. 每 10 分钟拉取远端 hash，对比变更后自动下载。
 
-DeepSeek 自动更新推荐接入现有 price mirror 流程：
+DeepSeek 自动更新接入现有 price mirror 流程：
 
 ```text
 DeepSeek 官方价格页
@@ -462,39 +462,48 @@ DeepSeek 官方价格页
   -> relay 服务自动 hash 检测并下载
 ```
 
-不建议业务服务在请求链路或启动链路直接抓 DeepSeek 官网。原因：
+业务服务在请求链路、启动链路和常规定时更新中不直接抓 DeepSeek 官网。原因：
 
 - 当前系统已有统一价格源和 hash 更新机制。
 - 避免业务进程依赖网页结构变化。
 - 避免每个部署实例重复抓取官方页面。
 - 价格变动应在 price mirror 中审计、生成 hash，再由服务自动同步。
 
-DeepSeek 官方价格页当前提供人民币/百万 tokens 价格，并区分缓存命中输入、缓存未命中输入和输出。价格 mirror 需要转换成现有 pricingService 可消费的 USD/token 字段：
+DeepSeek 官方价格页区分缓存命中输入、缓存未命中输入和输出。price mirror 负责抓取官方页并输出现有 `pricingService` 可消费的 USD/token 字段；如果官方页提供 USD/百万 tokens，则直接换算为 USD/token，如果后续改为 CNY 等币种，则仍由 price mirror 完成汇率换算，业务服务只消费统一后的 USD/token：
 
 ```js
 {
   'deepseek-v4-flash': {
     litellm_provider: 'deepseek',
-    input_cost_per_token: '<缓存未命中 CNY/百万 -> USD/token>',
-    cache_read_input_token_cost: '<缓存命中 CNY/百万 -> USD/token>',
-    output_cost_per_token: '<输出 CNY/百万 -> USD/token>',
-    source: 'https://api-docs.deepseek.com/zh-cn/quick_start/pricing',
-    source_currency: 'CNY'
+    input_cost_per_token: '<缓存未命中价格/百万 -> USD/token>',
+    cache_read_input_token_cost: '<缓存命中价格/百万 -> USD/token>',
+    output_cost_per_token: '<输出价格/百万 -> USD/token>',
+    source: 'https://api-docs.deepseek.com/quick_start/pricing',
+    source_zh: 'https://api-docs.deepseek.com/zh-cn/quick_start/pricing',
+    pricing_currency: 'USD'
   }
 }
 ```
 
 第一版建议：
 
-1. price mirror 抓取 DeepSeek 官方价格页。
-2. 只取当前有效价格，忽略删除线旧价格。
-3. 将 CNY/百万 tokens 换算为 USD/token 后写入 JSON，保持系统现有 `$` 口径。
+1. price mirror workflow 抓取 DeepSeek 官方价格页。
+2. 折扣期内取当前有效价格；同时保留删除线旧价格到 `list_*` 字段，便于折扣结束后自动切回标价。
+3. 将官方价格统一换算为 USD/token 后写入 JSON，保持系统现有 `$` 口径。
 4. 对 `deepseek-chat`、`deepseek-reasoner` 生成兼容条目或 alias，避免旧客户端请求成本为 0。
-5. 对促销价保留 `valid_until`、`source_updated_at` 等元数据，方便后续审计。
+5. 对促销价保留 `pricing_discount_ends_at`、`pricing_updated_at` 等元数据，方便后续审计。
+6. 生成最终 `model_prices_and_context_window.json` 后再计算 sha256；relay 的 10 分钟 hash 轮询只对 price mirror 成品文件生效。
+
+上线部署：
+
+1. 合并服务代码和 `.github/workflows/sync-model-pricing.yml` 到默认分支。
+2. 确认 `price-mirror` 分支存在，首次上线可手动触发“同步模型价格数据” workflow。
+3. workflow 成功后只向 `price-mirror` 分支提交 `model_prices_and_context_window.json` 和 `model_prices_and_context_window.sha256`。
+4. relay 实例无需访问 DeepSeek 官网；可等待 10 分钟 hash 轮询自动更新，或在实例上执行 `npm run update:pricing` 立即拉取 price mirror。
 
 币种处理建议：
 
-- MVP：price mirror 负责换算，业务服务仍只消费 USD/token。
+- MVP：price mirror 负责换算，业务服务仍只消费 USD/token，不访问官方价格页。
 - 增强版：pricing schema 增加 `currency`、`exchange_rate`、`effective_at`，由 `pricingService` 统一换算。
 
 如果未来需要支持与官方定价不同的 DeepSeek 兼容服务商，再考虑增加账号级价格覆盖或独立 pricing profile；这不是第一版范围。

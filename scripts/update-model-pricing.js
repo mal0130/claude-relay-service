@@ -12,6 +12,24 @@ const crypto = require('crypto')
 const pricingSource = require('../config/pricingSource')
 const pricingService = require('../src/services/pricingService')
 
+const args = process.argv.slice(2)
+
+function getArgValue(name, defaultValue = null) {
+  const equalsArg = args.find((arg) => arg.startsWith(`${name}=`))
+  if (equalsArg) {
+    return equalsArg.slice(name.length + 1)
+  }
+
+  const index = args.indexOf(name)
+  if (index >= 0 && args[index + 1] && !args[index + 1].startsWith('--')) {
+    return args[index + 1]
+  }
+
+  return defaultValue
+}
+
+const mirrorMode = args.includes('--mirror')
+
 // 颜色输出
 const colors = {
   reset: '\x1b[0m',
@@ -44,8 +62,17 @@ const config = {
     'model_prices_and_context_window.json'
   ),
   backupFile: path.join(process.cwd(), 'data', 'model_pricing.backup.json'),
+  upstreamPricingUrl:
+    process.env.MODEL_PRICING_UPSTREAM_URL ||
+    'https://raw.githubusercontent.com/Wei-Shaw/model-price-repo/main/model_prices_and_context_window.json',
+  mirrorOutputDir: path.resolve(
+    getArgValue('--output-dir', process.env.PRICE_MIRROR_OUTPUT_DIR || process.cwd())
+  ),
   timeout: 30000 // 30秒超时
 }
+
+config.mirrorPricingFile = path.join(config.mirrorOutputDir, pricingSource.pricingFileName)
+config.mirrorHashFile = path.join(config.mirrorOutputDir, pricingSource.hashFileName)
 
 // 创建数据目录
 function ensureDataDir() {
@@ -117,7 +144,9 @@ function downloadPricingData() {
             throw new Error('Invalid pricing data structure')
           }
 
-          const enrichedData = await pricingService.enrichPricingDataWithDeepSeek(jsonData)
+          const enrichedData = await pricingService.enrichPricingDataWithDeepSeek(jsonData, {
+            allowRemote: false
+          })
 
           // 保存到文件
           const formattedJson = JSON.stringify(enrichedData, null, 2)
@@ -166,6 +195,86 @@ function downloadPricingData() {
       reject(new Error(`Download timeout after ${config.timeout / 1000} seconds`))
     })
   })
+}
+
+function downloadText(url) {
+  return new Promise((resolve, reject) => {
+    const request = https.get(url, (response) => {
+      if (response.statusCode !== 200) {
+        reject(new Error(`HTTP ${response.statusCode}: ${response.statusMessage}`))
+        return
+      }
+
+      const chunks = []
+      response.on('data', (chunk) => {
+        chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk))
+      })
+      response.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')))
+    })
+
+    request.on('error', (error) => {
+      reject(new Error(`Network error: ${error.message}`))
+    })
+
+    request.setTimeout(config.timeout, () => {
+      request.destroy()
+      reject(new Error(`Download timeout after ${config.timeout / 1000} seconds`))
+    })
+  })
+}
+
+function mergeExistingDeepSeekEntries(baseData) {
+  if (!fs.existsSync(config.mirrorPricingFile)) {
+    return baseData
+  }
+
+  try {
+    const existingData = JSON.parse(fs.readFileSync(config.mirrorPricingFile, 'utf8'))
+    const existingDeepSeekEntries = Object.fromEntries(
+      Object.entries(existingData).filter(([modelName]) => modelName.includes('deepseek'))
+    )
+    return { ...existingDeepSeekEntries, ...baseData }
+  } catch (error) {
+    log.warn(`Failed to load existing DeepSeek mirror entries: ${error.message}`)
+    return baseData
+  }
+}
+
+async function generatePriceMirror() {
+  log.info('Generating price mirror data with DeepSeek official pricing...')
+  log.info(`Upstream model pricing URL: ${config.upstreamPricingUrl}`)
+  log.info(`Mirror output directory: ${config.mirrorOutputDir}`)
+
+  if (!fs.existsSync(config.mirrorOutputDir)) {
+    fs.mkdirSync(config.mirrorOutputDir, { recursive: true })
+  }
+
+  const rawData = await downloadText(config.upstreamPricingUrl)
+  const upstreamData = JSON.parse(rawData)
+  if (typeof upstreamData !== 'object' || Object.keys(upstreamData).length === 0) {
+    throw new Error('Invalid upstream pricing data structure')
+  }
+
+  const dataWithExistingDeepSeek = mergeExistingDeepSeekEntries(upstreamData)
+  const enrichedData = await pricingService.enrichPricingDataWithDeepSeek(
+    dataWithExistingDeepSeek,
+    {
+      allowRemote: true
+    }
+  )
+  const formattedJson = JSON.stringify(enrichedData, null, 2)
+  const hash = crypto.createHash('sha256').update(formattedJson).digest('hex')
+
+  fs.writeFileSync(config.mirrorPricingFile, formattedJson)
+  fs.writeFileSync(config.mirrorHashFile, `${hash}\n`)
+
+  const modelCount = Object.keys(enrichedData).length
+  const deepseekModels = Object.keys(enrichedData).filter((modelName) =>
+    modelName.includes('deepseek')
+  ).length
+  log.success(`Generated price mirror for ${modelCount} models`)
+  log.info(`DeepSeek models: ${deepseekModels}`)
+  log.info(`Hash: ${hash}`)
 }
 
 // 使用 fallback 文件
@@ -236,6 +345,12 @@ async function main() {
   console.log(
     `${colors.bright}${colors.blue}======================================${colors.reset}\n`
   )
+
+  if (mirrorMode) {
+    await generatePriceMirror()
+    console.log(`\n${colors.green}✅ Price mirror generated successfully!${colors.reset}`)
+    process.exit(0)
+  }
 
   // 显示当前状态
   showCurrentStatus()

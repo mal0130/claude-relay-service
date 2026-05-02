@@ -393,11 +393,51 @@ class PricingService {
     })
   }
 
+  _isEquivalentDeepSeekPricingEntry(current = {}, next = {}) {
+    const comparableFields = [
+      'cache_read_input_token_cost',
+      'input_cost_per_token',
+      'output_cost_per_token',
+      'list_cache_read_input_token_cost',
+      'list_input_cost_per_token',
+      'list_output_cost_per_token',
+      'pricing_discount_active',
+      'pricing_discount_ends_at',
+      'compatibility_alias',
+      'model_alias_for'
+    ]
+
+    return comparableFields.every((field) => current[field] === next[field])
+  }
+
+  _preserveDeepSeekPricingUpdatedAt(currentPricingData = {}, nextPricingData = {}) {
+    const preserved = { ...nextPricingData }
+
+    for (const [modelName, nextEntry] of Object.entries(nextPricingData)) {
+      if (!modelName.includes('deepseek')) {
+        continue
+      }
+
+      const currentEntry = currentPricingData?.[modelName]
+      if (
+        currentEntry?.pricing_updated_at &&
+        this._isEquivalentDeepSeekPricingEntry(currentEntry, nextEntry)
+      ) {
+        preserved[modelName] = {
+          ...nextEntry,
+          pricing_updated_at: currentEntry.pricing_updated_at
+        }
+      }
+    }
+
+    return preserved
+  }
+
   async enrichPricingDataWithDeepSeek(pricingData, options = {}) {
     const enriched = { ...(pricingData || {}) }
     let deepseekPricing = null
 
-    if (options.allowRemote !== false) {
+    if (options.allowRemote === true) {
       try {
         deepseekPricing = await this.fetchDeepSeekOfficialPricing(options.now || new Date())
         logger.success('Updated DeepSeek pricing from official docs')
@@ -419,6 +459,8 @@ class PricingService {
       deepseekPricing = this.getDeepSeekFallbackPricing(options.now || new Date())
       logger.warn('⚠️  Using built-in DeepSeek pricing fallback')
     }
+
+    deepseekPricing = this._preserveDeepSeekPricingUpdatedAt(enriched, deepseekPricing)
 
     return { ...enriched, ...deepseekPricing }
   }
@@ -636,7 +678,9 @@ class PricingService {
             const buffer = Buffer.concat(chunks)
             const rawContent = buffer.toString('utf8')
             const jsonData = JSON.parse(rawContent)
-            const enrichedData = await this.enrichPricingDataWithDeepSeek(jsonData)
+            const enrichedData = await this.enrichPricingDataWithDeepSeek(jsonData, {
+              allowRemote: false
+            })
             const formattedJson = JSON.stringify(enrichedData, null, 2)
 
             // 保存合并后的价格文件；哈希仍记录主价格镜像原文，避免哈希轮询反复触发。
@@ -675,7 +719,9 @@ class PricingService {
     try {
       if (fs.existsSync(this.pricingFile)) {
         const data = fs.readFileSync(this.pricingFile, 'utf8')
-        this.pricingData = await this.enrichPricingDataWithDeepSeek(JSON.parse(data))
+        this.pricingData = await this.enrichPricingDataWithDeepSeek(JSON.parse(data), {
+          allowRemote: false
+        })
 
         const stats = fs.statSync(this.pricingFile)
         this.lastUpdated = stats.mtime

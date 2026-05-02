@@ -112,7 +112,28 @@ class UnifiedDeepSeekScheduler {
       return false
     }
 
-    if (!isActive(account.isActive) || !isSchedulable(account.schedulable)) {
+    if (!isActive(account.isActive)) {
+      return false
+    }
+
+    const wasRateLimited =
+      account.status === 'rateLimited' ||
+      account.rateLimitStatus === 'limited' ||
+      (typeof account.rateLimitStatus === 'object' &&
+        account.rateLimitStatus.isRateLimited === true)
+
+    if (await this.isAccountRateLimited(account.id)) {
+      return false
+    }
+
+    if (wasRateLimited) {
+      account = await deepseekAccountService.getAccount(account.id)
+      if (!account) {
+        return false
+      }
+    }
+
+    if (!isSchedulable(account.schedulable)) {
       return false
     }
 
@@ -121,10 +142,6 @@ class UnifiedDeepSeekScheduler {
     }
 
     if (account.status === 'quotaExceeded') {
-      return false
-    }
-
-    if (await this.isAccountRateLimited(account.id)) {
       return false
     }
 
@@ -155,6 +172,9 @@ class UnifiedDeepSeekScheduler {
     }
 
     if (account.rateLimitStatus !== 'limited') {
+      if (account.status === 'rateLimited' && !account.rateLimitStatus) {
+        await deepseekAccountService.setAccountRateLimited(accountId, false)
+      }
       return false
     }
 
