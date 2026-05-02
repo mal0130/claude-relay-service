@@ -365,7 +365,8 @@ const formatPermissions = (permissions) => {
     droid: 'Droid',
     bedrock: 'Bedrock',
     azure: 'Azure',
-    ccr: 'CCR'
+    ccr: 'CCR',
+    deepseek: 'DeepSeek'
   }
   // 空值 = 全部服务
   if (!permissions) return '全部服务'
