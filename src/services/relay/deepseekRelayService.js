@@ -3,7 +3,7 @@ const crypto = require('crypto')
 const ProxyHelper = require('../../utils/proxyHelper')
 const logger = require('../../utils/logger')
 const config = require('../../../config/config')
-const { filterForOpenAI } = require('../../utils/headerFilter')
+const { filterForClaude, filterForOpenAI } = require('../../utils/headerFilter')
 const { IncrementalSSEParser } = require('../../utils/sseParser')
 const { updateRateLimitCounters } = require('../../utils/rateLimitHelper')
 const { createRequestDetailMeta } = require('../../utils/requestDetailHelper')
@@ -14,7 +14,9 @@ const unifiedDeepSeekScheduler = require('../scheduler/unifiedDeepSeekScheduler'
 const upstreamErrorHelper = require('../../utils/upstreamErrorHelper')
 const {
   buildChatCompletionsUrl,
+  buildAnthropicMessagesUrl,
   normalizeDeepSeekUsage,
+  normalizeDeepSeekAnthropicUsage,
   isDeepSeekModel,
   normalizeDeepSeekModel,
   DEEPSEEK_DEFAULT_MODEL
@@ -27,7 +29,7 @@ class DeepSeekRelayService {
 
   async handleChatCompletions(req, res) {
     const apiKeyData = req.apiKey
-    const requestedModel = normalizeDeepSeekModel(req.body?.model || DEEPSEEK_DEFAULT_MODEL)
+    const requestedModel = this._normalizeRequestModel(req.body?.model)
     const sessionId =
       req.headers['session_id'] ||
       req.headers['x-session-id'] ||
@@ -53,12 +55,23 @@ class DeepSeekRelayService {
         })
       }
 
+      if (this._isModelRestricted(apiKeyData, requestedModel)) {
+        return res.status(403).json({
+          error: {
+            message: `Model ${requestedModel} is not allowed for this API key`,
+            type: 'invalid_request_error',
+            code: 'model_not_allowed'
+          }
+        })
+      }
+
       const selection = await unifiedDeepSeekScheduler.selectAccountForApiKey(
         apiKeyData,
         sessionHash,
         requestedModel
       )
-      accountId = selection.accountId
+      const { accountId: selectedAccountId } = selection
+      accountId = selectedAccountId
       const account = await deepseekAccountService.getAccount(accountId)
       if (!account) {
         throw new Error('DeepSeek account not found')
@@ -130,12 +143,129 @@ class DeepSeekRelayService {
     }
   }
 
+  async handleAnthropicMessages(req, res) {
+    const apiKeyData = req.apiKey
+    const requestedModel = this._normalizeRequestModel(req.body?.model)
+    const sessionId =
+      req.headers['session_id'] ||
+      req.headers['x-session-id'] ||
+      req.body?.session_id ||
+      req.body?.conversation_id ||
+      null
+    const sessionHash = sessionId
+      ? crypto.createHash('sha256').update(String(sessionId)).digest('hex')
+      : null
+
+    let accountId = null
+    let upstreamResponse = null
+    const startTime = Date.now()
+
+    try {
+      if (!apiKeyService.hasPermission(apiKeyData?.permissions, 'deepseek')) {
+        return res.status(403).json({
+          type: 'error',
+          error: {
+            type: 'permission_error',
+            message: 'This API key does not have permission to access DeepSeek'
+          }
+        })
+      }
+
+      if (this._isModelRestricted(apiKeyData, requestedModel)) {
+        return res.status(403).json({
+          type: 'error',
+          error: {
+            type: 'invalid_request_error',
+            message: `Model ${requestedModel} is not allowed for this API key`
+          }
+        })
+      }
+
+      const selection = await unifiedDeepSeekScheduler.selectAccountForApiKey(
+        apiKeyData,
+        sessionHash,
+        requestedModel
+      )
+      const { accountId: selectedAccountId } = selection
+      accountId = selectedAccountId
+      const account = await deepseekAccountService.getAccount(accountId)
+      if (!account) {
+        throw new Error('DeepSeek account not found')
+      }
+      if (!account.apiKey) {
+        throw new Error('DeepSeek account API Key not found or decryption failed')
+      }
+
+      const targetUrl = buildAnthropicMessagesUrl(account.baseApi)
+      const body = this._buildAnthropicRequestBody(req.body || {})
+      const isStream = body.stream === true
+      const abortController = new AbortController()
+
+      const onClientDisconnect = () => {
+        if (!abortController.signal.aborted) {
+          abortController.abort()
+        }
+      }
+      req.once('close', onClientDisconnect)
+      res.once('close', onClientDisconnect)
+
+      const requestConfig = {
+        headers: {
+          ...filterForClaude(req.headers || {}),
+          'x-api-key': account.apiKey,
+          'anthropic-version':
+            this._getHeaderValue(req.headers, 'anthropic-version') || '2023-06-01',
+          'Content-Type': 'application/json'
+        },
+        timeout: this.defaultTimeout,
+        validateStatus: () => true,
+        signal: abortController.signal
+      }
+
+      if (account.proxy) {
+        const agent = ProxyHelper.createProxyAgent(account.proxy)
+        if (agent) {
+          requestConfig.httpAgent = agent
+          requestConfig.httpsAgent = agent
+        }
+      }
+
+      if (isStream) {
+        requestConfig.responseType = 'stream'
+      }
+
+      logger.info(
+        `🎯 Forwarding DeepSeek Anthropic request to ${targetUrl}, model=${requestedModel}`
+      )
+      upstreamResponse = await axios.post(targetUrl, body, requestConfig)
+
+      if (isStream) {
+        return await this._handleAnthropicStreamResponse(req, res, {
+          upstreamResponse,
+          body,
+          accountId,
+          requestedModel,
+          sessionHash,
+          startTime
+        })
+      }
+
+      return await this._handleAnthropicJsonResponse(req, res, {
+        upstreamResponse,
+        body,
+        accountId,
+        requestedModel,
+        sessionHash,
+        startTime
+      })
+    } catch (error) {
+      return await this._handleRequestError(req, res, error, accountId, sessionHash)
+    }
+  }
+
   _buildRequestBody(body) {
     const normalized = { ...body }
-    normalized.model = normalizeDeepSeekModel(normalized.model)
-    if (!isDeepSeekModel(normalized.model)) {
-      normalized.model = DEEPSEEK_DEFAULT_MODEL
-    }
+    normalized.model = this._normalizeRequestModel(normalized.model)
 
     if (normalized.stream === true) {
       normalized.stream_options = {
@@ -143,6 +273,13 @@ class DeepSeekRelayService {
         include_usage: true
       }
     }
+
+    return normalized
+  }
+
+  _buildAnthropicRequestBody(body) {
+    const normalized = { ...body }
+    normalized.model = this._normalizeRequestModel(normalized.model)
 
     return normalized
   }
@@ -162,7 +299,7 @@ class DeepSeekRelayService {
     }
 
     const usage = responseData?.usage
-    const model = normalizeDeepSeekModel(responseData?.model || requestedModel)
+    const model = this._normalizeRequestModel(responseData?.model || requestedModel)
 
     if (usage) {
       await this._recordUsage(req, {
@@ -180,6 +317,45 @@ class DeepSeekRelayService {
 
     logger.info(
       `✅ DeepSeek non-stream completed elapsed=${Date.now() - startTime}ms model=${model}`
+    )
+    return res.status(upstreamResponse.status).json(responseData)
+  }
+
+  async _handleAnthropicJsonResponse(req, res, context) {
+    const { upstreamResponse, body, accountId, requestedModel, sessionHash, startTime } = context
+    const responseData = upstreamResponse.data
+
+    if (upstreamResponse.status >= 400) {
+      await this._handleUpstreamStatus(
+        upstreamResponse.status,
+        responseData,
+        accountId,
+        sessionHash
+      )
+      return res.status(upstreamResponse.status).json(responseData)
+    }
+
+    const usage = responseData?.usage
+    const model = this._normalizeRequestModel(responseData?.model || requestedModel)
+
+    if (usage) {
+      await this._recordUsage(req, {
+        usage,
+        body,
+        model,
+        accountId,
+        sessionHash,
+        stream: false,
+        statusCode: upstreamResponse.status,
+        protocol: 'anthropic',
+        assistantContent: responseData?.content
+      })
+    } else {
+      logger.warn(`⚠️ DeepSeek Anthropic non-stream response missing usage, model=${model}`)
+    }
+
+    logger.info(
+      `✅ DeepSeek Anthropic non-stream completed elapsed=${Date.now() - startTime}ms model=${model}`
     )
     return res.status(upstreamResponse.status).json(responseData)
   }
@@ -239,7 +415,7 @@ class DeepSeekRelayService {
           await this._recordUsage(req, {
             usage: capturedUsage,
             body,
-            model: normalizeDeepSeekModel(actualModel || requestedModel),
+            model: this._normalizeRequestModel(actualModel || requestedModel),
             accountId,
             sessionHash,
             stream: true,
@@ -281,18 +457,239 @@ class DeepSeekRelayService {
     })
   }
 
+  async _handleAnthropicStreamResponse(req, res, context) {
+    const { upstreamResponse, body, accountId, requestedModel, sessionHash, startTime } = context
+
+    if (upstreamResponse.status >= 400) {
+      const errorBody = await this._readStreamToString(upstreamResponse.data)
+      const parsed = this._parseJsonSafe(errorBody) || {
+        type: 'error',
+        error: { type: 'api_error', message: errorBody }
+      }
+      await this._handleUpstreamStatus(upstreamResponse.status, parsed, accountId, sessionHash)
+      return res.status(upstreamResponse.status).json(parsed)
+    }
+
+    res.writeHead(upstreamResponse.status, {
+      'Content-Type': upstreamResponse.headers['content-type'] || 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      Connection: 'keep-alive',
+      'X-Accel-Buffering': 'no'
+    })
+
+    const parser = new IncrementalSSEParser()
+    let capturedUsage = null
+    let actualModel = requestedModel
+    let usageRecorded = false
+    const streamedAssistantText = []
+    const streamedThinkingText = []
+
+    upstreamResponse.data.on('data', (chunk) => {
+      if (!res.destroyed) {
+        res.write(chunk)
+      }
+
+      const events = parser.feed(chunk.toString())
+      for (const event of events) {
+        if (event.type === 'data' && event.data) {
+          actualModel = this._extractAnthropicModel(event.data, actualModel)
+          capturedUsage = this._mergeAnthropicUsage(
+            capturedUsage,
+            this._extractAnthropicUsage(event.data)
+          )
+          this._collectAnthropicStreamContent(
+            event.data,
+            streamedAssistantText,
+            streamedThinkingText
+          )
+        }
+      }
+    })
+
+    upstreamResponse.data.on('end', async () => {
+      try {
+        if (parser.getRemaining().trim()) {
+          const events = parser.feed('\n\n')
+          for (const event of events) {
+            if (event.type === 'data' && event.data) {
+              actualModel = this._extractAnthropicModel(event.data, actualModel)
+              capturedUsage = this._mergeAnthropicUsage(
+                capturedUsage,
+                this._extractAnthropicUsage(event.data)
+              )
+              this._collectAnthropicStreamContent(
+                event.data,
+                streamedAssistantText,
+                streamedThinkingText
+              )
+            }
+          }
+        }
+
+        if (capturedUsage) {
+          await this._recordUsage(req, {
+            usage: capturedUsage,
+            body,
+            model: this._normalizeRequestModel(actualModel || requestedModel),
+            accountId,
+            sessionHash,
+            stream: true,
+            statusCode: res.statusCode,
+            protocol: 'anthropic',
+            assistantContent: this._buildAnthropicAssistantContent(
+              streamedAssistantText,
+              streamedThinkingText
+            )
+          })
+          usageRecorded = true
+        } else {
+          logger.warn(`⚠️ DeepSeek Anthropic stream response missing usage, model=${actualModel}`)
+        }
+
+        if (await unifiedDeepSeekScheduler.isAccountRateLimited(accountId)) {
+          await unifiedDeepSeekScheduler.removeAccountRateLimit(accountId)
+        }
+      } catch (error) {
+        logger.error('Failed to finalize DeepSeek Anthropic stream usage:', error)
+      }
+
+      logger.info(
+        `✅ DeepSeek Anthropic stream completed elapsed=${Date.now() - startTime}ms model=${actualModel} usageRecorded=${usageRecorded}`
+      )
+      res.end()
+    })
+
+    upstreamResponse.data.on('error', (error) => {
+      logger.error('DeepSeek Anthropic upstream stream error:', error)
+      if (!res.headersSent) {
+        res.status(502).json({
+          type: 'error',
+          error: { type: 'api_error', message: 'Upstream stream error' }
+        })
+      } else {
+        res.end()
+      }
+    })
+
+    req.on('close', () => {
+      try {
+        upstreamResponse.data?.destroy?.()
+      } catch (_) {
+        // ignore
+      }
+    })
+  }
+
+  _normalizeRequestModel(model) {
+    const normalized = normalizeDeepSeekModel(model || DEEPSEEK_DEFAULT_MODEL)
+    return isDeepSeekModel(normalized) ? normalized : DEEPSEEK_DEFAULT_MODEL
+  }
+
+  _isModelRestricted(apiKeyData, model) {
+    return (
+      apiKeyData?.enableModelRestriction &&
+      Array.isArray(apiKeyData.restrictedModels) &&
+      apiKeyData.restrictedModels.length > 0 &&
+      apiKeyData.restrictedModels.includes(model)
+    )
+  }
+
+  _getHeaderValue(headers = {}, name) {
+    const lowerName = name.toLowerCase()
+    for (const [key, value] of Object.entries(headers || {})) {
+      if (key.toLowerCase() === lowerName) {
+        return Array.isArray(value) ? value[0] : value
+      }
+    }
+    return null
+  }
+
+  _extractAnthropicUsage(data = {}) {
+    if (data?.usage && typeof data.usage === 'object') {
+      return data.usage
+    }
+
+    if (data?.message?.usage && typeof data.message.usage === 'object') {
+      return data.message.usage
+    }
+
+    return null
+  }
+
+  _mergeAnthropicUsage(current, partial) {
+    if (!partial || typeof partial !== 'object') {
+      return current
+    }
+
+    return {
+      ...(current || {}),
+      ...partial,
+      cache_creation: {
+        ...(current?.cache_creation || {}),
+        ...(partial.cache_creation || {})
+      }
+    }
+  }
+
+  _extractAnthropicModel(data = {}, fallback = DEEPSEEK_DEFAULT_MODEL) {
+    return data?.message?.model || data?.model || fallback
+  }
+
+  _collectAnthropicStreamContent(data, streamedAssistantText, streamedThinkingText) {
+    const delta = data?.delta
+    if (!delta || typeof delta !== 'object') {
+      return
+    }
+
+    if (typeof delta.text === 'string' && delta.text) {
+      streamedAssistantText.push(delta.text)
+    }
+
+    if (typeof delta.thinking === 'string' && delta.thinking) {
+      streamedThinkingText.push(delta.thinking)
+    }
+  }
+
+  _buildAnthropicAssistantContent(streamedAssistantText, streamedThinkingText) {
+    const blocks = []
+    const thinking = streamedThinkingText.join('')
+    if (thinking) {
+      blocks.push({ type: 'thinking', thinking })
+    }
+
+    const text = streamedAssistantText.join('')
+    if (text) {
+      blocks.push({ type: 'text', text })
+    }
+
+    return blocks.length > 0 ? blocks : undefined
+  }
+
   async _recordUsage(req, options) {
-    const { usage, body, model, accountId, sessionHash, stream, statusCode } = options
-    const normalizedUsage = normalizeDeepSeekUsage(usage)
-    const inputBlock = buildInputMessagesBlock(body)
+    const {
+      usage,
+      body,
+      model,
+      accountId,
+      sessionHash,
+      stream,
+      statusCode,
+      protocol = 'openai',
+      assistantContent
+    } = options
+    const isAnthropicProtocol = protocol === 'anthropic'
+    const normalizedUsage = isAnthropicProtocol
+      ? normalizeDeepSeekAnthropicUsage(usage)
+      : normalizeDeepSeekUsage(usage)
+    const inputBlock = isAnthropicProtocol ? null : buildInputMessagesBlock(body)
     const usageExtra = buildUsageMetadata({
       body,
-      format: 'openai',
+      format: isAnthropicProtocol ? 'anthropic' : 'openai',
       headers: req.headers,
       requestIp: req,
       sessionId: sessionHash || null,
       rawSessionId: null,
-      assistantContent: inputBlock ? [inputBlock] : undefined
+      assistantContent: assistantContent || (inputBlock ? [inputBlock] : undefined)
     })
 
     const costs = await apiKeyService.recordUsageWithDetails(

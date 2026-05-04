@@ -60,14 +60,15 @@ const result = await generateText({
 
 采用 route-first 分发，避免模型别名导致后端识别错误。
 
-| 路由                                 | 平台           | 协议                               | 第一版 |
-| ------------------------------------ | -------------- | ---------------------------------- | ------ |
-| `POST /api/v1/messages`              | Claude         | Anthropic Messages                 | 已有   |
-| `POST /openai/v1/responses`          | OpenAI / Codex | OpenAI Responses                   | 已有   |
-| `POST /openai/v1/chat/completions`   | OpenAI         | OpenAI Chat Completions            | 已有   |
-| `POST /deepseek/v1/chat/completions` | DeepSeek       | OpenAI-compatible Chat Completions | 新增   |
-| `POST /glm/v1/chat/completions`      | GLM            | OpenAI-compatible Chat Completions | 后续   |
-| `POST /kimi/v1/chat/completions`     | Kimi           | OpenAI-compatible Chat Completions | 后续   |
+| 路由                                      | 平台           | 协议                               | 第一版 |
+| ----------------------------------------- | -------------- | ---------------------------------- | ------ |
+| `POST /api/v1/messages`                   | Claude         | Anthropic Messages                 | 已有   |
+| `POST /openai/v1/responses`               | OpenAI / Codex | OpenAI Responses                   | 已有   |
+| `POST /openai/v1/chat/completions`        | OpenAI         | OpenAI Chat Completions            | 已有   |
+| `POST /deepseek/v1/chat/completions`      | DeepSeek       | OpenAI-compatible Chat Completions | 新增   |
+| `POST /deepseek/anthropic/v1/messages`    | DeepSeek       | Anthropic Messages                 | 新增   |
+| `POST /glm/v1/chat/completions`           | GLM            | OpenAI-compatible Chat Completions | 后续   |
+| `POST /kimi/v1/chat/completions`          | Kimi           | OpenAI-compatible Chat Completions | 后续   |
 
 `POST /api/v1/chat/completions` 或 `POST /v1/chat/completions` 可以保留智能路由能力，但只作为辅助入口。主路径应以显式平台路由为准。
 
@@ -111,6 +112,7 @@ Platform/Adapter 注册表只描述平台协议、权限、模型匹配和适配
     accountSubType: 'deepseek-api',
     accountSubTypeLabel: '标准 API',
     protocol: 'openai-compatible-chat',
+    protocols: ['openai-compatible-chat', 'anthropic-messages'],
     modelPatterns: ['deepseek-*'],
     modelAliases: {
       'deepseek-chat': 'deepseek-v4-flash',
@@ -271,7 +273,8 @@ deepseek_session_mapping:{sessionHash}
 
 ## DeepSeek Relay 设计
 
-DeepSeek 官方对话补全接口是：
+DeepSeek 官方对话补全接口包括 OpenAI-compatible 和 Anthropic-compatible 两种协议。
+OpenAI-compatible 对话补全接口是：
 
 ```text
 POST /chat/completions
@@ -295,11 +298,35 @@ relay 根据选中账号转发到：
 https://api.deepseek.com/chat/completions
 ```
 
+Anthropic-compatible Messages 接口使用 DeepSeek 官方 `/anthropic` base URL：
+
+```text
+POST /anthropic/v1/messages
+```
+
+本服务同时新增：
+
+```text
+POST /deepseek/anthropic/v1/messages
+```
+
+relay 根据选中账号转发到：
+
+```text
+{account.baseApi}/anthropic/v1/messages
+```
+
+如果账号录入 DeepSeek 官方地址，则等价于：
+
+```text
+https://api.deepseek.com/anthropic/v1/messages
+```
+
 主要职责：
 
 1. 校验 API Key 是否具备 `deepseek` 权限。
 2. 通过调度器选择 DeepSeek 账号。
-3. 解密账号 API Key，构造上游请求。
+3. 解密账号 API Key，按请求端点构造 OpenAI 或 Anthropic 上游请求。
 4. 清洗或转换 DeepSeek 不支持的请求字段。
 5. 转发普通 JSON 或 SSE 流式响应。
 6. 捕获 `usage`，记录 API Key 和账号用量。
@@ -570,7 +597,7 @@ web/admin-spa/src/stores/accounts.js
 2. 新增 DeepSeek 账号服务，字段尽量对齐现有账号服务。
 3. 新增 DeepSeek 调度器，第一版只筛选 DeepSeek 账号。
 4. 新增 DeepSeek relay，内部复用 OpenAI-compatible 转发工具。
-5. 新增 `/deepseek/v1/chat/completions`。
+5. 新增 `/deepseek/v1/chat/completions` 和 `/deepseek/anthropic/v1/messages`。
 6. 接入 API Key `deepseek` 权限校验。
 7. 接入 DeepSeek usage mapper。
 8. 接入 `recordUsageWithDetails()` 和 rate limit cost 计数。
@@ -598,7 +625,8 @@ web/admin-spa/src/stores/accounts.js
 第一版建议控制范围如下：
 
 - 一个 API Key 支持 `claude / openai / deepseek` 多平台权限。
-- DeepSeek 通过独立 route `/deepseek/v1/chat/completions` 提供服务。
+- DeepSeek 通过独立 route `/deepseek/v1/chat/completions` 提供 OpenAI-compatible 服务。
+- DeepSeek 通过独立 route `/deepseek/anthropic/v1/messages` 提供 Anthropic-compatible 服务。
 - 后台新增 DeepSeek 平台和 `DeepSeek API / 标准 API` 类型。
 - DeepSeek 账号字段尽量与现有平台账号字段对齐。
 - DeepSeek 账号先走 shared pool 调度。
@@ -611,6 +639,7 @@ web/admin-spa/src/stores/accounts.js
 
 - AI SDK OpenAI Compatible Provider: <https://ai-sdk.dev/providers/openai-compatible-providers>
 - DeepSeek 对话补全接口: <https://api-docs.deepseek.com/zh-cn/api/create-chat-completion>
+- DeepSeek Anthropic 兼容接口: <https://api-docs.deepseek.com/zh-cn/guides/anthropic_api>
 - DeepSeek 模型与价格: <https://api-docs.deepseek.com/zh-cn/quick_start/pricing>
 - 智谱 GLM OpenAI 兼容文档: <https://docs.bigmodel.cn/cn/guide/develop/openai/introduction>
 - Kimi API 快速开始: <https://platform.kimi.com/docs/guide/start-using-kimi-api>
