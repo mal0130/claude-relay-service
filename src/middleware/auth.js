@@ -488,7 +488,7 @@ async function validateApiKeyWithAllChecks(apiKey, req, res) {
   // 1. 基础验证
   const validation = await apiKeyService.validateApiKey(apiKey)
   if (!validation.valid) {
-    return { valid: false, error: validation.error, statusCode: 401 }
+    return { valid: false, error: validation.error, statusCode: 401, keyData: validation.keyData }
   }
 
   const { keyData } = validation

@@ -437,7 +437,7 @@ class ApiKeyService {
         ? `您订购的资源包已过有效期。您可以重新购买 [<a href="${subscriptionUrl}">资源包</a>]，或选择更灵活的 [<a href="${subscriptionUrl}">订阅套餐</a>] 开启新一轮体验。`
         : `您订阅的套餐已到期，为确保您的开发不受影响，请 [<a href="${subscriptionUrl}">点此续费</a>]`
       if (keyData.isActive !== 'true') {
-        return { valid: false, error: expiredError }
+        return { valid: false, error: expiredError, keyData }
       }
 
       // 处理激活逻辑（仅在 activation 模式下）
@@ -474,7 +474,7 @@ class ApiKeyService {
 
       // 检查是否过期
       if (keyData.expiresAt && new Date() > new Date(keyData.expiresAt)) {
-        return { valid: false, error: expiredError }
+        return { valid: false, error: expiredError, keyData }
       }
 
       // 如果API Key属于某个用户，检查用户是否被禁用
