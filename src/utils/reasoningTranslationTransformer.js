@@ -19,7 +19,7 @@ const { createReasoningTranslator } = require('../services/reasoningTranslationS
  * @param {{ keyId?: string, model?: string }} [options]
  */
 function applyReasoningTranslation(res, options = {}) {
-  const { keyId, model = config.translation.model } = options
+  const { keyId: _keyId, model: _model = config.translation.model } = options
 
   const originalWrite = res.write.bind(res)
   const originalEnd = res.end.bind(res)
@@ -91,9 +91,9 @@ function applyReasoningTranslation(res, options = {}) {
     }
   }
 
-  function buildUsageEvent(chatId, transUsage) {
+  function buildUsageEvent(eventChatId, transUsage) {
     const payload = {
-      id: chatId || `chatcmpl-translated-${Date.now()}`,
+      id: eventChatId || `chatcmpl-translated-${Date.now()}`,
       object: 'chat.completion.chunk',
       choices: [{ index: 0, delta: {}, finish_reason: null }],
       usage: transUsage

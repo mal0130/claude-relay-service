@@ -17,6 +17,14 @@
               <span class="font-bold text-blue-600 dark:text-blue-400">{{ modelCount }}</span>
             </p>
             <p class="text-xs text-gray-500 dark:text-gray-400">上次更新: {{ lastUpdated }}</p>
+            <p v-if="deepseekStatus.modelCount" class="text-xs text-gray-500 dark:text-gray-400">
+              DeepSeek:
+              {{ deepseekStatus.discountActive ? '官方折扣价' : '官方标准价' }} ·
+              {{ deepseekStatus.currency || 'USD' }}
+              <span v-if="deepseekStatus.discountEndsAt">
+                · 折扣至 {{ formatDateTime(deepseekStatus.discountEndsAt) }}
+              </span>
+            </p>
           </div>
         </div>
         <button
@@ -130,6 +138,12 @@
             <td class="whitespace-nowrap px-3 py-2.5">
               <div class="font-medium text-gray-900 dark:text-gray-100">{{ model.name }}</div>
               <div v-if="model.provider" class="text-xs text-gray-400">{{ model.provider }}</div>
+              <div
+                v-if="model.provider === 'DeepSeek' && model.discountEndsAt"
+                class="mt-0.5 text-xs text-emerald-600 dark:text-emerald-400"
+              >
+                {{ model.discountActive ? '官方折扣价' : '官方标准价' }}
+              </div>
             </td>
             <td
               class="whitespace-nowrap px-3 py-2.5 text-right font-mono text-gray-700 dark:text-gray-300"
@@ -198,6 +212,7 @@ const platformTabs = [
   { key: 'claude', label: 'Claude' },
   { key: 'gemini', label: 'Gemini' },
   { key: 'openai', label: 'OpenAI' },
+  { key: 'deepseek', label: 'DeepSeek' },
   { key: 'other', label: '其他' }
 ]
 
@@ -209,6 +224,8 @@ const lastUpdated = computed(() => {
   return new Date(pricingStatus.value.lastUpdated).toLocaleString('zh-CN')
 })
 
+const deepseekStatus = computed(() => pricingStatus.value.sources?.deepseek || {})
+
 const allModels = computed(() =>
   Object.entries(pricingData.value).map(([name, data]) => ({
     name,
@@ -217,7 +234,9 @@ const allModels = computed(() =>
     outputCost: (data.output_cost_per_token || 0) * 1e6,
     cacheCreateCost: (data.cache_creation_input_token_cost || 0) * 1e6,
     cacheReadCost: (data.cache_read_input_token_cost || 0) * 1e6,
-    maxTokens: data.max_tokens || data.max_output_tokens || 0
+    maxTokens: data.max_tokens || data.max_output_tokens || 0,
+    discountActive: data.pricing_discount_active === true,
+    discountEndsAt: data.pricing_discount_ends_at || null
   }))
 )
 
@@ -235,9 +254,11 @@ const filteredModels = computed(() => {
         n.includes('o3') ||
         n.includes('o4') ||
         n.includes('codex'),
+      deepseek: (n) => n.includes('deepseek'),
       other: (n) =>
         !n.includes('claude') &&
         !n.includes('gemini') &&
+        !n.includes('deepseek') &&
         !n.includes('gpt') &&
         !n.includes('o1') &&
         !n.includes('o3') &&
@@ -307,6 +328,11 @@ const formatContext = (tokens) => {
   if (tokens >= 1000000) return `${(tokens / 1000000).toFixed(1)}M`
   if (tokens >= 1000) return `${(tokens / 1000).toFixed(0)}K`
   return String(tokens)
+}
+
+const formatDateTime = (value) => {
+  if (!value) return ''
+  return new Date(value).toLocaleString('zh-CN')
 }
 
 const toggleSort = (field) => {

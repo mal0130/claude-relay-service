@@ -68,6 +68,11 @@ class ModelService {
           'gemini-3.1-pro-preview',
           'gemini-2.5-flash'
         ]
+      },
+      deepseek: {
+        provider: 'deepseek',
+        description: 'DeepSeek models',
+        models: ['deepseek-v4-flash', 'deepseek-v4-pro', 'deepseek-chat', 'deepseek-reasoner']
       }
     }
   }

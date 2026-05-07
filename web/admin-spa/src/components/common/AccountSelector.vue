@@ -128,9 +128,11 @@
                       ? 'OpenAI 专属账号'
                       : platform === 'droid'
                         ? 'Droid 专属账号'
-                        : platform === 'gemini'
-                          ? 'Gemini OAuth 专属账号'
-                          : 'OAuth 专属账号'
+                        : platform === 'deepseek'
+                          ? 'DeepSeek 专属账号'
+                          : platform === 'gemini'
+                            ? 'Gemini OAuth 专属账号'
+                            : 'OAuth 专属账号'
                 }}
               </div>
               <div
@@ -307,7 +309,8 @@ const props = defineProps({
   platform: {
     type: String,
     required: true,
-    validator: (value) => ['claude', 'gemini', 'openai', 'bedrock', 'droid'].includes(value)
+    validator: (value) =>
+      ['claude', 'gemini', 'openai', 'bedrock', 'droid', 'deepseek'].includes(value)
   },
   accounts: {
     type: Array,
@@ -413,8 +416,10 @@ const getAccountStatusText = (account) => {
       case 'created':
         return '待验证'
       case 'rate_limited':
+      case 'rateLimited':
         return '限流中'
       case 'quota_exceeded':
+      case 'quotaExceeded':
         return '额度超限'
       default:
         return '异常'
@@ -422,7 +427,7 @@ const getAccountStatusText = (account) => {
   }
 
   // 对于激活的账号，如果是限流状态也要显示
-  if (account.status === 'rate_limited') {
+  if (account.status === 'rate_limited' || account.status === 'rateLimited') {
     return '限流中'
   }
 
@@ -470,6 +475,8 @@ const filteredOAuthAccounts = computed(() => {
     accounts = sortedAccounts.value.filter((a) => a.platform === 'openai')
   } else if (props.platform === 'droid') {
     accounts = sortedAccounts.value.filter((a) => a.platform === 'droid')
+  } else if (props.platform === 'deepseek') {
+    accounts = sortedAccounts.value.filter((a) => a.platform === 'deepseek')
   } else if (props.platform === 'gemini') {
     // 对于 Gemini，只显示 OAuth 类型的账号（排除 gemini-api）
     accounts = sortedAccounts.value.filter((a) => a.platform === 'gemini')

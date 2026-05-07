@@ -352,6 +352,10 @@
                 <input v-model="form.permissions" class="mr-2" type="radio" value="droid" />
                 <span class="text-sm text-gray-700">仅 Droid</span>
               </label>
+              <label class="flex cursor-pointer items-center">
+                <input v-model="form.permissions" class="mr-2" type="radio" value="deepseek" />
+                <span class="text-sm text-gray-700">仅 DeepSeek</span>
+              </label>
             </div>
           </div>
 
@@ -454,6 +458,21 @@
                   :special-options="accountSpecialOptions"
                 />
               </div>
+              <div>
+                <label class="mb-1 block text-sm font-medium text-gray-600 dark:text-gray-400"
+                  >DeepSeek 专属账号</label
+                >
+                <AccountSelector
+                  v-model="deepseekAccountSelectorValue"
+                  :accounts="localAccounts.deepseek"
+                  default-option-text="请选择DeepSeek账号"
+                  :disabled="!isServiceSelectable('deepseek')"
+                  :groups="localAccounts.deepseekGroups"
+                  placeholder="请选择DeepSeek账号"
+                  platform="deepseek"
+                  :special-options="accountSpecialOptions"
+                />
+              </div>
             </div>
           </div>
 
@@ -502,10 +521,12 @@ const props = defineProps({
       openaiResponses: [],
       bedrock: [],
       droid: [],
+      deepseek: [],
       claudeGroups: [],
       geminiGroups: [],
       openaiGroups: [],
-      droidGroups: []
+      droidGroups: [],
+      deepseekGroups: []
     })
   }
 })
@@ -521,10 +542,12 @@ const localAccounts = ref({
   openai: [],
   bedrock: [],
   droid: [],
+  deepseek: [],
   claudeGroups: [],
   geminiGroups: [],
   openaiGroups: [],
-  droidGroups: []
+  droidGroups: [],
+  deepseekGroups: []
 })
 
 // 标签相关
@@ -556,6 +579,7 @@ const form = reactive({
   openaiAccountId: '',
   bedrockAccountId: '',
   droidAccountId: '',
+  deepseekAccountId: '',
   tags: [],
   isActive: null // null表示不修改
 })
@@ -584,6 +608,7 @@ const geminiAccountSelectorValue = createAccountSelectorModel('geminiAccountId')
 const openaiAccountSelectorValue = createAccountSelectorModel('openaiAccountId')
 const bedrockAccountSelectorValue = createAccountSelectorModel('bedrockAccountId')
 const droidAccountSelectorValue = createAccountSelectorModel('droidAccountId')
+const deepseekAccountSelectorValue = createAccountSelectorModel('deepseekAccountId')
 
 const isServiceSelectable = (service) => {
   if (!form.permissions) return true
@@ -627,6 +652,7 @@ const refreshAccounts = async () => {
       openaiResponsesData,
       bedrockData,
       droidData,
+      deepseekData,
       groupsData
     ] = await Promise.all([
       httpApis.getClaudeAccountsApi(),
@@ -637,6 +663,7 @@ const refreshAccounts = async () => {
       httpApis.getOpenAIResponsesAccountsApi(),
       httpApis.getBedrockAccountsApi(),
       httpApis.getDroidAccountsApi(),
+      httpApis.getDeepSeekAccountsApi(),
       httpApis.getAccountGroupsApi()
     ])
 
@@ -729,6 +756,14 @@ const refreshAccounts = async () => {
       }))
     }
 
+    if (deepseekData.success) {
+      localAccounts.value.deepseek = (deepseekData.data || []).map((account) => ({
+        ...account,
+        platform: 'deepseek',
+        isDedicated: account.accountType === 'dedicated'
+      }))
+    }
+
     // 处理分组数据
     if (groupsData.success) {
       const allGroups = groupsData.data || []
@@ -736,6 +771,7 @@ const refreshAccounts = async () => {
       localAccounts.value.geminiGroups = allGroups.filter((g) => g.platform === 'gemini')
       localAccounts.value.openaiGroups = allGroups.filter((g) => g.platform === 'openai')
       localAccounts.value.droidGroups = allGroups.filter((g) => g.platform === 'droid')
+      localAccounts.value.deepseekGroups = allGroups.filter((g) => g.platform === 'deepseek')
     }
 
     showToast('账号列表已刷新', 'success')
@@ -837,6 +873,15 @@ const batchUpdateApiKeys = async () => {
       }
     }
 
+    if (form.deepseekAccountId !== '') {
+      updates.accountBindings = {
+        deepseek: {
+          mode: 'shared',
+          accountId: form.deepseekAccountId === 'SHARED_POOL' ? '' : form.deepseekAccountId
+        }
+      }
+    }
+
     // 激活状态
     if (form.isActive !== null) {
       updates.isActive = form.isActive
@@ -921,10 +966,15 @@ onMounted(async () => {
         ...account,
         platform: account.platform || 'droid'
       })),
+      deepseek: (props.accounts.deepseek || []).map((account) => ({
+        ...account,
+        platform: account.platform || 'deepseek'
+      })),
       claudeGroups: props.accounts.claudeGroups || [],
       geminiGroups: props.accounts.geminiGroups || [],
       openaiGroups: props.accounts.openaiGroups || [],
-      droidGroups: props.accounts.droidGroups || []
+      droidGroups: props.accounts.droidGroups || [],
+      deepseekGroups: props.accounts.deepseekGroups || []
     }
   }
 })

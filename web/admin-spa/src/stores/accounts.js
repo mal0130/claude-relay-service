@@ -15,7 +15,8 @@ const PLATFORM_CONFIG = {
     endpoint: 'openai-responses-accounts',
     stateKey: 'openaiResponsesAccounts'
   },
-  droid: { endpoint: 'droid-accounts', stateKey: 'droidAccounts' }
+  droid: { endpoint: 'droid-accounts', stateKey: 'droidAccounts' },
+  deepseek: { endpoint: 'deepseek-accounts', stateKey: 'deepseekAccounts' }
 }
 
 export const useAccountsStore = defineStore('accounts', () => {
@@ -27,22 +28,11 @@ export const useAccountsStore = defineStore('accounts', () => {
   const azureOpenaiAccounts = ref([])
   const openaiResponsesAccounts = ref([])
   const droidAccounts = ref([])
+  const deepseekAccounts = ref([])
   const loading = ref(false)
   const error = ref(null)
   const sortBy = ref('')
   const sortOrder = ref('asc')
-
-  // 状态映射
-  const stateMap = {
-    claudeAccounts,
-    claudeConsoleAccounts,
-    bedrockAccounts,
-    geminiAccounts,
-    openaiAccounts,
-    azureOpenaiAccounts,
-    openaiResponsesAccounts,
-    droidAccounts
-  }
 
   // 通用获取账户
   const fetchAccounts = async (apiFunc, stateRef) => {
@@ -75,6 +65,8 @@ export const useAccountsStore = defineStore('accounts', () => {
   const fetchOpenAIResponsesAccounts = () =>
     fetchAccounts(httpApis.getOpenAIResponsesAccountsApi, openaiResponsesAccounts)
   const fetchDroidAccounts = () => fetchAccounts(httpApis.getDroidAccountsApi, droidAccounts)
+  const fetchDeepSeekAccounts = () =>
+    fetchAccounts(httpApis.getDeepSeekAccountsApi, deepseekAccounts)
 
   const fetchAllAccounts = async () => {
     loading.value = true
@@ -86,7 +78,8 @@ export const useAccountsStore = defineStore('accounts', () => {
       fetchOpenAIAccounts(),
       fetchAzureOpenAIAccounts(),
       fetchOpenAIResponsesAccounts(),
-      fetchDroidAccounts()
+      fetchDroidAccounts(),
+      fetchDeepSeekAccounts()
     ])
     loading.value = false
   }
@@ -110,6 +103,8 @@ export const useAccountsStore = defineStore('accounts', () => {
     mutateAccount(httpApis.createOpenAIResponsesAccountApi, fetchOpenAIResponsesAccounts, data)
   const createGeminiApiAccount = (data) =>
     mutateAccount(httpApis.createGeminiApiAccountApi, fetchGeminiAccounts, data)
+  const createDeepSeekAccount = (data) =>
+    mutateAccount(httpApis.createDeepSeekAccountApi, fetchDeepSeekAccounts, data)
 
   // 更新账户
   const updateClaudeAccount = (id, data) =>
@@ -130,6 +125,8 @@ export const useAccountsStore = defineStore('accounts', () => {
     mutateAccount(httpApis.updateGeminiApiAccountApi, fetchGeminiAccounts, id, data)
   const updateDroidAccount = (id, data) =>
     mutateAccount(httpApis.updateDroidAccountApi, fetchDroidAccounts, id, data)
+  const updateDeepSeekAccount = (id, data) =>
+    mutateAccount(httpApis.updateDeepSeekAccountApi, fetchDeepSeekAccounts, id, data)
 
   // 切换账户状态
   const toggleAccount = async (platform, id) => {
@@ -137,14 +134,20 @@ export const useAccountsStore = defineStore('accounts', () => {
     if (!config) return { success: false, message: '未知平台' }
     loading.value = true
     const res = await httpApis.toggleAccountStatusApi(`/admin/${config.endpoint}/${id}/toggle`)
-    if (res.success)
-      await fetchAccounts(
-        httpApis[
-          `get${config.stateKey.charAt(0).toUpperCase() + config.stateKey.slice(1).replace('Accounts', '')}AccountsApi`
-        ],
-        stateMap[config.stateKey]
-      )
-    else error.value = res.message
+    if (res.success) {
+      const fetchMap = {
+        claude: fetchClaudeAccounts,
+        'claude-console': fetchClaudeConsoleAccounts,
+        bedrock: fetchBedrockAccounts,
+        gemini: fetchGeminiAccounts,
+        openai: fetchOpenAIAccounts,
+        azure_openai: fetchAzureOpenAIAccounts,
+        'openai-responses': fetchOpenAIResponsesAccounts,
+        droid: fetchDroidAccounts,
+        deepseek: fetchDeepSeekAccounts
+      }
+      await fetchMap[platform]()
+    } else error.value = res.message
     loading.value = false
     return res
   }
@@ -164,7 +167,8 @@ export const useAccountsStore = defineStore('accounts', () => {
         openai: fetchOpenAIAccounts,
         azure_openai: fetchAzureOpenAIAccounts,
         'openai-responses': fetchOpenAIResponsesAccounts,
-        droid: fetchDroidAccounts
+        droid: fetchDroidAccounts,
+        deepseek: fetchDeepSeekAccounts
       }
       await fetchMap[platform]()
     } else {
@@ -271,6 +275,7 @@ export const useAccountsStore = defineStore('accounts', () => {
     azureOpenaiAccounts.value = []
     openaiResponsesAccounts.value = []
     droidAccounts.value = []
+    deepseekAccounts.value = []
     loading.value = false
     error.value = null
     sortBy.value = ''
@@ -286,6 +291,7 @@ export const useAccountsStore = defineStore('accounts', () => {
     azureOpenaiAccounts,
     openaiResponsesAccounts,
     droidAccounts,
+    deepseekAccounts,
     loading,
     error,
     sortBy,
@@ -298,6 +304,7 @@ export const useAccountsStore = defineStore('accounts', () => {
     fetchAzureOpenAIAccounts,
     fetchOpenAIResponsesAccounts,
     fetchDroidAccounts,
+    fetchDeepSeekAccounts,
     fetchAllAccounts,
     createClaudeAccount,
     createClaudeConsoleAccount,
@@ -309,6 +316,7 @@ export const useAccountsStore = defineStore('accounts', () => {
     createAzureOpenAIAccount,
     createOpenAIResponsesAccount,
     createGeminiApiAccount,
+    createDeepSeekAccount,
     updateClaudeAccount,
     updateClaudeConsoleAccount,
     updateBedrockAccount,
@@ -317,6 +325,7 @@ export const useAccountsStore = defineStore('accounts', () => {
     updateAzureOpenAIAccount,
     updateOpenAIResponsesAccount,
     updateGeminiApiAccount,
+    updateDeepSeekAccount,
     toggleAccount,
     deleteAccount,
     refreshClaudeToken,

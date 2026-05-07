@@ -5,6 +5,50 @@ const crypto = require('crypto')
 const pricingSource = require('../../config/pricingSource')
 const logger = require('../utils/logger')
 
+const DEEPSEEK_PRICING_SOURCE =
+  process.env.DEEPSEEK_PRICING_URL || 'https://api-docs.deepseek.com/quick_start/pricing'
+const DEEPSEEK_PRICING_SOURCE_ZH = 'https://api-docs.deepseek.com/zh-cn/quick_start/pricing'
+const DEEPSEEK_PRO_DISCOUNT_ENDS_AT = '2026-05-31T15:59:00.000Z'
+const DEEPSEEK_CONTEXT_TOKENS = 1048576
+const DEEPSEEK_MAX_OUTPUT_TOKENS = 393216
+const DEEPSEEK_FALLBACK_USD_PER_MTOK = {
+  flash: {
+    cacheRead: 0.0028,
+    input: 0.14,
+    output: 0.28
+  },
+  pro: {
+    cacheRead: 0.003625,
+    input: 0.435,
+    output: 0.87,
+    listCacheRead: 0.0145,
+    listInput: 1.74,
+    listOutput: 3.48,
+    discountEndsAt: DEEPSEEK_PRO_DISCOUNT_ENDS_AT
+  }
+}
+
+const usdPerMillionToUsdPerToken = (usdPerMillionTokens) => usdPerMillionTokens / 1_000_000
+
+const stripHtmlTags = (html) => String(html || '').replace(/<[^>]*>/g, '')
+
+const decodeHtmlEntities = (value) =>
+  String(value || '')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&#x2F;/g, '/')
+    .replace(/&#x27;/g, "'")
+    .replace(/&quot;/g, '"')
+
+const normalizeWhitespace = (value) => decodeHtmlEntities(value).replace(/\s+/g, ' ').trim()
+
+const extractUsdPrices = (html) =>
+  [...String(html || '').matchAll(/\$\s*([0-9]+(?:\.[0-9]+)?)/g)]
+    .map((match) => Number(match[1]))
+    .filter((price) => Number.isFinite(price))
+
 class PricingService {
   constructor() {
     this.dataDir = path.join(process.cwd(), 'data')
@@ -41,6 +85,384 @@ class PricingService {
       fastModeBeta: 'fast-mode-2026-02-01',
       fastModeSpeed: 'fast'
     }
+  }
+
+  _createDeepSeekPricingEntry(options) {
+    const {
+      cacheReadUsdPerMillion,
+      inputUsdPerMillion,
+      outputUsdPerMillion,
+      source = DEEPSEEK_PRICING_SOURCE,
+      now = new Date(),
+      discountActive = false,
+      discountEndsAt = null,
+      listCacheReadUsdPerMillion = null,
+      listInputUsdPerMillion = null,
+      listOutputUsdPerMillion = null,
+      supportsReasoning = true,
+      compatibilityAlias = false,
+      modelAliasFor = null
+    } = options
+
+    const refreshedAt = new Date(now).toISOString()
+    const entry = {
+      cache_read_input_token_cost: usdPerMillionToUsdPerToken(cacheReadUsdPerMillion),
+      input_cost_per_token: usdPerMillionToUsdPerToken(inputUsdPerMillion),
+      litellm_provider: 'deepseek',
+      max_input_tokens: DEEPSEEK_CONTEXT_TOKENS,
+      max_output_tokens: DEEPSEEK_MAX_OUTPUT_TOKENS,
+      max_tokens: DEEPSEEK_MAX_OUTPUT_TOKENS,
+      mode: 'chat',
+      output_cost_per_token: usdPerMillionToUsdPerToken(outputUsdPerMillion),
+      source,
+      source_zh: DEEPSEEK_PRICING_SOURCE_ZH,
+      pricing_currency: 'USD',
+      pricing_source: 'deepseek_official_docs',
+      pricing_updated_at: refreshedAt,
+      supported_endpoints: ['/v1/chat/completions'],
+      supports_function_calling: true,
+      supports_native_streaming: true,
+      supports_parallel_function_calling: true,
+      supports_prompt_caching: true,
+      supports_reasoning: supportsReasoning,
+      supports_response_schema: true,
+      supports_system_messages: true,
+      supports_tool_choice: true
+    }
+
+    if (discountEndsAt) {
+      entry.pricing_discount_active = !!discountActive
+      entry.pricing_discount_ends_at = discountEndsAt
+    }
+
+    if (listCacheReadUsdPerMillion !== null) {
+      entry.list_cache_read_input_token_cost = usdPerMillionToUsdPerToken(
+        listCacheReadUsdPerMillion
+      )
+    }
+    if (listInputUsdPerMillion !== null) {
+      entry.list_input_cost_per_token = usdPerMillionToUsdPerToken(listInputUsdPerMillion)
+    }
+    if (listOutputUsdPerMillion !== null) {
+      entry.list_output_cost_per_token = usdPerMillionToUsdPerToken(listOutputUsdPerMillion)
+    }
+    if (compatibilityAlias) {
+      entry.compatibility_alias = true
+      entry.model_alias_for = modelAliasFor
+    }
+
+    return entry
+  }
+
+  _buildDeepSeekPricingEntries(options = {}) {
+    const now = options.now || new Date()
+    const discountEndsAt =
+      options.discountEndsAt === undefined ? DEEPSEEK_PRO_DISCOUNT_ENDS_AT : options.discountEndsAt
+    const discountActive =
+      options.discountActive !== undefined
+        ? options.discountActive
+        : new Date(now).getTime() < new Date(discountEndsAt).getTime()
+
+    const flashPrices = options.flash || DEEPSEEK_FALLBACK_USD_PER_MTOK.flash
+    const proPrices = options.pro || DEEPSEEK_FALLBACK_USD_PER_MTOK.pro
+    const activeProPrices = discountActive
+      ? proPrices
+      : {
+          ...proPrices,
+          cacheRead: proPrices.listCacheRead || proPrices.cacheRead,
+          input: proPrices.listInput || proPrices.input,
+          output: proPrices.listOutput || proPrices.output
+        }
+
+    const commonOptions = {
+      source: options.source || DEEPSEEK_PRICING_SOURCE,
+      now
+    }
+
+    const flash = this._createDeepSeekPricingEntry({
+      ...commonOptions,
+      modelName: 'deepseek-v4-flash',
+      cacheReadUsdPerMillion: flashPrices.cacheRead,
+      inputUsdPerMillion: flashPrices.input,
+      outputUsdPerMillion: flashPrices.output,
+      supportsReasoning: true
+    })
+    const pro = this._createDeepSeekPricingEntry({
+      ...commonOptions,
+      modelName: 'deepseek-v4-pro',
+      cacheReadUsdPerMillion: activeProPrices.cacheRead,
+      inputUsdPerMillion: activeProPrices.input,
+      outputUsdPerMillion: activeProPrices.output,
+      listCacheReadUsdPerMillion: proPrices.listCacheRead || null,
+      listInputUsdPerMillion: proPrices.listInput || null,
+      listOutputUsdPerMillion: proPrices.listOutput || null,
+      discountActive,
+      discountEndsAt,
+      supportsReasoning: true
+    })
+    const chatAlias = this._createDeepSeekPricingEntry({
+      ...commonOptions,
+      modelName: 'deepseek-chat',
+      cacheReadUsdPerMillion: flashPrices.cacheRead,
+      inputUsdPerMillion: flashPrices.input,
+      outputUsdPerMillion: flashPrices.output,
+      compatibilityAlias: true,
+      modelAliasFor: 'deepseek-v4-flash',
+      supportsReasoning: false
+    })
+    const reasonerAlias = this._createDeepSeekPricingEntry({
+      ...commonOptions,
+      modelName: 'deepseek-reasoner',
+      cacheReadUsdPerMillion: flashPrices.cacheRead,
+      inputUsdPerMillion: flashPrices.input,
+      outputUsdPerMillion: flashPrices.output,
+      compatibilityAlias: true,
+      modelAliasFor: 'deepseek-v4-flash',
+      supportsReasoning: true
+    })
+
+    return {
+      'deepseek-v4-flash': flash,
+      'deepseek-v4-pro': pro,
+      'deepseek-chat': chatAlias,
+      'deepseek-reasoner': reasonerAlias
+    }
+  }
+
+  getDeepSeekFallbackPricing(now = new Date()) {
+    return this._buildDeepSeekPricingEntries({
+      now,
+      discountEndsAt: DEEPSEEK_PRO_DISCOUNT_ENDS_AT,
+      source: DEEPSEEK_PRICING_SOURCE
+    })
+  }
+
+  _extractDeepSeekDiscountEndsAt(html) {
+    const text = normalizeWhitespace(stripHtmlTags(html))
+    const match = text.match(/until\s+(\d{4})[/-](\d{1,2})[/-](\d{1,2})\s+(\d{1,2}):(\d{2})\s+UTC/i)
+
+    if (!match) {
+      return null
+    }
+
+    const [, year, month, day, hour, minute] = match.map(Number)
+    return new Date(Date.UTC(year, month - 1, day, hour, minute)).toISOString()
+  }
+
+  _extractDeepSeekPriceRow(html, label) {
+    const rows = [...String(html || '').matchAll(/<tr>([\s\S]*?)<\/tr>/gi)]
+
+    for (const [, rowHtml] of rows) {
+      const cells = [...rowHtml.matchAll(/<td[^>]*>([\s\S]*?)<\/td>/gi)].map((match) => match[1])
+      const labelIndex = cells.findIndex((cell) =>
+        normalizeWhitespace(stripHtmlTags(cell)).toUpperCase().includes(label)
+      )
+
+      if (labelIndex >= 0 && cells[labelIndex + 1] && cells[labelIndex + 2]) {
+        return {
+          flashCell: cells[labelIndex + 1],
+          proCell: cells[labelIndex + 2]
+        }
+      }
+    }
+
+    return null
+  }
+
+  _selectDeepSeekPriceFromCell(cellHtml, discountActive) {
+    const prices = extractUsdPrices(cellHtml)
+    if (prices.length === 0) {
+      return { active: null, list: null }
+    }
+
+    const delMatch = String(cellHtml || '').match(/<del[^>]*>\s*\$?\s*([0-9]+(?:\.[0-9]+)?)/i)
+    const list = delMatch ? Number(delMatch[1]) : prices[0]
+    return {
+      active: discountActive ? prices[0] : list,
+      list
+    }
+  }
+
+  parseDeepSeekPricingHtml(html, now = new Date()) {
+    const discountEndsAt = this._extractDeepSeekDiscountEndsAt(html)
+    const discountActive = discountEndsAt
+      ? new Date(now).getTime() < new Date(discountEndsAt).getTime()
+      : false
+
+    const cacheHit = this._extractDeepSeekPriceRow(html, '1M INPUT TOKENS (CACHE HIT)')
+    const cacheMiss = this._extractDeepSeekPriceRow(html, '1M INPUT TOKENS (CACHE MISS)')
+    const output = this._extractDeepSeekPriceRow(html, '1M OUTPUT TOKENS')
+
+    if (!cacheHit || !cacheMiss || !output) {
+      throw new Error('DeepSeek pricing table not found')
+    }
+
+    const flash = {
+      cacheRead: this._selectDeepSeekPriceFromCell(cacheHit.flashCell, false).active,
+      input: this._selectDeepSeekPriceFromCell(cacheMiss.flashCell, false).active,
+      output: this._selectDeepSeekPriceFromCell(output.flashCell, false).active
+    }
+    const proCacheRead = this._selectDeepSeekPriceFromCell(cacheHit.proCell, discountActive)
+    const proInput = this._selectDeepSeekPriceFromCell(cacheMiss.proCell, discountActive)
+    const proOutput = this._selectDeepSeekPriceFromCell(output.proCell, discountActive)
+    const pro = {
+      cacheRead: proCacheRead.active,
+      input: proInput.active,
+      output: proOutput.active,
+      listCacheRead: proCacheRead.list,
+      listInput: proInput.list,
+      listOutput: proOutput.list
+    }
+
+    for (const [model, prices] of Object.entries({ flash, pro })) {
+      for (const field of ['cacheRead', 'input', 'output']) {
+        if (!Number.isFinite(prices[field])) {
+          throw new Error(`Invalid DeepSeek ${model} ${field} price`)
+        }
+      }
+      for (const [field, value] of Object.entries(prices)) {
+        if (value !== null && value !== undefined && !Number.isFinite(value)) {
+          throw new Error(`Invalid DeepSeek ${model} ${field} price`)
+        }
+      }
+    }
+
+    return this._buildDeepSeekPricingEntries({
+      flash,
+      pro,
+      discountActive,
+      discountEndsAt,
+      now,
+      source: DEEPSEEK_PRICING_SOURCE
+    })
+  }
+
+  _downloadText(url, redirectsRemaining = 3) {
+    return new Promise((resolve, reject) => {
+      const request = https.get(url, (response) => {
+        if (
+          response.statusCode >= 300 &&
+          response.statusCode < 400 &&
+          response.headers.location &&
+          redirectsRemaining > 0
+        ) {
+          const nextUrl = new URL(response.headers.location, url).toString()
+          response.resume()
+          this._downloadText(nextUrl, redirectsRemaining - 1)
+            .then(resolve)
+            .catch(reject)
+          return
+        }
+
+        if (response.statusCode !== 200) {
+          reject(new Error(`HTTP ${response.statusCode}: ${response.statusMessage}`))
+          return
+        }
+
+        const chunks = []
+        response.on('data', (chunk) => {
+          chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk))
+        })
+        response.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')))
+      })
+
+      request.on('error', (error) => {
+        reject(new Error(`Network error: ${error.message}`))
+      })
+
+      request.setTimeout(30000, () => {
+        request.destroy()
+        reject(new Error('Download timeout after 30 seconds'))
+      })
+    })
+  }
+
+  async fetchDeepSeekOfficialPricing(now = new Date()) {
+    const html = await this._downloadText(DEEPSEEK_PRICING_SOURCE)
+    return this.parseDeepSeekPricingHtml(html, now)
+  }
+
+  _hasCompleteDeepSeekPricing(pricingData) {
+    return ['deepseek-v4-flash', 'deepseek-v4-pro'].every((modelName) => {
+      const pricing = pricingData?.[modelName]
+      return (
+        pricing &&
+        Number(pricing.input_cost_per_token) > 0 &&
+        Number(pricing.output_cost_per_token) > 0
+      )
+    })
+  }
+
+  _isEquivalentDeepSeekPricingEntry(current = {}, next = {}) {
+    const comparableFields = [
+      'cache_read_input_token_cost',
+      'input_cost_per_token',
+      'output_cost_per_token',
+      'list_cache_read_input_token_cost',
+      'list_input_cost_per_token',
+      'list_output_cost_per_token',
+      'pricing_discount_active',
+      'pricing_discount_ends_at',
+      'compatibility_alias',
+      'model_alias_for'
+    ]
+
+    return comparableFields.every((field) => current[field] === next[field])
+  }
+
+  _preserveDeepSeekPricingUpdatedAt(currentPricingData = {}, nextPricingData = {}) {
+    const preserved = { ...nextPricingData }
+
+    for (const [modelName, nextEntry] of Object.entries(nextPricingData)) {
+      if (!modelName.includes('deepseek')) {
+        continue
+      }
+
+      const currentEntry = currentPricingData?.[modelName]
+      if (
+        currentEntry?.pricing_updated_at &&
+        this._isEquivalentDeepSeekPricingEntry(currentEntry, nextEntry)
+      ) {
+        preserved[modelName] = {
+          ...nextEntry,
+          pricing_updated_at: currentEntry.pricing_updated_at
+        }
+      }
+    }
+
+    return preserved
+  }
+
+  async enrichPricingDataWithDeepSeek(pricingData, options = {}) {
+    const enriched = { ...(pricingData || {}) }
+    let deepseekPricing = null
+
+    if (options.allowRemote === true) {
+      try {
+        deepseekPricing = await this.fetchDeepSeekOfficialPricing(options.now || new Date())
+        logger.success('Updated DeepSeek pricing from official docs')
+      } catch (error) {
+        logger.warn(`⚠️  Failed to update DeepSeek pricing from official docs: ${error.message}`)
+      }
+    }
+
+    if (
+      !deepseekPricing &&
+      options.forceBuiltIn !== true &&
+      this._hasCompleteDeepSeekPricing(enriched)
+    ) {
+      logger.info('Keeping existing DeepSeek pricing entries')
+      return enriched
+    }
+
+    if (!deepseekPricing) {
+      deepseekPricing = this.getDeepSeekFallbackPricing(options.now || new Date())
+      logger.warn('⚠️  Using built-in DeepSeek pricing fallback')
+    }
+
+    deepseekPricing = this._preserveDeepSeekPricingUpdatedAt(enriched, deepseekPricing)
+
+    return { ...enriched, ...deepseekPricing }
   }
 
   // 初始化价格服务
@@ -251,21 +673,25 @@ class PricingService {
           chunks.push(bufferChunk)
         })
 
-        response.on('end', () => {
+        response.on('end', async () => {
           try {
             const buffer = Buffer.concat(chunks)
             const rawContent = buffer.toString('utf8')
             const jsonData = JSON.parse(rawContent)
+            const enrichedData = await this.enrichPricingDataWithDeepSeek(jsonData, {
+              allowRemote: false
+            })
+            const formattedJson = JSON.stringify(enrichedData, null, 2)
 
-            // 保存到文件并更新哈希
-            fs.writeFileSync(this.pricingFile, rawContent)
+            // 保存合并后的价格文件；哈希仍记录主价格镜像原文，避免哈希轮询反复触发。
+            fs.writeFileSync(this.pricingFile, formattedJson)
             this.persistLocalHash(buffer)
 
             // 更新内存中的数据
-            this.pricingData = jsonData
+            this.pricingData = enrichedData
             this.lastUpdated = new Date()
 
-            logger.success(`Downloaded pricing data for ${Object.keys(jsonData).length} models`)
+            logger.success(`Downloaded pricing data for ${Object.keys(enrichedData).length} models`)
 
             // 设置或重新设置文件监听器
             this.setupFileWatcher()
@@ -293,7 +719,9 @@ class PricingService {
     try {
       if (fs.existsSync(this.pricingFile)) {
         const data = fs.readFileSync(this.pricingFile, 'utf8')
-        this.pricingData = JSON.parse(data)
+        this.pricingData = await this.enrichPricingDataWithDeepSeek(JSON.parse(data), {
+          allowRemote: false
+        })
 
         const stats = fs.statSync(this.pricingFile)
         this.lastUpdated = stats.mtime
@@ -319,7 +747,10 @@ class PricingService {
 
         // 读取fallback文件
         const fallbackData = fs.readFileSync(this.fallbackFile, 'utf8')
-        const jsonData = JSON.parse(fallbackData)
+        const jsonData = await this.enrichPricingDataWithDeepSeek(JSON.parse(fallbackData), {
+          allowRemote: false,
+          forceBuiltIn: true
+        })
 
         const formattedJson = JSON.stringify(jsonData, null, 2)
 
@@ -370,6 +801,12 @@ class PricingService {
         logger.info(`💰 Using gpt-5 pricing as fallback for ${modelName}`)
         return fallbackPricing
       }
+    }
+
+    const deepseekFallback = this.getDeepSeekFallbackPricing()[modelName]
+    if (deepseekFallback) {
+      logger.info(`💰 Using built-in DeepSeek pricing fallback for ${modelName}`)
+      return deepseekFallback
     }
 
     // 对于Bedrock区域前缀模型（如 us.anthropic.claude-sonnet-4-20250514-v1:0），
@@ -731,6 +1168,24 @@ class PricingService {
     return `$${cost.toFixed(2)}`
   }
 
+  getDeepSeekPricingStatus() {
+    const deepseekModels = this.pricingData
+      ? Object.keys(this.pricingData).filter((modelName) => modelName.includes('deepseek'))
+      : []
+    const proPricing =
+      this.pricingData?.['deepseek-v4-pro'] || this.getDeepSeekFallbackPricing()['deepseek-v4-pro']
+
+    return {
+      modelCount: deepseekModels.length,
+      source: proPricing.source || DEEPSEEK_PRICING_SOURCE,
+      zhSource: proPricing.source_zh || DEEPSEEK_PRICING_SOURCE_ZH,
+      currency: proPricing.pricing_currency || 'USD',
+      updatedAt: proPricing.pricing_updated_at || null,
+      discountActive: proPricing.pricing_discount_active === true,
+      discountEndsAt: proPricing.pricing_discount_ends_at || null
+    }
+  }
+
   // 获取服务状态
   getStatus() {
     return {
@@ -739,7 +1194,11 @@ class PricingService {
       modelCount: this.pricingData ? Object.keys(this.pricingData).length : 0,
       nextUpdate: this.lastUpdated
         ? new Date(this.lastUpdated.getTime() + this.updateInterval)
-        : null
+        : null,
+      sources: {
+        primary: pricingSource.pricingUrl,
+        deepseek: this.getDeepSeekPricingStatus()
+      }
     }
   }
 
@@ -836,7 +1295,9 @@ class PricingService {
       const data = fs.readFileSync(this.pricingFile, 'utf8')
 
       // 尝试解析JSON
-      const jsonData = JSON.parse(data)
+      const jsonData = await this.enrichPricingDataWithDeepSeek(JSON.parse(data), {
+        allowRemote: false
+      })
 
       // 验证数据结构
       if (typeof jsonData !== 'object' || Object.keys(jsonData).length === 0) {

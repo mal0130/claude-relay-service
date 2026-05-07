@@ -48,6 +48,7 @@ describe('AccountBalanceService', () => {
     expect(service.normalizePlatform('claude-official')).toBe('claude')
     expect(service.normalizePlatform('azure-openai')).toBe('azure_openai')
     expect(service.normalizePlatform('gemini-api')).toBe('gemini-api')
+    expect(service.getSupportedPlatforms()).toContain('deepseek')
   })
 
   it('should build local quota/balance from dailyQuota and local dailyCost', async () => {

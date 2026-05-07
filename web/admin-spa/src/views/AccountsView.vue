@@ -621,6 +621,22 @@
                       >
                     </div>
                     <div
+                      v-else-if="account.platform === 'deepseek'"
+                      class="flex items-center gap-1.5 rounded-lg border border-[#3964fe]/20 bg-[#3964fe]/10 px-2.5 py-1 dark:border-[#3964fe]/40 dark:bg-[#3964fe]/15"
+                    >
+                      <svg
+                        class="h-4 w-4 text-[#3964fe]"
+                        fill="currentColor"
+                        viewBox="0 0 56.2 41.5"
+                        xmlns="http://www.w3.org/2000/svg"
+                      >
+                        <path :d="deepSeekWhalePath" />
+                      </svg>
+                      <span class="text-xs font-semibold text-[#3964fe]">DeepSeek</span>
+                      <span class="mx-1 h-4 w-px bg-[#3964fe]/30" />
+                      <span class="text-xs font-medium text-[#3964fe]">API Key</span>
+                    </div>
+                    <div
                       v-else-if="
                         account.platform === 'claude' || account.platform === 'claude-oauth'
                       "
@@ -1235,7 +1251,8 @@
                       account.platform === 'azure_openai' ||
                       account.platform === 'ccr' ||
                       account.platform === 'droid' ||
-                      account.platform === 'gemini-api'
+                      account.platform === 'gemini-api' ||
+                      account.platform === 'deepseek'
                     "
                     class="flex items-center gap-2"
                   >
@@ -1462,10 +1479,22 @@
                             ? 'bg-gradient-to-br from-teal-500 to-emerald-600'
                             : account.platform === 'droid'
                               ? 'bg-gradient-to-br from-cyan-500 to-sky-600'
-                              : 'bg-gradient-to-br from-blue-500 to-blue-600'
+                              : account.platform === 'deepseek'
+                                ? 'bg-[#3964fe]/10'
+                                : 'bg-gradient-to-br from-blue-500 to-blue-600'
                 ]"
               >
+                <svg
+                  v-if="account.platform === 'deepseek'"
+                  class="h-6 w-6 text-[#3964fe]"
+                  fill="currentColor"
+                  viewBox="0 0 56.2 41.5"
+                  xmlns="http://www.w3.org/2000/svg"
+                >
+                  <path :d="deepSeekWhalePath" />
+                </svg>
                 <i
+                  v-else
                   :class="[
                     'text-sm text-white',
                     account.platform === 'claude'
@@ -2308,6 +2337,8 @@ const apiKeys = ref([]) // 保留用于其他功能（如删除账户时显示�
 const bindingCounts = ref({}) // 轻量级绑定计数，用于显示"绑定: X 个API Key"
 const accountGroups = ref([])
 const groupFilter = ref('all')
+const deepSeekWhalePath =
+  'M55.6128,3.4712c-.5953-.2917-.8517.2642-1.1998.5466-.1191.0911-.2198.2095-.3206.3188-.8701.9292-1.8867,1.5398-3.2148,1.4668-1.9417-.1094-3.5995.5012-5.065,1.9863-.3114-1.8313-1.3463-2.9248-2.9217-3.6262-.8242-.3645-1.6577-.729-2.2348-1.5217-.403-.5647-.5129-1.1934-.7144-1.813-.1283-.3735-.2565-.7563-.687-.8201-.4671-.0728-.6503.3188-.8335.647-.7327,1.3394-1.0166,2.8154-.9892,4.3096.0641,3.3621,1.4838,6.0406,4.3047,7.9449.3206.2187.403.4372.3023.7563-.1924.656-.4214,1.2937-.6228,1.9497-.1283.4192-.3207.5103-.7694.3279-1.5479-.6467-2.8852-1.6035-4.0667-2.7605-2.0058-1.9407-3.8193-4.0818-6.0815-5.7583-.5312-.3918-1.0625-.7561-1.6121-1.1025-2.3081-2.2412.3023-4.0818.9068-4.3003.6319-.2278.2198-1.0115-1.8227-1.0022-2.0425.009-3.9109.6924-6.2922,1.6035-.348.1367-.7145.2368-1.09.3188-2.1615-.4099-4.4055-.5012-6.7502-.2368-4.4147.4919-7.9408,2.5784-10.5328,6.1409C.1914,13.1289-.5413,17.9941.3563,23.0691c.9434,5.3481,3.6727,9.7761,7.8676,13.2385,4.3506,3.5896,9.3606,5.3481,15.0758,5.011,3.4713-.2004,7.3364-.665,11.6961-4.355,1.099.5467,2.2531.7652,4.1674.9292,1.4746.1367,2.8943-.0728,3.9933-.3005,1.7219-.3645,1.6029-1.959.9801-2.2505-5.0466-2.3506-3.9385-1.394-4.9459-2.1685,2.5645-3.0339,6.4297-6.1865,7.9409-16.4001.119-.8108.0183-1.3211,0-1.9771-.0092-.4008.0824-.5556.5404-.6013,1.2639-.1458,2.4912-.4919,3.6178-1.1115,3.2698-1.7857,4.5886-4.7195,4.9-8.2364.0459-.5376-.0091-1.0935-.577-1.3757ZM27.119,35.123c-4.8909-3.8447-7.263-5.1113-8.2431-5.0566-.9159.0547-.751,1.1025-.5496,1.7859.2107.6741.4855,1.1389.8701,1.731.2656.3918.4489.9748-.2655,1.4123-1.5754.9749-4.314-.3281-4.4423-.3918-3.1872-1.877-5.8525-4.3553-7.7302-7.7444-1.8135-3.262-2.8667-6.7605-3.0408-10.4961-.0458-.9019.2198-1.221,1.1174-1.3848,1.1815-.2187,2.3997-.2644,3.5812-.0913,4.9918.729,9.2415,2.9612,12.8043,6.4963,2.0333,2.0135,3.572,4.419,5.1566,6.7696,1.6852,2.4963,3.4987,4.8745,5.8068,6.8242.8151.6833,1.4654,1.2026,2.0882,1.5854-1.8775.2095-5.01.2552-7.1532-1.4397ZM29.4637,20.0442c0-.4009.3206-.7197.7237-.7197.0916,0,.174.018.2473.0453.1008.0366.1924.0913.2656.1731.1283.1277.2015.3098.2015.5012,0,.4009-.3205.7197-.7234.7197s-.7145-.3188-.7145-.7197ZM36.7452,23.7798c-.4671.1914-.9342.3552-1.383.3735-.6961.0364-1.4563-.2461-1.8684-.5923-.6411-.5376-1.0991-.8381-1.2914-1.7766-.0825-.4009-.0367-1.0205.0367-1.3757.1648-.7654-.0184-1.2573-.5587-1.7039-.4397-.3645-.9984-.4646-1.6121-.4646-.229,0-.4395-.1003-.5953-.1823-.2565-.1275-.467-.4464-.2656-.8382.0641-.1274.3756-.4373.4489-.4919.8335-.4739,1.7952-.3189,2.6836.0364.8244.3371,1.4472.9567,2.3447,1.8313.9159,1.0568,1.0807,1.3486,1.6028,2.1411.4123.6196.7878,1.2573,1.0442,1.9863.1557.4556-.0458.8291-.5862,1.0569Z'
 const platformFilter = ref('all')
 const statusFilter = ref('all') // 状态过滤 (normal/rateLimited/other/all)
 const searchKeyword = ref('')
@@ -2352,6 +2383,7 @@ const TEMP_UNAVAILABLE_ACCOUNT_TYPE_ALIASES = {
   'openai-responses': ['openai-responses'],
   ccr: ['ccr'],
   droid: ['droid'],
+  deepseek: ['deepseek'],
   azure_openai: ['azure-openai'],
   'azure-openai': ['azure-openai']
 }
@@ -2398,6 +2430,7 @@ const supportedUsagePlatforms = [
   'openai-responses',
   'gemini',
   'droid',
+  'deepseek',
   'gemini-api',
   'bedrock'
 ]
@@ -2478,6 +2511,12 @@ const platformHierarchy = [
     label: 'Droid（全部）',
     icon: 'fa-robot',
     children: [{ value: 'droid', label: 'Droid', icon: 'fa-robot' }]
+  },
+  {
+    value: 'group-deepseek',
+    label: 'DeepSeek（全部）',
+    icon: 'fa-fish',
+    children: [{ value: 'deepseek', label: 'DeepSeek API', icon: 'fa-fish' }]
   }
 ]
 
@@ -2486,7 +2525,8 @@ const platformGroupMap = {
   'group-claude': ['claude', 'claude-console', 'bedrock', 'ccr'],
   'group-openai': ['openai', 'openai-responses', 'azure_openai'],
   'group-gemini': ['gemini', 'gemini-api'],
-  'group-droid': ['droid']
+  'group-droid': ['droid'],
+  'group-deepseek': ['deepseek']
 }
 
 // 平台请求处理器
@@ -2500,7 +2540,8 @@ const platformRequestHandlers = {
   'openai-responses': () => httpApis.getOpenAIResponsesAccountsApi(),
   ccr: () => httpApis.getCcrAccountsApi(),
   droid: () => httpApis.getDroidAccountsApi(),
-  'gemini-api': () => httpApis.getGeminiApiAccountsApi()
+  'gemini-api': () => httpApis.getGeminiApiAccountsApi(),
+  deepseek: () => httpApis.getDeepSeekAccountsApi()
 }
 
 const allPlatformKeys = Object.keys(platformRequestHandlers)
@@ -2535,23 +2576,29 @@ const statusOptions = ref([
   { value: 'all', label: '全部状态', icon: 'fa-list' }
 ])
 
+const groupPlatformMeta = {
+  claude: { label: 'Claude', icon: 'fa-brain' },
+  gemini: { label: 'Gemini', icon: 'fa-robot' },
+  openai: { label: 'OpenAI', icon: 'fa-openai' },
+  droid: { label: 'Droid', icon: 'fa-robot' },
+  deepseek: { label: 'DeepSeek', icon: 'fa-fish' }
+}
+
 const groupOptions = computed(() => {
   const options = [
     { value: 'all', label: '所有账户', icon: 'fa-globe' },
     { value: 'ungrouped', label: '未分组账户', icon: 'fa-user' }
   ]
   accountGroups.value.forEach((group) => {
+    const platformMeta = groupPlatformMeta[group.platform] || {
+      label: group.platform || '未知',
+      icon: 'fa-layer-group'
+    }
+
     options.push({
       value: group.id,
-      label: `${group.name} (${group.platform === 'claude' ? 'Claude' : group.platform === 'gemini' ? 'Gemini' : group.platform === 'openai' ? 'OpenAI' : 'Droid'})`,
-      icon:
-        group.platform === 'claude'
-          ? 'fa-brain'
-          : group.platform === 'gemini'
-            ? 'fa-robot'
-            : group.platform === 'openai'
-              ? 'fa-openai'
-              : 'fa-robot'
+      label: `${group.name} (${platformMeta.label})`,
+      icon: platformMeta.icon
     })
   })
   return options
@@ -2638,6 +2685,7 @@ const showResetButton = (account) => {
     'gemini-api',
     'ccr',
     'droid',
+    'deepseek',
     'bedrock',
     'azure-openai',
     'azure_openai'
@@ -2753,6 +2801,7 @@ const supportedTestPlatforms = [
   'openai-responses',
   'azure-openai',
   'droid',
+  'deepseek',
   'ccr'
 ]
 
@@ -2941,7 +2990,8 @@ const accountStats = computed(() => {
     { value: 'bedrock', label: 'Bedrock' },
     { value: 'openai-responses', label: 'OpenAI-Responses' },
     { value: 'ccr', label: 'CCR' },
-    { value: 'droid', label: 'Droid' }
+    { value: 'droid', label: 'Droid' },
+    { value: 'deepseek', label: 'DeepSeek' }
   ]
 
   return platforms
@@ -3416,6 +3466,15 @@ const loadAccounts = async (forceReload = false) => {
           const items = list.map((acc) => {
             const boundApiKeysCount = counts.droidAccountId?.[acc.id] || acc.boundApiKeysCount || 0
             return { ...acc, platform: 'droid', boundApiKeysCount }
+          })
+          allAccounts.push(...items)
+          break
+        }
+        case 'deepseek': {
+          const items = list.map((acc) => {
+            const boundApiKeysCount =
+              counts.deepseekAccountId?.[acc.id] || acc.boundApiKeysCount || 0
+            return { ...acc, platform: 'deepseek', boundApiKeysCount }
           })
           allAccounts.push(...items)
           break
@@ -3966,7 +4025,8 @@ const getBoundApiKeysForAccount = (account) => {
       key.openaiAccountId === accountId ||
       key.azureOpenaiAccountId === accountId ||
       key.openaiAccountId === `responses:${accountId}` ||
-      key.geminiAccountId === `api:${accountId}`
+      key.geminiAccountId === `api:${accountId}` ||
+      key.accountBindings?.deepseek?.accountId === accountId
     )
   })
 }
@@ -3993,6 +4053,8 @@ const resolveAccountDeleteEndpoint = (account) => {
       return `/admin/droid-accounts/${account.id}`
     case 'gemini-api':
       return `/admin/gemini-api-accounts/${account.id}`
+    case 'deepseek':
+      return `/admin/deepseek-accounts/${account.id}`
     default:
       return null
   }
@@ -4137,6 +4199,7 @@ const RESET_STATUS_ENDPOINT_MAP = {
   'claude-console': (id) => `/admin/claude-console-accounts/${id}/reset-status`,
   ccr: (id) => `/admin/ccr-accounts/${id}/reset-status`,
   droid: (id) => `/admin/droid-accounts/${id}/reset-status`,
+  deepseek: (id) => `/admin/deepseek-accounts/${id}/reset-status`,
   'gemini-api': (id) => `/admin/gemini-api-accounts/${id}/reset-status`,
   gemini: (id) => `/admin/gemini-accounts/${id}/reset-status`,
   bedrock: (id) => `/admin/bedrock-accounts/${id}/reset-status`,
@@ -4155,6 +4218,7 @@ const TOGGLE_SCHEDULABLE_ENDPOINT_MAP = {
   'openai-responses': (id) => `/admin/openai-responses-accounts/${id}/toggle-schedulable`,
   ccr: (id) => `/admin/ccr-accounts/${id}/toggle-schedulable`,
   droid: (id) => `/admin/droid-accounts/${id}/toggle-schedulable`,
+  deepseek: (id) => `/admin/deepseek-accounts/${id}/toggle-schedulable`,
   'gemini-api': (id) => `/admin/gemini-api-accounts/${id}/toggle-schedulable`
 }
 
@@ -5203,6 +5267,9 @@ const handleSaveAccountExpiry = async ({ accountId, expiresAt }) => {
         break
       case 'droid':
         endpoint = `/admin/droid-accounts/${accountId}` // 使用 :id
+        break
+      case 'deepseek':
+        endpoint = `/admin/deepseek-accounts/${accountId}` // 使用 :id
         break
       case 'azure_openai':
         endpoint = `/admin/azure-openai-accounts/${accountId}` // 使用 :id

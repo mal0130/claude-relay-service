@@ -40,6 +40,13 @@ const OPENAI_MODELS = [
   { value: 'codex-mini', label: 'Codex Mini' }
 ]
 
+const DEEPSEEK_MODELS = [
+  { value: 'deepseek-v4-flash', label: 'DeepSeek V4 Flash' },
+  { value: 'deepseek-v4-pro', label: 'DeepSeek V4 Pro' },
+  { value: 'deepseek-chat', label: 'DeepSeek Chat (兼容)' },
+  { value: 'deepseek-reasoner', label: 'DeepSeek Reasoner (兼容)' }
+]
+
 const BEDROCK_MODELS = [
   { value: 'us.anthropic.claude-opus-4-6-20250610-v1:0', label: 'Claude Opus 4.6' },
   { value: 'us.anthropic.claude-sonnet-4-5-20250929-v1:0', label: 'Claude Sonnet 4.5' },
@@ -64,6 +71,7 @@ const PLATFORM_TEST_MODELS = {
   'gemini-api': GEMINI_MODELS,
   'openai-responses': OPENAI_MODELS,
   'azure-openai': [],
+  deepseek: DEEPSEEK_MODELS,
   droid: CLAUDE_MODELS,
   ccr: CLAUDE_MODELS
 }
@@ -72,6 +80,7 @@ module.exports = {
   CLAUDE_MODELS,
   GEMINI_MODELS,
   OPENAI_MODELS,
+  DEEPSEEK_MODELS,
   BEDROCK_MODELS,
   OTHER_MODELS,
   PLATFORM_TEST_MODELS,
@@ -84,10 +93,18 @@ module.exports = {
         return GEMINI_MODELS
       case 'openai':
         return OPENAI_MODELS
+      case 'deepseek':
+        return DEEPSEEK_MODELS
       default:
         return []
     }
   },
   // 获取所有模型（用于账户编辑）
-  getAllModels: () => [...CLAUDE_MODELS, ...GEMINI_MODELS, ...OPENAI_MODELS, ...OTHER_MODELS]
+  getAllModels: () => [
+    ...CLAUDE_MODELS,
+    ...GEMINI_MODELS,
+    ...OPENAI_MODELS,
+    ...DEEPSEEK_MODELS,
+    ...OTHER_MODELS
+  ]
 }

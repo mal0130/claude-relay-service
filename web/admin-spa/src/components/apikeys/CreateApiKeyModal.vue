@@ -765,6 +765,16 @@
                 />
                 <span class="text-sm text-gray-700 dark:text-gray-300">Droid</span>
               </label>
+              <label class="flex cursor-pointer items-center">
+                <input
+                  v-model="form.permissions"
+                  class="mr-2 rounded text-blue-600 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-700"
+                  type="checkbox"
+                  value="deepseek"
+                  @change="updatePermissions"
+                />
+                <span class="text-sm text-gray-700 dark:text-gray-300">DeepSeek</span>
+              </label>
             </div>
             <p class="mt-2 text-xs text-gray-500 dark:text-gray-400">
               不选择任何服务表示允许访问全部服务
@@ -862,6 +872,20 @@
                   :groups="localAccounts.droidGroups"
                   placeholder="请选择Droid账号"
                   platform="droid"
+                />
+              </div>
+              <div>
+                <label class="mb-1 block text-sm font-medium text-gray-600 dark:text-gray-400"
+                  >DeepSeek 专属账号</label
+                >
+                <AccountSelector
+                  v-model="form.deepseekAccountId"
+                  :accounts="localAccounts.deepseek"
+                  default-option-text="使用共享账号池"
+                  :disabled="form.permissions.length > 0 && !form.permissions.includes('deepseek')"
+                  :groups="localAccounts.deepseekGroups"
+                  placeholder="请选择DeepSeek账号"
+                  platform="deepseek"
                 />
               </div>
             </div>
@@ -1057,10 +1081,12 @@ const props = defineProps({
       openai: [],
       bedrock: [],
       droid: [],
+      deepseek: [],
       claudeGroups: [],
       geminiGroups: [],
       openaiGroups: [],
-      droidGroups: []
+      droidGroups: [],
+      deepseekGroups: []
     })
   }
 })
@@ -1098,10 +1124,12 @@ const localAccounts = ref({
   openai: [],
   bedrock: [],
   droid: [],
+  deepseek: [],
   claudeGroups: [],
   geminiGroups: [],
   openaiGroups: [],
-  droidGroups: []
+  droidGroups: [],
+  deepseekGroups: []
 })
 
 // 表单验证状态
@@ -1128,6 +1156,7 @@ const availableServices = [
   { key: 'gemini', label: 'Gemini' },
   { key: 'codex', label: 'Codex' },
   { key: 'droid', label: 'Droid' },
+  { key: 'deepseek', label: 'DeepSeek' },
   { key: 'bedrock', label: 'Bedrock' },
   { key: 'azure', label: 'Azure' },
   { key: 'ccr', label: 'CCR' }
@@ -1159,6 +1188,7 @@ const form = reactive({
   openaiAccountId: '',
   bedrockAccountId: '',
   droidAccountId: '',
+  deepseekAccountId: '',
   enableModelRestriction: false,
   restrictedModels: [],
   modelInput: '',
@@ -1230,10 +1260,15 @@ onMounted(async () => {
         ...account,
         platform: account.platform || 'droid'
       })),
+      deepseek: (props.accounts.deepseek || []).map((account) => ({
+        ...account,
+        platform: account.platform || 'deepseek'
+      })),
       claudeGroups: props.accounts.claudeGroups || [],
       geminiGroups: props.accounts.geminiGroups || [],
       openaiGroups: props.accounts.openaiGroups || [],
-      droidGroups: props.accounts.droidGroups || []
+      droidGroups: props.accounts.droidGroups || [],
+      deepseekGroups: props.accounts.deepseekGroups || []
     }
   }
 
@@ -1253,6 +1288,7 @@ const refreshAccounts = async () => {
       openaiResponsesData,
       bedrockData,
       droidData,
+      deepseekData,
       groupsData
     ] = await Promise.all([
       httpApis.getClaudeAccountsApi(),
@@ -1263,6 +1299,7 @@ const refreshAccounts = async () => {
       httpApis.getOpenAIResponsesAccountsApi(), // 获取 OpenAI-Responses 账号
       httpApis.getBedrockAccountsApi(),
       httpApis.getDroidAccountsApi(),
+      httpApis.getDeepSeekAccountsApi(),
       httpApis.getAccountGroupsApi()
     ])
 
@@ -1356,6 +1393,14 @@ const refreshAccounts = async () => {
       }))
     }
 
+    if (deepseekData.success) {
+      localAccounts.value.deepseek = (deepseekData.data || []).map((account) => ({
+        ...account,
+        platform: 'deepseek',
+        isDedicated: account.accountType === 'dedicated'
+      }))
+    }
+
     // 处理分组数据
     if (groupsData.success) {
       const allGroups = groupsData.data || []
@@ -1363,6 +1408,7 @@ const refreshAccounts = async () => {
       localAccounts.value.geminiGroups = allGroups.filter((g) => g.platform === 'gemini')
       localAccounts.value.openaiGroups = allGroups.filter((g) => g.platform === 'openai')
       localAccounts.value.droidGroups = allGroups.filter((g) => g.platform === 'droid')
+      localAccounts.value.deepseekGroups = allGroups.filter((g) => g.platform === 'deepseek')
     }
 
     showToast('账号列表已刷新', 'success')
@@ -1640,6 +1686,12 @@ const createApiKey = async () => {
     }
     if (form.droidAccountId) {
       baseData.droidAccountId = form.droidAccountId
+    }
+    if (form.deepseekAccountId) {
+      baseData.accountBindings = {
+        ...(baseData.accountBindings || {}),
+        deepseek: { mode: 'shared', accountId: form.deepseekAccountId }
+      }
     }
 
     if (form.createType === 'single') {

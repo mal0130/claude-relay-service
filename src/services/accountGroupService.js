@@ -2,6 +2,26 @@ const { v4: uuidv4 } = require('uuid')
 const logger = require('../utils/logger')
 const redis = require('../models/redis')
 
+const VALID_GROUP_PLATFORMS = ['claude', 'gemini', 'openai', 'droid', 'deepseek']
+
+function parseAccountBindings(accountBindings) {
+  if (!accountBindings) {
+    return {}
+  }
+  if (typeof accountBindings === 'object' && !Array.isArray(accountBindings)) {
+    return accountBindings
+  }
+  if (typeof accountBindings === 'string') {
+    try {
+      const parsed = JSON.parse(accountBindings)
+      return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {}
+    } catch {
+      return {}
+    }
+  }
+  return {}
+}
+
 class AccountGroupService {
   constructor() {
     this.GROUPS_KEY = 'account_groups'
@@ -69,7 +89,7 @@ class AccountGroupService {
    * 创建账户分组
    * @param {Object} groupData - 分组数据
    * @param {string} groupData.name - 分组名称
-   * @param {string} groupData.platform - 平台类型 (claude/gemini/openai)
+   * @param {string} groupData.platform - 平台类型 (claude/gemini/openai/droid/deepseek)
    * @param {string} groupData.description - 分组描述
    * @returns {Object} 创建的分组
    */
@@ -83,8 +103,8 @@ class AccountGroupService {
       }
 
       // 验证平台类型
-      if (!['claude', 'gemini', 'openai', 'droid'].includes(platform)) {
-        throw new Error('平台类型必须是 claude、gemini、openai 或 droid')
+      if (!VALID_GROUP_PLATFORMS.includes(platform)) {
+        throw new Error('平台类型必须是 claude、gemini、openai、droid 或 deepseek')
       }
 
       const client = redis.getClientSafe()
@@ -377,13 +397,19 @@ class AccountGroupService {
 
       for (const keyId of apiKeyIds) {
         const keyData = await client.hgetall(`api_key:${keyId}`)
-        if (
-          keyData &&
-          (keyData.claudeAccountId === groupKey ||
-            keyData.geminiAccountId === groupKey ||
-            keyData.openaiAccountId === groupKey ||
-            keyData.droidAccountId === groupKey)
-        ) {
+        if (!keyData) {
+          continue
+        }
+
+        const accountBindings = parseAccountBindings(keyData.accountBindings)
+        const usesGroup =
+          keyData.claudeAccountId === groupKey ||
+          keyData.geminiAccountId === groupKey ||
+          keyData.openaiAccountId === groupKey ||
+          keyData.droidAccountId === groupKey ||
+          accountBindings.deepseek?.accountId === groupKey
+
+        if (usesGroup) {
           boundApiKeys.push({
             id: keyId,
             name: keyData.name
@@ -495,9 +521,8 @@ class AccountGroupService {
         await client.del(`account_groups_reverse:${platform}:${accountId}`)
       } else {
         // 如果没有指定平台，清理所有可能的平台
-        const platforms = ['claude', 'gemini', 'openai', 'droid']
         const pipeline = client.pipeline()
-        for (const p of platforms) {
+        for (const p of VALID_GROUP_PLATFORMS) {
           pipeline.del(`account_groups_reverse:${p}:${accountId}`)
         }
         await pipeline.exec()

@@ -336,6 +336,7 @@ const platformFallbackModels = {
   'gemini-api': 'gemini-2.5-flash',
   'openai-responses': 'gpt-5',
   droid: 'claude-sonnet-4-5-20250929',
+  deepseek: 'deepseek-v4-flash',
   ccr: 'claude-sonnet-4-5-20250929'
 }
 
@@ -448,6 +449,11 @@ const platformConfigs = {
     icon: 'fas fa-robot',
     badge: 'bg-pink-100 text-pink-700 dark:bg-pink-500/20 dark:text-pink-300'
   },
+  deepseek: {
+    label: 'DeepSeek',
+    icon: 'fas fa-water',
+    badge: 'bg-slate-100 text-slate-700 dark:bg-slate-500/20 dark:text-slate-300'
+  },
   ccr: {
     label: 'CCR',
     icon: 'fas fa-key',
@@ -530,6 +536,7 @@ const getAccountEndpoint = () => {
     'openai-responses': `${APP_CONFIG.apiPrefix}/admin/openai-responses-accounts/${props.account.id}/test`,
     'azure-openai': `${APP_CONFIG.apiPrefix}/admin/azure-openai-accounts/${props.account.id}/test`,
     droid: `${APP_CONFIG.apiPrefix}/admin/droid-accounts/${props.account.id}/test`,
+    deepseek: `${APP_CONFIG.apiPrefix}/admin/deepseek-accounts/${props.account.id}/test`,
     ccr: `${APP_CONFIG.apiPrefix}/admin/ccr-accounts/${props.account.id}/test`
   }
   return endpoints[platform] || ''
