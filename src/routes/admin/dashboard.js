@@ -7,6 +7,7 @@ const ccrAccountService = require('../../services/account/ccrAccountService')
 const geminiAccountService = require('../../services/account/geminiAccountService')
 const droidAccountService = require('../../services/account/droidAccountService')
 const openaiResponsesAccountService = require('../../services/account/openaiResponsesAccountService')
+const deepseekAccountService = require('../../services/account/deepseekAccountService')
 const redis = require('../../models/redis')
 const { authenticateAdmin } = require('../../middleware/auth')
 const logger = require('../../utils/logger')
@@ -37,6 +38,7 @@ router.get('/dashboard', authenticateAdmin, async (req, res) => {
       ccrAccounts,
       openaiResponsesAccounts,
       droidAccounts,
+      deepseekAccounts,
       todayStats,
       systemAverages,
       realtimeMetrics
@@ -49,6 +51,7 @@ router.get('/dashboard', authenticateAdmin, async (req, res) => {
       ccrAccountService.getAllAccounts(),
       openaiResponsesAccountService.getAllAccounts(true),
       droidAccountService.getAllAccounts(),
+      deepseekAccountService.getAllAccounts(true),
       redis.getTodayStats(),
       redis.getSystemAverages(),
       redis.getRealtimeSystemMetrics()
@@ -185,6 +188,7 @@ router.get('/dashboard', authenticateAdmin, async (req, res) => {
     const openaiStats = countAccountStats(openaiAccounts, { isStringType: true })
     const ccrStats = countAccountStats(ccrAccounts)
     const openaiResponsesStats = countAccountStats(openaiResponsesAccounts, { isStringType: true })
+    const deepseekStats = countAccountStats(deepseekAccounts, { isStringType: true })
 
     const dashboard = {
       overview: {
@@ -198,6 +202,7 @@ router.get('/dashboard', authenticateAdmin, async (req, res) => {
           bedrockAccounts.length +
           openaiAccounts.length +
           openaiResponsesAccounts.length +
+          deepseekAccounts.length +
           ccrAccounts.length,
         normalAccounts:
           claudeStats.normal +
@@ -206,6 +211,7 @@ router.get('/dashboard', authenticateAdmin, async (req, res) => {
           bedrockStats.normal +
           openaiStats.normal +
           openaiResponsesStats.normal +
+          deepseekStats.normal +
           ccrStats.normal,
         abnormalAccounts:
           claudeStats.abnormal +
@@ -214,6 +220,7 @@ router.get('/dashboard', authenticateAdmin, async (req, res) => {
           bedrockStats.abnormal +
           openaiStats.abnormal +
           openaiResponsesStats.abnormal +
+          deepseekStats.abnormal +
           ccrStats.abnormal +
           abnormalDroidAccounts,
         pausedAccounts:
@@ -223,6 +230,7 @@ router.get('/dashboard', authenticateAdmin, async (req, res) => {
           bedrockStats.paused +
           openaiStats.paused +
           openaiResponsesStats.paused +
+          deepseekStats.paused +
           ccrStats.paused +
           pausedDroidAccounts,
         rateLimitedAccounts:
@@ -232,6 +240,7 @@ router.get('/dashboard', authenticateAdmin, async (req, res) => {
           bedrockStats.rateLimited +
           openaiStats.rateLimited +
           openaiResponsesStats.rateLimited +
+          deepseekStats.rateLimited +
           ccrStats.rateLimited +
           rateLimitedDroidAccounts,
         // 各平台详细统计
@@ -285,6 +294,13 @@ router.get('/dashboard', authenticateAdmin, async (req, res) => {
             paused: openaiResponsesStats.paused,
             rateLimited: openaiResponsesStats.rateLimited
           },
+          deepseek: {
+            total: deepseekAccounts.length,
+            normal: deepseekStats.normal,
+            abnormal: deepseekStats.abnormal,
+            paused: deepseekStats.paused,
+            rateLimited: deepseekStats.rateLimited
+          },
           droid: {
             total: droidAccounts.length,
             normal: normalDroidAccounts,
@@ -301,6 +317,7 @@ router.get('/dashboard', authenticateAdmin, async (req, res) => {
           bedrockStats.normal +
           openaiStats.normal +
           openaiResponsesStats.normal +
+          deepseekStats.normal +
           ccrStats.normal +
           normalDroidAccounts,
         totalClaudeAccounts: claudeAccounts.length + claudeConsoleAccounts.length,

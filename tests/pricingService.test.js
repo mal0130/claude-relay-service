@@ -352,4 +352,63 @@ describe('PricingService - Long Context Pricing', () => {
       expect(result.totalCost).toBeCloseTo(expectedTotal, 10)
     })
   })
+
+  describe('DeepSeek 官方价格', () => {
+    const deepseekPricingHtml = `
+      <table>
+        <tr><td colspan="2">MODEL</td><td>deepseek-v4-flash</td><td>deepseek-v4-pro</td></tr>
+        <tr><td rowspan="3">PRICING</td><td>1M INPUT TOKENS (CACHE HIT)<sup>(2)</sup></td><td>$0.0028</td><td>$0.003625 (75% off<sup>(3)</sup>)<del>$0.0145</del></td></tr>
+        <tr><td>1M INPUT TOKENS (CACHE MISS)</td><td>$0.14</td><td>$0.435 (75% off<sup>(3)</sup>)<del>$1.74</del></td></tr>
+        <tr><td>1M OUTPUT TOKENS</td><td>$0.28</td><td>$0.87 (75% off<sup>(3)</sup>)<del>$3.48</del></td></tr>
+      </table>
+      <p>The deepseek-v4-pro model is currently offered at a 75% discount, extended until 2026/05/31 15:59 UTC.</p>
+    `
+
+    it('折扣期内应使用 DeepSeek 官方折扣价', () => {
+      const entries = pricingService.parseDeepSeekPricingHtml(
+        deepseekPricingHtml,
+        new Date('2026-05-01T00:00:00.000Z')
+      )
+
+      expect(entries['deepseek-v4-flash'].input_cost_per_token).toBeCloseTo(0.14 / 1e6, 14)
+      expect(entries['deepseek-v4-flash'].cache_read_input_token_cost).toBeCloseTo(0.0028 / 1e6, 14)
+      expect(entries['deepseek-v4-pro'].input_cost_per_token).toBeCloseTo(0.435 / 1e6, 14)
+      expect(entries['deepseek-v4-pro'].output_cost_per_token).toBeCloseTo(0.87 / 1e6, 14)
+      expect(entries['deepseek-v4-pro'].pricing_discount_active).toBe(true)
+      expect(entries['deepseek-v4-pro'].pricing_discount_ends_at).toBe('2026-05-31T15:59:00.000Z')
+    })
+
+    it('折扣结束后应自动切回 DeepSeek 官方标价', () => {
+      const entries = pricingService.parseDeepSeekPricingHtml(
+        deepseekPricingHtml,
+        new Date('2026-06-01T00:00:00.000Z')
+      )
+
+      expect(entries['deepseek-v4-pro'].input_cost_per_token).toBeCloseTo(1.74 / 1e6, 14)
+      expect(entries['deepseek-v4-pro'].output_cost_per_token).toBeCloseTo(3.48 / 1e6, 14)
+      expect(entries['deepseek-v4-pro'].pricing_discount_active).toBe(false)
+    })
+
+    it('应按 cache hit / cache miss 价格计算 DeepSeek Flash 成本', () => {
+      pricingService.pricingData = pricingService.getDeepSeekFallbackPricing(
+        new Date('2026-05-01T00:00:00.000Z')
+      )
+
+      const result = pricingService.calculateCost(
+        {
+          input_tokens: 6,
+          output_tokens: 5,
+          cache_read_input_tokens: 4,
+          cache_creation_input_tokens: 0
+        },
+        'deepseek-v4-flash'
+      )
+
+      expect(result.hasPricing).toBe(true)
+      expect(result.inputCost).toBeCloseTo(6 * (0.14 / 1e6), 14)
+      expect(result.outputCost).toBeCloseTo(5 * (0.28 / 1e6), 14)
+      expect(result.cacheReadCost).toBeCloseTo(4 * (0.0028 / 1e6), 14)
+      expect(result.totalCost).toBeCloseTo(0.0000022512, 14)
+    })
+  })
 })

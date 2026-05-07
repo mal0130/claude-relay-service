@@ -155,4 +155,31 @@ describe('CostCalculator', () => {
     expect(result.debug.usedFallbackPricing).toBe(false)
     expect(result.debug.pricingSource).toBe('dynamic')
   })
+
+  it('uses DeepSeek dynamic pricing for regular cache-hit requests', () => {
+    pricingService.getModelPricing.mockReturnValue({
+      input_cost_per_token: 0.14 / 1_000_000,
+      output_cost_per_token: 0.28 / 1_000_000,
+      cache_read_input_token_cost: 0.0028 / 1_000_000,
+      litellm_provider: 'deepseek'
+    })
+
+    const result = CostCalculator.calculateCost(
+      {
+        input_tokens: 6,
+        output_tokens: 5,
+        cache_creation_input_tokens: 0,
+        cache_read_input_tokens: 4
+      },
+      'deepseek-v4-flash'
+    )
+
+    expect(pricingService.calculateCost).not.toHaveBeenCalled()
+    expect(result.usingDynamicPricing).toBe(true)
+    expect(result.pricing.input).toBeCloseTo(0.14, 12)
+    expect(result.pricing.output).toBeCloseTo(0.28, 12)
+    expect(result.pricing.cacheRead).toBeCloseTo(0.0028, 12)
+    expect(result.costs.total).toBeCloseTo(0.0000022512, 14)
+    expect(result.debug.pricingSource).toBe('dynamic')
+  })
 })

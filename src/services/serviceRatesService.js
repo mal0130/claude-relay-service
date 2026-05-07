@@ -27,7 +27,8 @@ class ServiceRatesService {
         droid: 1.0,
         bedrock: 1.0,
         azure: 1.0,
-        ccr: 1.0
+        ccr: 1.0,
+        deepseek: 1.0
       },
       updatedAt: null,
       updatedBy: null
@@ -175,6 +176,10 @@ class ServiceRatesService {
       return 'codex'
     }
 
+    if (modelLower.includes('deepseek')) {
+      return 'deepseek'
+    }
+
     // Gemini 系列
     if (
       modelLower.includes('gemini') ||
@@ -226,7 +231,8 @@ class ServiceRatesService {
       openai: 'codex',
       azure: 'azure',
       'azure-openai': 'azure',
-      droid: 'droid'
+      droid: 'droid',
+      deepseek: 'deepseek'
     }
 
     return mapping[accountType] || null

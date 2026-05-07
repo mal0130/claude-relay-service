@@ -567,6 +567,21 @@
                                 {{ getDroidBindingInfo(key) }}
                               </span>
                             </div>
+                            <!-- DeepSeek 绑定 -->
+                            <div
+                              v-if="getDeepSeekAccountId(key)"
+                              class="flex items-center gap-1 text-xs"
+                            >
+                              <span
+                                class="inline-flex items-center rounded bg-emerald-100 px-1.5 py-0.5 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300"
+                              >
+                                <i class="fas fa-bolt mr-1 text-[10px]" />
+                                DeepSeek
+                              </span>
+                              <span class="truncate text-gray-600 dark:text-gray-400">
+                                {{ getDeepSeekBindingInfo(key) }}
+                              </span>
+                            </div>
                             <!-- 共享池 -->
                             <div
                               v-if="
@@ -575,7 +590,8 @@
                                 !key.geminiAccountId &&
                                 !key.openaiAccountId &&
                                 !key.bedrockAccountId &&
-                                !key.droidAccountId
+                                !key.droidAccountId &&
+                                !getDeepSeekAccountId(key)
                               "
                               class="text-xs text-gray-500 dark:text-gray-400"
                             >
@@ -1336,6 +1352,21 @@
                     {{ getDroidBindingInfo(key) }}
                   </span>
                 </div>
+                <!-- DeepSeek 绑定 -->
+                <div
+                  v-if="getDeepSeekAccountId(key)"
+                  class="flex flex-wrap items-center gap-1 text-xs"
+                >
+                  <span
+                    class="inline-flex items-center rounded bg-emerald-100 px-2 py-0.5 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300"
+                  >
+                    <i class="fas fa-bolt mr-1" />
+                    DeepSeek
+                  </span>
+                  <span class="text-gray-600 dark:text-gray-400">
+                    {{ getDeepSeekBindingInfo(key) }}
+                  </span>
+                </div>
                 <!-- 无绑定时显示共享池 -->
                 <div
                   v-if="
@@ -1344,7 +1375,8 @@
                     !key.geminiAccountId &&
                     !key.openaiAccountId &&
                     !key.bedrockAccountId &&
-                    !key.droidAccountId
+                    !key.droidAccountId &&
+                    !getDeepSeekAccountId(key)
                   "
                   class="text-xs text-gray-500 dark:text-gray-400"
                 >
@@ -1832,6 +1864,21 @@
                               Gemini
                             </span>
                           </div>
+                          <!-- DeepSeek 绑定 -->
+                          <div
+                            v-else-if="getDeepSeekAccountId(key)"
+                            class="flex items-center gap-1 text-xs"
+                          >
+                            <span
+                              class="inline-flex items-center rounded bg-emerald-100 px-1.5 py-0.5 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300"
+                            >
+                              <i class="fas fa-bolt mr-1 text-[10px]" />
+                              DeepSeek
+                            </span>
+                            <span class="truncate text-gray-600 dark:text-gray-400">
+                              {{ getDeepSeekBindingInfo(key) }}
+                            </span>
+                          </div>
                           <!-- 共享池 -->
                           <div v-else class="text-xs text-gray-500 dark:text-gray-400">
                             <i class="fas fa-share-alt mr-1" />
@@ -2200,10 +2247,12 @@ const accounts = ref({
   openaiResponses: [], // 添加 OpenAI-Responses 账号列表
   bedrock: [],
   droid: [],
+  deepseek: [],
   claudeGroups: [],
   geminiGroups: [],
   openaiGroups: [],
-  droidGroups: []
+  droidGroups: [],
+  deepseekGroups: []
 })
 // 账号数据加载状态
 const accountsLoading = ref(false)
@@ -2404,6 +2453,7 @@ const loadAccounts = async (forceRefresh = false) => {
       openaiResponsesData,
       bedrockData,
       droidData,
+      deepseekData,
       groupsData
     ] = await Promise.all([
       httpApis.getClaudeAccountsApi(),
@@ -2414,6 +2464,7 @@ const loadAccounts = async (forceRefresh = false) => {
       httpApis.getOpenAIResponsesAccountsApi(),
       httpApis.getBedrockAccountsApi(),
       httpApis.getDroidAccountsApi(),
+      httpApis.getDeepSeekAccountsApi(),
       httpApis.getAccountGroupsApi()
     ])
 
@@ -2499,6 +2550,14 @@ const loadAccounts = async (forceRefresh = false) => {
       }))
     }
 
+    if (deepseekData.success) {
+      accounts.value.deepseek = (deepseekData.data || []).map((account) => ({
+        ...account,
+        platform: 'deepseek',
+        isDedicated: account.accountType === 'dedicated'
+      }))
+    }
+
     if (groupsData.success) {
       // 处理分组数据
       const allGroups = groupsData.data || []
@@ -2506,6 +2565,7 @@ const loadAccounts = async (forceRefresh = false) => {
       accounts.value.geminiGroups = allGroups.filter((g) => g.platform === 'gemini')
       accounts.value.openaiGroups = allGroups.filter((g) => g.platform === 'openai')
       accounts.value.droidGroups = allGroups.filter((g) => g.platform === 'droid')
+      accounts.value.deepseekGroups = allGroups.filter((g) => g.platform === 'deepseek')
     }
 
     // 标记账号数据已加载
@@ -2974,6 +3034,27 @@ const formatTokenCount = (count) => {
   return count.toString()
 }
 
+const normalizeAccountBindings = (accountBindings) => {
+  if (!accountBindings) {
+    return {}
+  }
+  if (typeof accountBindings === 'object' && !Array.isArray(accountBindings)) {
+    return accountBindings
+  }
+  if (typeof accountBindings === 'string') {
+    try {
+      const parsed = JSON.parse(accountBindings)
+      return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {}
+    } catch {
+      return {}
+    }
+  }
+  return {}
+}
+
+const getDeepSeekAccountId = (key) =>
+  normalizeAccountBindings(key?.accountBindings).deepseek?.accountId || ''
+
 // 获取绑定账户名称
 const getBoundAccountName = (accountId) => {
   if (!accountId) return '未知账户'
@@ -3003,6 +3084,11 @@ const getBoundAccountName = (accountId) => {
     const droidGroup = accounts.value.droidGroups.find((g) => g.id === groupId)
     if (droidGroup) {
       return `分组-${droidGroup.name}`
+    }
+
+    const deepseekGroup = accounts.value.deepseekGroups.find((g) => g.id === groupId)
+    if (deepseekGroup) {
+      return `分组-${deepseekGroup.name}`
     }
 
     // 如果找不到分组，返回分组ID的前8位
@@ -3070,6 +3156,11 @@ const getBoundAccountName = (accountId) => {
     return `${droidAccount.name}`
   }
 
+  const deepseekAccount = accounts.value.deepseek.find((acc) => acc.id === accountId)
+  if (deepseekAccount) {
+    return `${deepseekAccount.name}`
+  }
+
   // 如果找不到，返回账户ID的前8位
   return `${accountId.substring(0, 8)}`
 }
@@ -3082,7 +3173,8 @@ const hasAnyBinding = (key) => {
     key.geminiAccountId ||
     key.openaiAccountId ||
     key.bedrockAccountId ||
-    key.droidAccountId
+    key.droidAccountId ||
+    getDeepSeekAccountId(key)
   )
 }
 
@@ -3216,6 +3308,27 @@ const getDroidBindingInfo = (key) => {
     return info
   }
   return ''
+}
+
+const getDeepSeekBindingInfo = (key) => {
+  const accountId = getDeepSeekAccountId(key)
+  if (!accountId) {
+    return ''
+  }
+
+  const info = getBoundAccountName(accountId)
+  if (accountId.startsWith('group:')) {
+    return info
+  }
+
+  const account = accounts.value.deepseek.find((acc) => acc.id === accountId)
+  if (!account) {
+    return `⚠️ ${info} (账户不存在)`
+  }
+  if (account.accountType === 'dedicated') {
+    return `🔒 专属-${info}`
+  }
+  return info
 }
 
 // 检查API Key是否过期
@@ -4348,6 +4461,7 @@ const ACCOUNT_TYPE_LABELS = {
   openai: 'OpenAI',
   gemini: 'Gemini',
   droid: 'Droid',
+  deepseek: 'DeepSeek',
   deleted: '已删除',
   other: '其他'
 }
@@ -4376,6 +4490,9 @@ const normalizeFrontendAccountCategory = (type) => {
   }
   if (lower === 'droid') {
     return 'droid'
+  }
+  if (lower === 'deepseek') {
+    return 'deepseek'
   }
   return 'other'
 }
@@ -4526,6 +4643,7 @@ const exportToExcel = () => {
         'Azure OpenAI专属账户': key.azureOpenaiAccountId || '',
         Bedrock专属账户: key.bedrockAccountId || '',
         Droid专属账户: key.droidAccountId || '',
+        DeepSeek专属账户: getDeepSeekAccountId(key),
 
         // 模型和客户端限制
         启用模型限制: key.enableModelRestriction ? '是' : '否',

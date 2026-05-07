@@ -11,42 +11,47 @@ jobs:
     permissions:
       contents: write
     steps:
+      - name: 检出工具代码
+        uses: actions/checkout@v4
+        with:
+          path: source
+          fetch-depth: 1
+
       - name: 检出 price-mirror 分支
         uses: actions/checkout@v4
         with:
           ref: price-mirror
+          path: price-mirror
           fetch-depth: 0
 
-      - name: 下载上游价格文件
+      - name: 安装工具依赖
+        working-directory: source
+        run: npm ci --ignore-scripts
+
+      - name: 生成价格镜像文件
         id: fetch
+        working-directory: source
+        env:
+          PRICE_MIRROR_OUTPUT_DIR: ${{ github.workspace }}/price-mirror
         run: |
           set -euo pipefail
-          curl -fsSL https://github.com/Wei-Shaw/model-price-repo/raw/refs/heads/main/model_prices_and_context_window.json \
-            -o model_prices_and_context_window.json.new
+          node scripts/update-model-pricing.js --mirror --output-dir "$PRICE_MIRROR_OUTPUT_DIR"
 
-          NEW_HASH=$(sha256sum model_prices_and_context_window.json.new | awk '{print $1}')
-
-          if [ -f model_prices_and_context_window.sha256 ]; then
-            OLD_HASH=$(cat model_prices_and_context_window.sha256 | tr -d ' \n\r')
-          else
-            OLD_HASH=""
-          fi
-
-          if [ "$NEW_HASH" = "$OLD_HASH" ]; then
-            echo "价格文件无变化，跳过提交"
+          cd "$PRICE_MIRROR_OUTPUT_DIR"
+          if git diff --quiet -- model_prices_and_context_window.json model_prices_and_context_window.sha256; then
+            echo "价格镜像无变化，跳过提交"
             echo "changed=false" >> "$GITHUB_OUTPUT"
-            rm -f model_prices_and_context_window.json.new
             exit 0
           fi
 
-          mv model_prices_and_context_window.json.new model_prices_and_context_window.json
-          echo "$NEW_HASH" > model_prices_and_context_window.sha256
+          NEW_HASH=$(cat model_prices_and_context_window.sha256 | tr -d ' \n\r')
 
           echo "changed=true" >> "$GITHUB_OUTPUT"
           echo "hash=$NEW_HASH" >> "$GITHUB_OUTPUT"
 
       - name: 提交并推送变更
         if: steps.fetch.outputs.changed == 'true'
+        working-directory: price-mirror
         env:
           NEW_HASH: ${{ steps.fetch.outputs.hash }}
         run: |
