@@ -12,7 +12,7 @@
     "source_zh": "https://api-docs.deepseek.com/zh-cn/quick_start/pricing",
     "pricing_currency": "USD",
     "pricing_source": "deepseek_official_docs",
-    "pricing_updated_at": "2026-05-07T08:41:10.786Z",
+    "pricing_updated_at": "2026-05-07T09:41:03.174Z",
     "supported_endpoints": [
       "/v1/chat/completions"
     ],
@@ -40,7 +40,7 @@
     "source_zh": "https://api-docs.deepseek.com/zh-cn/quick_start/pricing",
     "pricing_currency": "USD",
     "pricing_source": "deepseek_official_docs",
-    "pricing_updated_at": "2026-05-07T08:41:10.786Z",
+    "pricing_updated_at": "2026-05-07T09:41:03.174Z",
     "supported_endpoints": [
       "/v1/chat/completions"
     ],
@@ -68,6 +68,63 @@
     "supports_prompt_caching": true,
     "supports_reasoning": true,
     "supports_tool_choice": true
+  },
+  "deepseek-v4-flash": {
+    "cache_read_input_token_cost": 2.8e-9,
+    "input_cost_per_token": 1.4e-7,
+    "litellm_provider": "deepseek",
+    "max_input_tokens": 1048576,
+    "max_output_tokens": 393216,
+    "max_tokens": 393216,
+    "mode": "chat",
+    "output_cost_per_token": 2.8e-7,
+    "source": "https://api-docs.deepseek.com/quick_start/pricing",
+    "source_zh": "https://api-docs.deepseek.com/zh-cn/quick_start/pricing",
+    "pricing_currency": "USD",
+    "pricing_source": "deepseek_official_docs",
+    "pricing_updated_at": "2026-05-07T08:41:10.786Z",
+    "supported_endpoints": [
+      "/v1/chat/completions"
+    ],
+    "supports_function_calling": true,
+    "supports_native_streaming": true,
+    "supports_parallel_function_calling": true,
+    "supports_prompt_caching": true,
+    "supports_reasoning": true,
+    "supports_response_schema": true,
+    "supports_system_messages": true,
+    "supports_tool_choice": true
+  },
+  "deepseek-v4-pro": {
+    "cache_read_input_token_cost": 3.625e-9,
+    "input_cost_per_token": 4.35e-7,
+    "litellm_provider": "deepseek",
+    "max_input_tokens": 1048576,
+    "max_output_tokens": 393216,
+    "max_tokens": 393216,
+    "mode": "chat",
+    "output_cost_per_token": 8.7e-7,
+    "source": "https://api-docs.deepseek.com/quick_start/pricing",
+    "source_zh": "https://api-docs.deepseek.com/zh-cn/quick_start/pricing",
+    "pricing_currency": "USD",
+    "pricing_source": "deepseek_official_docs",
+    "pricing_updated_at": "2026-05-07T08:41:10.786Z",
+    "supported_endpoints": [
+      "/v1/chat/completions"
+    ],
+    "supports_function_calling": true,
+    "supports_native_streaming": true,
+    "supports_parallel_function_calling": true,
+    "supports_prompt_caching": true,
+    "supports_reasoning": true,
+    "supports_response_schema": true,
+    "supports_system_messages": true,
+    "supports_tool_choice": true,
+    "pricing_discount_active": true,
+    "pricing_discount_ends_at": "2026-05-31T15:59:00.000Z",
+    "list_cache_read_input_token_cost": 1.45e-8,
+    "list_input_cost_per_token": 0.00000174,
+    "list_output_cost_per_token": 0.00000348
   },
   "claude-3-7-sonnet-20250219": {
     "cache_creation_input_token_cost": 0.00000375,
@@ -5841,62 +5898,5 @@
     "supports_tool_choice": true,
     "supports_vision": true,
     "supports_web_search": true
-  },
-  "deepseek-v4-flash": {
-    "cache_read_input_token_cost": 2.8e-9,
-    "input_cost_per_token": 1.4e-7,
-    "litellm_provider": "deepseek",
-    "max_input_tokens": 1048576,
-    "max_output_tokens": 393216,
-    "max_tokens": 393216,
-    "mode": "chat",
-    "output_cost_per_token": 2.8e-7,
-    "source": "https://api-docs.deepseek.com/quick_start/pricing",
-    "source_zh": "https://api-docs.deepseek.com/zh-cn/quick_start/pricing",
-    "pricing_currency": "USD",
-    "pricing_source": "deepseek_official_docs",
-    "pricing_updated_at": "2026-05-07T08:41:10.786Z",
-    "supported_endpoints": [
-      "/v1/chat/completions"
-    ],
-    "supports_function_calling": true,
-    "supports_native_streaming": true,
-    "supports_parallel_function_calling": true,
-    "supports_prompt_caching": true,
-    "supports_reasoning": true,
-    "supports_response_schema": true,
-    "supports_system_messages": true,
-    "supports_tool_choice": true
-  },
-  "deepseek-v4-pro": {
-    "cache_read_input_token_cost": 3.625e-9,
-    "input_cost_per_token": 4.35e-7,
-    "litellm_provider": "deepseek",
-    "max_input_tokens": 1048576,
-    "max_output_tokens": 393216,
-    "max_tokens": 393216,
-    "mode": "chat",
-    "output_cost_per_token": 8.7e-7,
-    "source": "https://api-docs.deepseek.com/quick_start/pricing",
-    "source_zh": "https://api-docs.deepseek.com/zh-cn/quick_start/pricing",
-    "pricing_currency": "USD",
-    "pricing_source": "deepseek_official_docs",
-    "pricing_updated_at": "2026-05-07T08:41:10.786Z",
-    "supported_endpoints": [
-      "/v1/chat/completions"
-    ],
-    "supports_function_calling": true,
-    "supports_native_streaming": true,
-    "supports_parallel_function_calling": true,
-    "supports_prompt_caching": true,
-    "supports_reasoning": true,
-    "supports_response_schema": true,
-    "supports_system_messages": true,
-    "supports_tool_choice": true,
-    "pricing_discount_active": true,
-    "pricing_discount_ends_at": "2026-05-31T15:59:00.000Z",
-    "list_cache_read_input_token_cost": 1.45e-8,
-    "list_input_cost_per_token": 0.00000174,
-    "list_output_cost_per_token": 0.00000348
   }
 }
