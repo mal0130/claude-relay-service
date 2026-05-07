@@ -7,6 +7,8 @@ const apiKeyService = require('../apiKeyService')
 const unifiedOpenAIScheduler = require('../scheduler/unifiedOpenAIScheduler')
 const config = require('../../../config/config')
 const crypto = require('crypto')
+
+const isUsageDetailEnabled = () => process.env.ENABLE_USAGE_DETAIL === 'true'
 const LRUCache = require('../../utils/lruCache')
 const upstreamErrorHelper = require('../../utils/upstreamErrorHelper')
 const webhookService = require('../webhookService')
@@ -652,12 +654,16 @@ class OpenAIResponsesRelayService {
 
         // 转发数据给客户端
         const isDone = chunkStr.includes('[DONE]')
-        logger.info(
-          `[responses-stream] res.destroyed=${res.destroyed}, streamEnded=${streamEnded}, chunk=${chunk.length}bytes${isDone ? ' [DONE]' : ''}`
-        )
+        if (isUsageDetailEnabled()) {
+          logger.info(
+            `[responses-stream] res.destroyed=${res.destroyed}, streamEnded=${streamEnded}, chunk=${chunk.length}bytes${isDone ? ' [DONE]' : ''}`
+          )
+        }
         if (!res.destroyed && !streamEnded) {
           res.write(chunk)
-          logger.info(`[responses-stream] wrote chunk ok${isDone ? ' [DONE]' : ''}`)
+          if (isUsageDetailEnabled()) {
+            logger.info(`[responses-stream] wrote chunk ok`)
+          }
         }
 
         // 同时解析数据以捕获 usage 信息

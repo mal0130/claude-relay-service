@@ -4,6 +4,8 @@ const router = express.Router()
 const logger = require('../utils/logger')
 const config = require('../../config/config')
 const { authenticateApiKey } = require('../middleware/auth')
+
+const isUsageDetailEnabled = () => process.env.ENABLE_USAGE_DETAIL === 'true'
 const unifiedOpenAIScheduler = require('../services/scheduler/unifiedOpenAIScheduler')
 const openaiAccountService = require('../services/account/openaiAccountService')
 const openaiResponsesAccountService = require('../services/account/openaiResponsesAccountService')
@@ -920,10 +922,14 @@ const handleResponses = async (req, res) => {
         // 转发数据给客户端
         const chunkStr = chunk.toString()
         const isDone = chunkStr.includes('[DONE]')
-        logger.info(`[stream] res.destroyed=${res.destroyed}, chunk=${chunk.length}bytes${isDone ? ' [DONE]' : ''}`)
+        if (isUsageDetailEnabled()) {
+          logger.info(`[stream] res.destroyed=${res.destroyed}, chunk=${chunk.length}bytes${isDone ? ' [DONE]' : ''}`)
+        }
         if (!res.destroyed) {
           res.write(chunk)
-          logger.info(`[stream] wrote chunk ok${isDone ? ' [DONE]' : ''}`)
+          if (isUsageDetailEnabled()) {
+            logger.info(`[stream] wrote chunk ok${isDone ? ' [DONE]' : ''}`)
+          }
         }
 
         // 使用增量解析器处理数据
