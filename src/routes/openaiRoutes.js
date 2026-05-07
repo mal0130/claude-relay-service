@@ -438,7 +438,7 @@ const handleResponses = async (req, res) => {
     }
 
     // 使用调度器选择账户
-    ;({ accessToken, accountId, accountType, proxy, account } = await getOpenAIAuthToken(
+    ; ({ accessToken, accountId, accountType, proxy, account } = await getOpenAIAuthToken(
       apiKeyData,
       sessionId,
       schedulerModel
@@ -662,8 +662,8 @@ const handleResponses = async (req, res) => {
       if (errorData) {
         const messageCandidate =
           errorData.error &&
-          typeof errorData.error.message === 'string' &&
-          errorData.error.message.trim()
+            typeof errorData.error.message === 'string' &&
+            errorData.error.message.trim()
             ? errorData.error.message.trim()
             : typeof errorData.message === 'string' && errorData.message.trim()
               ? errorData.message.trim()
@@ -918,8 +918,12 @@ const handleResponses = async (req, res) => {
     upstream.data.on('data', (chunk) => {
       try {
         // 转发数据给客户端
+        const chunkStr = chunk.toString()
+        const isDone = chunkStr.includes('[DONE]')
+        logger.info(`[stream] res.destroyed=${res.destroyed}, chunk=${chunk.length}bytes${isDone ? ' [DONE]' : ''}`)
         if (!res.destroyed) {
           res.write(chunk)
+          logger.info(`[stream] wrote chunk ok${isDone ? ' [DONE]' : ''}`)
         }
 
         // 使用增量解析器处理数据
@@ -1027,10 +1031,10 @@ const handleResponses = async (req, res) => {
         config.logging.truncate
           ? {}
           : {
-              response: completedResponse
-                ? { ...completedResponse, output: completedOutputItems }
-                : { output: completedOutputItems }
-            }
+            response: completedResponse
+              ? { ...completedResponse, output: completedOutputItems }
+              : { output: completedOutputItems }
+          }
       )
 
       // 如果在流式响应中检测到限流
@@ -1054,6 +1058,7 @@ const handleResponses = async (req, res) => {
       }
 
       res.end()
+      logger.info(`[stream] res.end() called, res.destroyed=${res.destroyed}`)
     })
 
     upstream.data.on('error', (err) => {

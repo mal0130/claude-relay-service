@@ -79,11 +79,11 @@ class OpenAIResponsesRelayService {
       null
     logger.info(
       `🔍 relay sessionId sources: header_session_id=${req.headers['session_id']}, ` +
-        `header_x-session-id=${req.headers['x-session-id']}, ` +
-        `body_session_id=${req.body?.session_id}, ` +
-        `body_conversation_id=${req.body?.conversation_id}, ` +
-        `body_prompt_cache_key=${req.body?.prompt_cache_key}, ` +
-        `body_previous_response_id=${req.body?.previous_response_id}`
+      `header_x-session-id=${req.headers['x-session-id']}, ` +
+      `body_session_id=${req.body?.session_id}, ` +
+      `body_conversation_id=${req.body?.conversation_id}, ` +
+      `body_prompt_cache_key=${req.body?.prompt_cache_key}, ` +
+      `body_previous_response_id=${req.body?.previous_response_id}`
     )
     const sessionHash = sessionId
       ? crypto.createHash('sha256').update(sessionId).digest('hex')
@@ -102,10 +102,10 @@ class OpenAIResponsesRelayService {
           response: responseBody,
           error: rawError
             ? {
-                message: rawError.message,
-                code: rawError.code,
-                data: rawError.response?.data
-              }
+              message: rawError.message,
+              code: rawError.code,
+              data: rawError.response?.data
+            }
             : undefined
         })
         .catch((e) => logger.warn('Failed to send webhook notification:', e))
@@ -240,7 +240,7 @@ class OpenAIResponsesRelayService {
               429,
               resetsInSeconds || upstreamErrorHelper.parseRetryAfter(response.headers)
             )
-            .catch(() => {})
+            .catch(() => { })
         }
 
         // 返回错误响应（使用处理后的数据，避免循环引用）
@@ -311,10 +311,10 @@ class OpenAIResponsesRelayService {
             if (!oaiAutoProtectionDisabled) {
               await upstreamErrorHelper
                 .markTempUnavailable(account.id, 'openai-responses', 401)
-                .catch(() => {})
+                .catch(() => { })
             }
             if (sessionHash) {
-              await unifiedOpenAIScheduler._deleteSessionMapping(sessionHash).catch(() => {})
+              await unifiedOpenAIScheduler._deleteSessionMapping(sessionHash).catch(() => { })
             }
           } catch (markError) {
             logger.error(
@@ -362,7 +362,7 @@ class OpenAIResponsesRelayService {
               )
             }
             if (sessionHash) {
-              await unifiedOpenAIScheduler._deleteSessionMapping(sessionHash).catch(() => {})
+              await unifiedOpenAIScheduler._deleteSessionMapping(sessionHash).catch(() => { })
             }
           } catch (markError) {
             logger.warn(
@@ -445,7 +445,7 @@ class OpenAIResponsesRelayService {
           if (!oaiAutoProtectionDisabled) {
             await upstreamErrorHelper
               .markTempUnavailable(account.id, 'openai-responses', 503)
-              .catch(() => {})
+              .catch(() => { })
           }
         }
       }
@@ -493,10 +493,10 @@ class OpenAIResponsesRelayService {
             if (!oaiAutoProtectionDisabled) {
               await upstreamErrorHelper
                 .markTempUnavailable(account.id, 'openai-responses', 401)
-                .catch(() => {})
+                .catch(() => { })
             }
             if (sessionHash) {
-              await unifiedOpenAIScheduler._deleteSessionMapping(sessionHash).catch(() => {})
+              await unifiedOpenAIScheduler._deleteSessionMapping(sessionHash).catch(() => { })
             }
           } catch (markError) {
             logger.error(
@@ -651,8 +651,13 @@ class OpenAIResponsesRelayService {
         const chunkStr = chunk.toString()
 
         // 转发数据给客户端
+        const isDone = chunkStr.includes('[DONE]')
+        logger.info(
+          `[responses-stream] res.destroyed=${res.destroyed}, streamEnded=${streamEnded}, chunk=${chunk.length}bytes${isDone ? ' [DONE]' : ''}`
+        )
         if (!res.destroyed && !streamEnded) {
           res.write(chunk)
+          logger.info(`[responses-stream] wrote chunk ok${isDone ? ' [DONE]' : ''}`)
         }
 
         // 同时解析数据以捕获 usage 信息
@@ -804,11 +809,12 @@ class OpenAIResponsesRelayService {
       req.removeListener('close', handleClientDisconnect)
       res.removeListener('close', handleClientDisconnect)
 
+      logger.info(`[responses-stream] res.end() called, res.destroyed=${res.destroyed}`)
       if (!res.destroyed) {
         res.end()
       }
 
-      logger.info('Stream response completed', {
+      logger.info('[responses-stream] response completed', {
         accountId: account.id,
         hasUsage: !!usageData,
         actualModel: actualModel || 'unknown'
@@ -818,10 +824,10 @@ class OpenAIResponsesRelayService {
         config.logging.truncate
           ? {}
           : {
-              response: completedResponse
-                ? { ...completedResponse, output: completedOutputItems }
-                : { output: completedOutputItems }
-            }
+            response: completedResponse
+              ? { ...completedResponse, output: completedOutputItems }
+              : { output: completedOutputItems }
+          }
       )
     })
 
