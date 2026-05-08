@@ -10,7 +10,25 @@ const requestBodyRuleService = require('../../services/requestBodyRuleService')
 const router = express.Router()
 
 // 有效的权限值列表
-const VALID_PERMISSIONS = ['claude', 'gemini', 'openai', 'droid']
+const VALID_PERMISSIONS = ['claude', 'gemini', 'openai', 'droid', 'deepseek']
+
+function normalizeAccountBindings(accountBindings) {
+  if (accountBindings === undefined || accountBindings === null || accountBindings === '') {
+    return {}
+  }
+  if (typeof accountBindings === 'object' && !Array.isArray(accountBindings)) {
+    return accountBindings
+  }
+  if (typeof accountBindings === 'string') {
+    try {
+      const parsed = JSON.parse(accountBindings)
+      return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {}
+    } catch {
+      return {}
+    }
+  }
+  return {}
+}
 
 /**
  * 验证权限数组格式
@@ -877,6 +895,7 @@ router.get('/accounts/binding-counts', authenticateAdmin, async (req, res) => {
       azureOpenaiAccountId: {},
       bedrockAccountId: {},
       droidAccountId: {},
+      deepseekAccountId: {},
       ccrAccountId: {}
     }
 
@@ -923,6 +942,13 @@ router.get('/accounts/binding-counts', authenticateAdmin, async (req, res) => {
       if (key.droidAccountId) {
         const id = key.droidAccountId
         bindingCounts.droidAccountId[id] = (bindingCounts.droidAccountId[id] || 0) + 1
+      }
+
+      const accountBindings = normalizeAccountBindings(key.accountBindings)
+      const deepseekAccountId = accountBindings.deepseek?.accountId
+      if (deepseekAccountId) {
+        bindingCounts.deepseekAccountId[deepseekAccountId] =
+          (bindingCounts.deepseekAccountId[deepseekAccountId] || 0) + 1
       }
 
       // CCR 账户
@@ -1681,6 +1707,7 @@ router.post('/api-keys', authenticateAdmin, async (req, res) => {
       openaiAccountId,
       bedrockAccountId,
       droidAccountId,
+      accountBindings,
       permissions,
       concurrencyLimit,
       rateLimitWindow,
@@ -1925,6 +1952,7 @@ router.post('/api-keys', authenticateAdmin, async (req, res) => {
       openaiAccountId,
       bedrockAccountId,
       droidAccountId,
+      accountBindings: normalizeAccountBindings(accountBindings),
       permissions,
       concurrencyLimit,
       rateLimitWindow,
@@ -1986,6 +2014,7 @@ router.post('/api-keys/batch', authenticateAdmin, async (req, res) => {
       openaiAccountId,
       bedrockAccountId,
       droidAccountId,
+      accountBindings,
       permissions,
       concurrencyLimit,
       rateLimitWindow,
@@ -2052,6 +2081,7 @@ router.post('/api-keys/batch', authenticateAdmin, async (req, res) => {
           openaiAccountId,
           bedrockAccountId,
           droidAccountId,
+          accountBindings: normalizeAccountBindings(accountBindings),
           permissions,
           concurrencyLimit,
           rateLimitWindow,
@@ -2258,6 +2288,9 @@ router.put('/api-keys/batch', authenticateAdmin, async (req, res) => {
         if (updates.droidAccountId !== undefined) {
           finalUpdates.droidAccountId = updates.droidAccountId || ''
         }
+        if (updates.accountBindings !== undefined) {
+          finalUpdates.accountBindings = normalizeAccountBindings(updates.accountBindings)
+        }
 
         // 处理标签操作
         if (updates.tags !== undefined) {
@@ -2362,6 +2395,7 @@ router.put('/api-keys/:keyId', authenticateAdmin, async (req, res) => {
       openaiAccountId,
       bedrockAccountId,
       droidAccountId,
+      accountBindings,
       permissions,
       enableModelRestriction,
       restrictedModels,
@@ -2504,6 +2538,10 @@ router.put('/api-keys/:keyId', authenticateAdmin, async (req, res) => {
     if (droidAccountId !== undefined) {
       // 空字符串表示解绑，null或空字符串都设置为空字符串
       updates.droidAccountId = droidAccountId || ''
+    }
+
+    if (accountBindings !== undefined) {
+      updates.accountBindings = normalizeAccountBindings(accountBindings)
     }
 
     if (permissions !== undefined) {

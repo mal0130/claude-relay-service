@@ -71,7 +71,7 @@
               <!-- 平台分组选择器 -->
               <div class="space-y-3">
                 <!-- 分组选择器 -->
-                <div class="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                <div class="grid grid-cols-2 gap-2 sm:grid-cols-5">
                   <!-- Claude 分组 -->
                   <div
                     class="group relative cursor-pointer overflow-hidden rounded-lg border-2 transition-all duration-200"
@@ -202,6 +202,44 @@
                         Droid
                       </h4>
                       <p class="text-xs text-gray-600 dark:text-gray-400">Claude Droid</p>
+                    </div>
+                  </div>
+
+                  <!-- DeepSeek 分组 -->
+                  <div
+                    class="group relative cursor-pointer overflow-hidden rounded-lg border-2 transition-all duration-200"
+                    :class="[
+                      platformGroup === 'deepseek'
+                        ? 'border-[#3964fe] bg-gradient-to-br from-[#3964fe]/10 to-[#3964fe]/5 shadow-md dark:from-[#3964fe]/20 dark:to-[#3964fe]/10'
+                        : 'border-gray-200 bg-white hover:border-[#3964fe]/60 hover:shadow dark:border-gray-700 dark:bg-gray-800 dark:hover:border-[#3964fe]'
+                    ]"
+                    @click="selectPlatformGroup('deepseek')"
+                  >
+                    <div class="p-3">
+                      <div class="flex items-center justify-between">
+                        <div
+                          class="flex h-8 w-8 items-center justify-center rounded-md bg-[#3964fe]/10"
+                        >
+                          <svg
+                            class="h-6 w-6 text-[#3964fe]"
+                            fill="currentColor"
+                            viewBox="0 0 56.2 41.5"
+                            xmlns="http://www.w3.org/2000/svg"
+                          >
+                            <path :d="deepSeekWhalePath" />
+                          </svg>
+                        </div>
+                        <div
+                          v-if="platformGroup === 'deepseek'"
+                          class="flex h-5 w-5 items-center justify-center rounded-full bg-[#3964fe]"
+                        >
+                          <i class="fas fa-check text-xs text-white"></i>
+                        </div>
+                      </div>
+                      <h4 class="mt-2 text-sm font-semibold text-gray-900 dark:text-gray-100">
+                        DeepSeek
+                      </h4>
+                      <p class="text-xs text-gray-600 dark:text-gray-400">国产模型</p>
                     </div>
                   </div>
                 </div>
@@ -568,6 +606,47 @@
                         </div>
                       </label>
                     </template>
+
+                    <!-- DeepSeek 子选项 -->
+                    <template v-if="platformGroup === 'deepseek'">
+                      <label
+                        class="group relative flex cursor-pointer items-center rounded-md border p-2 transition-all"
+                        :class="[
+                          form.platform === 'deepseek'
+                            ? 'border-[#3964fe] bg-[#3964fe]/10 dark:border-[#3964fe] dark:bg-[#3964fe]/20'
+                            : 'border-gray-300 bg-white hover:border-[#3964fe]/70 hover:bg-[#3964fe]/5 dark:border-gray-600 dark:bg-gray-700 dark:hover:border-[#3964fe] dark:hover:bg-[#3964fe]/10'
+                        ]"
+                      >
+                        <input
+                          v-model="form.platform"
+                          class="sr-only"
+                          type="radio"
+                          value="deepseek"
+                        />
+                        <div class="flex items-center gap-2">
+                          <svg
+                            class="h-5 w-5 text-[#3964fe]"
+                            fill="currentColor"
+                            viewBox="0 0 56.2 41.5"
+                            xmlns="http://www.w3.org/2000/svg"
+                          >
+                            <path :d="deepSeekWhalePath" />
+                          </svg>
+                          <div>
+                            <span class="block text-xs font-medium text-gray-900 dark:text-gray-100"
+                              >DeepSeek API</span
+                            >
+                            <span class="text-xs text-gray-500 dark:text-gray-400">标准 API</span>
+                          </div>
+                        </div>
+                        <div
+                          v-if="form.platform === 'deepseek'"
+                          class="absolute right-1 top-1 flex h-4 w-4 items-center justify-center rounded-full bg-[#3964fe]"
+                        >
+                          <i class="fas fa-check text-xs text-white"></i>
+                        </div>
+                      </label>
+                    </template>
                   </div>
                 </div>
               </div>
@@ -581,7 +660,8 @@
                 form.platform !== 'bedrock' &&
                 form.platform !== 'azure_openai' &&
                 form.platform !== 'openai-responses' &&
-                form.platform !== 'gemini-api'
+                form.platform !== 'gemini-api' &&
+                form.platform !== 'deepseek'
               "
             >
               <label class="mb-3 block text-sm font-semibold text-gray-700 dark:text-gray-300"
@@ -1720,6 +1800,60 @@
               <input v-model.number="form.rateLimitDuration" type="hidden" value="60" />
             </div>
 
+            <!-- DeepSeek API 配置 -->
+            <div v-if="form.platform === 'deepseek' && !isEdit" class="space-y-4">
+              <div>
+                <label class="mb-3 block text-sm font-semibold text-gray-700 dark:text-gray-300"
+                  >API 基础地址 *</label
+                >
+                <input
+                  v-model="form.baseApi"
+                  class="form-input w-full border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200 dark:placeholder-gray-400"
+                  :class="{ 'border-red-500 dark:border-red-400': errors.baseApi }"
+                  placeholder="https://api.deepseek.com"
+                  required
+                  type="url"
+                />
+                <p v-if="errors.baseApi" class="mt-1 text-xs text-red-500">
+                  {{ errors.baseApi }}
+                </p>
+                <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                  由账号录入时指定，可填写官方或兼容服务商的基础地址，不要包含 /chat/completions。
+                </p>
+                <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                  客户端使用中转地址 <code>/deepseek/v1</code>，此处只填写上游服务商地址。
+                </p>
+              </div>
+
+              <div>
+                <label class="mb-3 block text-sm font-semibold text-gray-700 dark:text-gray-300"
+                  >API 密钥 *</label
+                >
+                <div class="relative">
+                  <input
+                    v-model="form.apiKey"
+                    class="form-input w-full border-gray-300 pr-10 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200 dark:placeholder-gray-400"
+                    :class="{ 'border-red-500 dark:border-red-400': errors.apiKey }"
+                    placeholder="sk-xxxxxxxxxxxx"
+                    required
+                    :type="showApiKey ? 'text' : 'password'"
+                  />
+                  <button
+                    class="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:text-gray-500 dark:hover:text-gray-400"
+                    type="button"
+                    @click="showApiKey = !showApiKey"
+                  >
+                    <i :class="showApiKey ? 'fas fa-eye-slash' : 'fas fa-eye'" />
+                  </button>
+                </div>
+                <p v-if="errors.apiKey" class="mt-1 text-xs text-red-500">
+                  {{ errors.apiKey }}
+                </p>
+              </div>
+
+              <input v-model.number="form.rateLimitDuration" type="hidden" value="60" />
+            </div>
+
             <!-- Gemini API 配置 -->
             <div v-if="form.platform === 'gemini-api' && !isEdit" class="space-y-4">
               <div>
@@ -2013,6 +2147,7 @@
                 form.platform !== 'claude-console' &&
                 form.platform !== 'ccr' &&
                 form.platform !== 'bedrock' &&
+                form.platform !== 'deepseek' &&
                 form.platform !== 'azure_openai' &&
                 form.platform !== 'openai-responses'
               "
@@ -3552,6 +3687,76 @@
             </div>
           </div>
 
+          <!-- DeepSeek 特定字段（编辑模式）-->
+          <div v-if="form.platform === 'deepseek'" class="space-y-4">
+            <div>
+              <label class="mb-3 block text-sm font-semibold text-gray-700 dark:text-gray-300"
+                >API 基础地址</label
+              >
+              <input
+                v-model="form.baseApi"
+                class="form-input w-full border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200"
+                :class="{ 'border-red-500 dark:border-red-400': errors.baseApi }"
+                placeholder="https://api.deepseek.com"
+                type="url"
+              />
+              <p v-if="errors.baseApi" class="mt-1 text-xs text-red-500">
+                {{ errors.baseApi }}
+              </p>
+              <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                客户端使用中转地址 <code>/deepseek/v1</code>，此处只填写上游服务商地址。
+              </p>
+            </div>
+
+            <div>
+              <label class="mb-3 block text-sm font-semibold text-gray-700 dark:text-gray-300"
+                >API 密钥</label
+              >
+              <div class="relative">
+                <input
+                  v-model="form.apiKey"
+                  class="form-input w-full border-gray-300 pr-10 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200"
+                  placeholder="留空表示不更新"
+                  :type="showApiKey ? 'text' : 'password'"
+                />
+                <button
+                  class="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                  type="button"
+                  @click="showApiKey = !showApiKey"
+                >
+                  <i :class="showApiKey ? 'fas fa-eye-slash' : 'fas fa-eye'" />
+                </button>
+              </div>
+              <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">留空表示不更新 API Key</p>
+            </div>
+
+            <div class="grid grid-cols-2 gap-4">
+              <div>
+                <label class="mb-3 block text-sm font-semibold text-gray-700 dark:text-gray-300">
+                  每日额度限制 ($)
+                </label>
+                <input
+                  v-model.number="form.dailyQuota"
+                  class="form-input w-full border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200"
+                  min="0"
+                  placeholder="0 表示不限制"
+                  step="0.01"
+                  type="number"
+                />
+              </div>
+              <div>
+                <label class="mb-3 block text-sm font-semibold text-gray-700 dark:text-gray-300">
+                  额度重置时间
+                </label>
+                <input
+                  v-model="form.quotaResetTime"
+                  class="form-input w-full border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200"
+                  type="time"
+                />
+              </div>
+            </div>
+          </div>
+
           <!-- Gemini API 特定字段（编辑模式）-->
           <div v-if="form.platform === 'gemini-api'" class="space-y-4">
             <div>
@@ -3940,7 +4145,8 @@
               form.platform !== 'ccr' &&
               form.platform !== 'bedrock' &&
               form.platform !== 'azure_openai' &&
-              form.platform !== 'openai-responses'
+              form.platform !== 'openai-responses' &&
+              form.platform !== 'deepseek'
             "
             class="rounded-lg border border-amber-200 bg-amber-50 p-4 dark:border-amber-700 dark:bg-amber-900/30"
           >
@@ -4106,6 +4312,9 @@ const handleCancel = () => {
 // 是否为编辑模式
 const isEdit = computed(() => !!props.account)
 const show = ref(true)
+const DEEPSEEK_DEFAULT_BASE_API = 'https://api.deepseek.com'
+const deepSeekWhalePath =
+  'M55.6128,3.4712c-.5953-.2917-.8517.2642-1.1998.5466-.1191.0911-.2198.2095-.3206.3188-.8701.9292-1.8867,1.5398-3.2148,1.4668-1.9417-.1094-3.5995.5012-5.065,1.9863-.3114-1.8313-1.3463-2.9248-2.9217-3.6262-.8242-.3645-1.6577-.729-2.2348-1.5217-.403-.5647-.5129-1.1934-.7144-1.813-.1283-.3735-.2565-.7563-.687-.8201-.4671-.0728-.6503.3188-.8335.647-.7327,1.3394-1.0166,2.8154-.9892,4.3096.0641,3.3621,1.4838,6.0406,4.3047,7.9449.3206.2187.403.4372.3023.7563-.1924.656-.4214,1.2937-.6228,1.9497-.1283.4192-.3207.5103-.7694.3279-1.5479-.6467-2.8852-1.6035-4.0667-2.7605-2.0058-1.9407-3.8193-4.0818-6.0815-5.7583-.5312-.3918-1.0625-.7561-1.6121-1.1025-2.3081-2.2412.3023-4.0818.9068-4.3003.6319-.2278.2198-1.0115-1.8227-1.0022-2.0425.009-3.9109.6924-6.2922,1.6035-.348.1367-.7145.2368-1.09.3188-2.1615-.4099-4.4055-.5012-6.7502-.2368-4.4147.4919-7.9408,2.5784-10.5328,6.1409C.1914,13.1289-.5413,17.9941.3563,23.0691c.9434,5.3481,3.6727,9.7761,7.8676,13.2385,4.3506,3.5896,9.3606,5.3481,15.0758,5.011,3.4713-.2004,7.3364-.665,11.6961-4.355,1.099.5467,2.2531.7652,4.1674.9292,1.4746.1367,2.8943-.0728,3.9933-.3005,1.7219-.3645,1.6029-1.959.9801-2.2505-5.0466-2.3506-3.9385-1.394-4.9459-2.1685,2.5645-3.0339,6.4297-6.1865,7.9409-16.4001.119-.8108.0183-1.3211,0-1.9771-.0092-.4008.0824-.5556.5404-.6013,1.2639-.1458,2.4912-.4919,3.6178-1.1115,3.2698-1.7857,4.5886-4.7195,4.9-8.2364.0459-.5376-.0091-1.0935-.577-1.3757ZM27.119,35.123c-4.8909-3.8447-7.263-5.1113-8.2431-5.0566-.9159.0547-.751,1.1025-.5496,1.7859.2107.6741.4855,1.1389.8701,1.731.2656.3918.4489.9748-.2655,1.4123-1.5754.9749-4.314-.3281-4.4423-.3918-3.1872-1.877-5.8525-4.3553-7.7302-7.7444-1.8135-3.262-2.8667-6.7605-3.0408-10.4961-.0458-.9019.2198-1.221,1.1174-1.3848,1.1815-.2187,2.3997-.2644,3.5812-.0913,4.9918.729,9.2415,2.9612,12.8043,6.4963,2.0333,2.0135,3.572,4.419,5.1566,6.7696,1.6852,2.4963,3.4987,4.8745,5.8068,6.8242.8151.6833,1.4654,1.2026,2.0882,1.5854-1.8775.2095-5.01.2552-7.1532-1.4397ZM29.4637,20.0442c0-.4009.3206-.7197.7237-.7197.0916,0,.174.018.2473.0453.1008.0366.1924.0913.2656.1731.1283.1277.2015.3098.2015.5012,0,.4009-.3205.7197-.7234.7197s-.7145-.3188-.7145-.7197ZM36.7452,23.7798c-.4671.1914-.9342.3552-1.383.3735-.6961.0364-1.4563-.2461-1.8684-.5923-.6411-.5376-1.0991-.8381-1.2914-1.7766-.0825-.4009-.0367-1.0205.0367-1.3757.1648-.7654-.0184-1.2573-.5587-1.7039-.4397-.3645-.9984-.4646-1.6121-.4646-.229,0-.4395-.1003-.5953-.1823-.2565-.1275-.467-.4464-.2656-.8382.0641-.1274.3756-.4373.4489-.4919.8335-.4739,1.7952-.3189,2.6836.0364.8244.3371,1.4472.9567,2.3447,1.8313.9159,1.0568,1.0807,1.3486,1.6028,2.1411.4123.6196.7878,1.2573,1.0442,1.9863.1557.4556-.0458.8291-.5862,1.0569Z'
 
 // 支持 disableAutoProtection 的平台白名单
 const autoProtectionPlatforms = [
@@ -4118,7 +4327,8 @@ const autoProtectionPlatforms = [
   'gemini',
   'gemini-api',
   'openai',
-  'openai-responses'
+  'openai-responses',
+  'deepseek'
 ]
 
 // OAuthFlow 组件引用
@@ -4175,6 +4385,8 @@ const determinePlatformGroup = (platform) => {
     return 'gemini'
   } else if (platform === 'droid') {
     return 'droid'
+  } else if (platform === 'deepseek') {
+    return 'deepseek'
   }
   return ''
 }
@@ -4327,6 +4539,7 @@ const form = ref({
   platform: props.account?.platform || 'claude',
   addType: (() => {
     const platform = props.account?.platform || 'claude'
+    if (platform === 'deepseek') return 'apikey'
     if (platform === 'gemini' || platform === 'gemini-antigravity' || platform === 'openai')
       return 'oauth'
     if (platform === 'claude') return 'oauth'
@@ -4361,7 +4574,9 @@ const form = ref({
   priority: props.account?.priority || 50,
   endpointType: props.account?.endpointType || 'anthropic',
   // OpenAI-Responses 特定字段
-  baseApi: props.account?.baseApi || '',
+  baseApi:
+    props.account?.baseApi ||
+    (props.account?.platform === 'deepseek' ? DEEPSEEK_DEFAULT_BASE_API : ''),
   providerEndpoint: props.account?.providerEndpoint || 'responses',
   // Gemini-API 特定字段
   baseUrl: props.account?.baseUrl || 'https://generativelanguage.googleapis.com',
@@ -4697,6 +4912,9 @@ const selectPlatformGroup = (group) => {
     form.value.platform = 'gemini' // Default to Gemini CLI, user can select Antigravity
   } else if (group === 'droid') {
     form.value.platform = 'droid'
+  } else if (group === 'deepseek') {
+    form.value.platform = 'deepseek'
+    form.value.addType = 'apikey'
   }
 }
 
@@ -5245,6 +5463,7 @@ const createAccount = async () => {
   errors.value.apiUrl = ''
   errors.value.apiKey = ''
   errors.value.apiKeys = ''
+  errors.value.baseApi = ''
 
   let hasError = false
 
@@ -5279,6 +5498,15 @@ const createAccount = async () => {
 
   // OpenAI-Responses 验证
   if (form.value.platform === 'openai-responses') {
+    if (!form.value.baseApi || form.value.baseApi.trim() === '') {
+      errors.value.baseApi = '请填写 API 基础地址'
+      hasError = true
+    }
+    if (!form.value.apiKey || form.value.apiKey.trim() === '') {
+      errors.value.apiKey = '请填写 API 密钥'
+      hasError = true
+    }
+  } else if (form.value.platform === 'deepseek') {
     if (!form.value.baseApi || form.value.baseApi.trim() === '') {
       errors.value.baseApi = '请填写 API 基础地址'
       hasError = true
@@ -5406,6 +5634,12 @@ const createAccount = async () => {
   loading.value = true
   try {
     const proxyPayload = buildProxyPayload(form.value.proxy)
+    errors.value.baseApi = ''
+    if (form.value.platform === 'deepseek' && !form.value.baseApi?.trim()) {
+      errors.value.baseApi = '请填写 API 基础地址'
+      loading.value = false
+      return
+    }
 
     const data = {
       name: form.value.name,
@@ -5549,6 +5783,13 @@ const createAccount = async () => {
       data.rateLimitDuration = 60 // 默认值60，不从用户输入获取
       data.dailyQuota = form.value.dailyQuota || 0
       data.quotaResetTime = form.value.quotaResetTime || '00:00'
+    } else if (form.value.platform === 'deepseek') {
+      data.baseApi = form.value.baseApi || DEEPSEEK_DEFAULT_BASE_API
+      data.apiKey = form.value.apiKey
+      data.priority = form.value.priority || 50
+      data.rateLimitDuration = form.value.rateLimitDuration || 60
+      data.dailyQuota = form.value.dailyQuota || 0
+      data.quotaResetTime = form.value.quotaResetTime || '00:00'
     } else if (form.value.platform === 'gemini-antigravity') {
       // Antigravity OAuth - set oauthProvider, submission happens below
       data.oauthProvider = 'antigravity'
@@ -5612,6 +5853,8 @@ const createAccount = async () => {
       result = await accountsStore.createDroidAccount(data)
     } else if (form.value.platform === 'openai-responses') {
       result = await accountsStore.createOpenAIResponsesAccount(data)
+    } else if (form.value.platform === 'deepseek') {
+      result = await accountsStore.createDeepSeekAccount(data)
     } else if (form.value.platform === 'bedrock') {
       result = await accountsStore.createBedrockAccount(data)
     } else if (form.value.platform === 'openai') {
@@ -5909,6 +6152,17 @@ const updateAccount = async () => {
       data.quotaResetTime = form.value.quotaResetTime || '00:00'
     }
 
+    if (props.account.platform === 'deepseek') {
+      data.baseApi = form.value.baseApi || DEEPSEEK_DEFAULT_BASE_API
+      if (form.value.apiKey && form.value.apiKey.trim()) {
+        data.apiKey = form.value.apiKey
+      }
+      data.priority = form.value.priority || 50
+      data.rateLimitDuration = form.value.rateLimitDuration || 60
+      data.dailyQuota = form.value.dailyQuota || 0
+      data.quotaResetTime = form.value.quotaResetTime || '00:00'
+    }
+
     // Bedrock 特定更新
     if (props.account.platform === 'bedrock') {
       // 更新凭证类型
@@ -5988,6 +6242,8 @@ const updateAccount = async () => {
       await accountsStore.updateClaudeConsoleAccount(props.account.id, data)
     } else if (props.account.platform === 'openai-responses') {
       await accountsStore.updateOpenAIResponsesAccount(props.account.id, data)
+    } else if (props.account.platform === 'deepseek') {
+      await accountsStore.updateDeepSeekAccount(props.account.id, data)
     } else if (props.account.platform === 'bedrock') {
       await accountsStore.updateBedrockAccount(props.account.id, data)
     } else if (props.account.platform === 'openai') {
@@ -6191,7 +6447,9 @@ watch(
       newPlatform === 'bedrock' ||
       newPlatform === 'openai-responses'
     ) {
-      form.value.addType = 'manual' // Claude Console、CCR、Bedrock 和 OpenAI-Responses 只支持手动模式
+      form.value.addType = 'manual' // Claude Console、CCR、Bedrock、OpenAI-Responses 只支持手动模式
+    } else if (newPlatform === 'deepseek') {
+      form.value.addType = 'apikey'
     } else if (newPlatform === 'claude') {
       // 切换到 Claude 时，使用 oauth 作为默认方式
       form.value.addType = 'oauth'
@@ -6204,6 +6462,10 @@ watch(
     } else if (newPlatform === 'gemini-api' || newPlatform === 'azure_openai') {
       // 切换到 Gemini API 或 Azure OpenAI 时，使用 apikey 模式（直接创建，不需要 OAuth 流程）
       form.value.addType = 'apikey'
+    }
+
+    if (newPlatform === 'deepseek' && !form.value.baseApi) {
+      form.value.baseApi = DEEPSEEK_DEFAULT_BASE_API
     }
 
     // 平台变化时，清空分组选择
@@ -6437,7 +6699,7 @@ watch(
           ? newAccount.authenticationMethod.trim().toLowerCase()
           : ''
       const derivedAddType =
-        normalizedAuthMethod === 'api_key'
+        newAccount.platform === 'deepseek' || normalizedAuthMethod === 'api_key'
           ? 'apikey'
           : normalizedAuthMethod === 'manual'
             ? 'manual'

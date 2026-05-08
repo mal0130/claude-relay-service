@@ -5,8 +5,8 @@ const userService = require('../services/userService')
 const logger = require('../utils/logger')
 const redis = require('../models/redis')
 // const { RateLimiterRedis } = require('rate-limiter-flexible') // 暂时未使用
-const ClientValidator = require('../validators/clientValidator')
-const ClaudeCodeValidator = require('../validators/clients/claudeCodeValidator')
+const _ClientValidator = require('../validators/clientValidator')
+const _ClaudeCodeValidator = require('../validators/clients/claudeCodeValidator')
 const claudeRelayConfigService = require('../services/claudeRelayConfigService')
 const { calculateWaitTimeStats } = require('../utils/statsHelper')
 const { isClaudeFamilyModel } = require('../utils/modelHelper')
@@ -117,14 +117,14 @@ async function getWindowRatedCostFallback(keyId, windowStartTime) {
  * @param {number} windowStartMs - 窗口开始时间戳（ms）
  * @param {number} windowDurationMs - 窗口时长（ms）
  * @param {number} ruleWindowMinutes - 窗口分钟数，用于判断 5小时/周
- * @param {string} subscriptionUrl - 购买链接
+ * @param {string} quotaSubscriptionUrl - 购买链接
  * @returns {string} 提示文案
  */
 function buildQuotaLimitMessage(
   windowStartMs,
   windowDurationMs,
   ruleWindowMinutes,
-  subscriptionUrl
+  quotaSubscriptionUrl
 ) {
   const resetTime = new Date(windowStartMs + windowDurationMs)
   const windowLabel =
@@ -135,7 +135,7 @@ function buildQuotaLimitMessage(
     hour: '2-digit',
     minute: '2-digit'
   })
-  return `您当前的套餐用量已达（${windowLabel}）使用上限，将于 ${resetTimeStr} 自动恢复。如需继续使用，可<a href="${subscriptionUrl}">点此购买资源包</a>立即补充额度，如已购买，可发送“继续”以继续使用。套餐恢复后，系统将优先消耗您的套餐额度。`
+  return `您当前的套餐用量已达（${windowLabel}）使用上限，将于 ${resetTimeStr} 自动恢复。如需继续使用，可<a href="${quotaSubscriptionUrl}">点此购买资源包</a>立即补充额度，如已购买，可发送“继续”以继续使用。套餐恢复后，系统将优先消耗您的套餐额度。`
 }
 
 /**
@@ -524,7 +524,7 @@ async function checkApiKeyLimits(keyData, req) {
  * @param {Object} res - Express 响应对象
  * @returns {Promise<Object>} { valid: boolean, keyData?: Object, error?: string, statusCode?: number }
  */
-async function validateApiKeyWithAllChecks(apiKey, req, res) {
+async function validateApiKeyWithAllChecks(apiKey, req, _res) {
   // 1. 基础验证
   const validation = await apiKeyService.validateApiKey(apiKey)
   if (!validation.valid) {
@@ -978,6 +978,13 @@ const authenticateApiKey = async (req, res, next) => {
                 openaiAccountId: keyData.openaiAccountId,
                 bedrockAccountId: keyData.bedrockAccountId,
                 droidAccountId: keyData.droidAccountId,
+                accountBindings: (() => {
+                  try {
+                    return keyData.accountBindings ? JSON.parse(keyData.accountBindings) : {}
+                  } catch {
+                    return {}
+                  }
+                })(),
                 permissions: keyData.permissions,
                 concurrencyLimit: keyData.concurrencyLimit,
                 rateLimitWindow: keyData.rateLimitWindow,
@@ -1791,6 +1798,7 @@ const authenticateApiKey = async (req, res, next) => {
       openaiAccountId: validation.keyData.openaiAccountId, // 添加 OpenAI 账号ID
       bedrockAccountId: validation.keyData.bedrockAccountId, // 添加 Bedrock 账号ID
       droidAccountId: validation.keyData.droidAccountId,
+      accountBindings: validation.keyData.accountBindings || {},
       permissions: validation.keyData.permissions,
       concurrencyLimit: validation.keyData.concurrencyLimit,
       rateLimitWindow: validation.keyData.rateLimitWindow,

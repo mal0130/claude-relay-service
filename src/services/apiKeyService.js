@@ -17,7 +17,8 @@ const ACCOUNT_TYPE_CONFIG = {
   'azure-openai': { prefix: 'azure_openai:account:' },
   gemini: { prefix: 'gemini_account:' },
   'gemini-api': { prefix: 'gemini_api_account:' },
-  droid: { prefix: 'droid:account:' }
+  droid: { prefix: 'droid:account:' },
+  deepseek: { prefix: 'deepseek:account:' }
 }
 
 const ACCOUNT_TYPE_PRIORITY = [
@@ -28,7 +29,8 @@ const ACCOUNT_TYPE_PRIORITY = [
   'claude-console',
   'gemini',
   'gemini-api',
-  'droid'
+  'droid',
+  'deepseek'
 ]
 
 const ACCOUNT_CATEGORY_MAP = {
@@ -39,7 +41,8 @@ const ACCOUNT_CATEGORY_MAP = {
   'azure-openai': 'openai',
   gemini: 'gemini',
   'gemini-api': 'gemini',
-  droid: 'droid'
+  droid: 'droid',
+  deepseek: 'deepseek'
 }
 
 /**
@@ -164,6 +167,27 @@ function parseOpenAIResponsesPayloadRules(rawRules) {
   return parsedRules.map((rule) => requestBodyRuleService.normalizeRule(rule)).filter(Boolean)
 }
 
+function parseAccountBindings(rawBindings) {
+  if (rawBindings === undefined || rawBindings === null || rawBindings === '') {
+    return {}
+  }
+
+  if (rawBindings && typeof rawBindings === 'object' && !Array.isArray(rawBindings)) {
+    return rawBindings
+  }
+
+  if (typeof rawBindings === 'string') {
+    try {
+      const parsed = JSON.parse(rawBindings)
+      return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {}
+    } catch {
+      return {}
+    }
+  }
+
+  return {}
+}
+
 class ApiKeyService {
   constructor() {
     this.prefix = config.security.apiKeyPrefix
@@ -220,6 +244,7 @@ class ApiKeyService {
       azureOpenaiAccountId = null,
       bedrockAccountId = null, // 添加 Bedrock 账号ID支持
       droidAccountId = null,
+      accountBindings = {},
       permissions = [], // 数组格式，空数组表示全部服务，如 ['claude', 'gemini']
       isActive = true,
       concurrencyLimit = 0,
@@ -283,6 +308,7 @@ class ApiKeyService {
       azureOpenaiAccountId: azureOpenaiAccountId || '',
       bedrockAccountId: bedrockAccountId || '', // 添加 Bedrock 账号ID
       droidAccountId: droidAccountId || '',
+      accountBindings: JSON.stringify(parseAccountBindings(accountBindings)),
       permissions: JSON.stringify(normalizePermissions(permissions)),
       enableModelRestriction: String(enableModelRestriction),
       restrictedModels: JSON.stringify(restrictedModels || []),
@@ -376,6 +402,7 @@ class ApiKeyService {
       azureOpenaiAccountId: keyData.azureOpenaiAccountId,
       bedrockAccountId: keyData.bedrockAccountId, // 添加 Bedrock 账号ID
       droidAccountId: keyData.droidAccountId,
+      accountBindings: parseAccountBindings(keyData.accountBindings),
       permissions: normalizePermissions(keyData.permissions),
       enableModelRestriction: keyData.enableModelRestriction === 'true',
       restrictedModels: JSON.parse(keyData.restrictedModels),
@@ -556,6 +583,7 @@ class ApiKeyService {
       const openaiResponsesPayloadRules = parseOpenAIResponsesPayloadRules(
         keyData.openaiResponsesPayloadRules
       )
+      const accountBindings = parseAccountBindings(keyData.accountBindings)
       const enableOpenAIResponsesCodexAdaptation = parseBooleanWithDefault(
         keyData.enableOpenAIResponsesCodexAdaptation,
         true
@@ -580,6 +608,7 @@ class ApiKeyService {
           azureOpenaiAccountId: keyData.azureOpenaiAccountId,
           bedrockAccountId: keyData.bedrockAccountId, // 添加 Bedrock 账号ID
           droidAccountId: keyData.droidAccountId,
+          accountBindings,
           permissions: normalizePermissions(keyData.permissions),
           tokenLimit: parseInt(keyData.tokenLimit),
           concurrencyLimit: parseInt(keyData.concurrencyLimit || 0),
@@ -715,6 +744,7 @@ class ApiKeyService {
       const openaiResponsesPayloadRules = parseOpenAIResponsesPayloadRules(
         keyData.openaiResponsesPayloadRules
       )
+      const accountBindings = parseAccountBindings(keyData.accountBindings)
       const enableOpenAIResponsesCodexAdaptation = parseBooleanWithDefault(
         keyData.enableOpenAIResponsesCodexAdaptation,
         true
@@ -745,6 +775,7 @@ class ApiKeyService {
           azureOpenaiAccountId: keyData.azureOpenaiAccountId,
           bedrockAccountId: keyData.bedrockAccountId,
           droidAccountId: keyData.droidAccountId,
+          accountBindings,
           permissions: normalizePermissions(keyData.permissions),
           tokenLimit: parseInt(keyData.tokenLimit),
           concurrencyLimit: parseInt(keyData.concurrencyLimit || 0),
@@ -1345,6 +1376,7 @@ class ApiKeyService {
         } else {
           key.openaiResponsesPayloadRules = []
         }
+        key.accountBindings = parseAccountBindings(key.accountBindings)
 
         // 生成掩码key后再清理敏感字段
         if (key.apiKey) {
@@ -1386,6 +1418,7 @@ class ApiKeyService {
           'geminiAccountId',
           'openaiAccountId',
           'droidAccountId',
+          'accountBindings',
           'isDeleted'
         )
       }
@@ -1403,7 +1436,8 @@ class ApiKeyService {
             geminiAccountId: fields[1] || null,
             openaiAccountId: fields[2] || null,
             droidAccountId: fields[3] || null,
-            isDeleted: fields[4] === 'true'
+            accountBindings: parseAccountBindings(fields[4]),
+            isDeleted: fields[5] === 'true'
           }
         })
         .filter((k) => k && !k.isDeleted)
@@ -1439,6 +1473,7 @@ class ApiKeyService {
         'azureOpenaiAccountId',
         'bedrockAccountId', // 添加 Bedrock 账号ID
         'droidAccountId',
+        'accountBindings',
         'permissions',
         'expiresAt',
         'activationDays', // 新增：激活后有效天数
@@ -1476,10 +1511,13 @@ class ApiKeyService {
             field === 'tags' ||
             field === 'serviceRates' ||
             field === 'rateLimits' ||
+            field === 'accountBindings' ||
             field === 'openaiResponsesPayloadRules'
           ) {
             // 特殊处理数组/对象字段
-            updatedData[field] = JSON.stringify(value || (field === 'serviceRates' ? {} : []))
+            updatedData[field] = JSON.stringify(
+              value || (field === 'serviceRates' || field === 'accountBindings' ? {} : [])
+            )
           } else if (field === 'permissions') {
             // 权限字段：规范化后JSON序列化，与createApiKey保持一致
             updatedData[field] = JSON.stringify(normalizePermissions(value))
@@ -2438,6 +2476,8 @@ class ApiKeyService {
         pushType('claude-console')
       } else if (lowerModel.includes('droid')) {
         pushType('droid')
+      } else if (lowerModel.includes('deepseek')) {
+        pushType('deepseek')
       }
     }
 
@@ -2633,6 +2673,7 @@ class ApiKeyService {
         droidAccountId: keyData.droidAccountId,
         azureOpenaiAccountId: keyData.azureOpenaiAccountId,
         ccrAccountId: keyData.ccrAccountId,
+        accountBindings: parseAccountBindings(keyData.accountBindings),
         enableOpenAIResponsesCodexAdaptation: parseBooleanWithDefault(
           keyData.enableOpenAIResponsesCodexAdaptation,
           true
@@ -2996,11 +3037,13 @@ class ApiKeyService {
         azure_openai: 'azureOpenaiAccountId',
         bedrock: 'bedrockAccountId',
         droid: 'droidAccountId',
+        deepseek: null,
         ccr: null // CCR 账号没有对应的 API Key 字段
       }
 
       const field = fieldMap[accountType]
-      if (!field) {
+      const usesAccountBindings = accountType === 'deepseek'
+      if (!field && !usesAccountBindings) {
         logger.info(`账号类型 ${accountType} 不需要解绑 API Key`)
         return 0
       }
@@ -3016,6 +3059,8 @@ class ApiKeyService {
       } else if (accountType === 'gemini-api') {
         // Gemini-API 特殊处理：查找 geminiAccountId 字段中带 api: 前缀的
         boundKeys = allKeys.filter((key) => key.geminiAccountId === `api:${accountId}`)
+      } else if (accountType === 'deepseek') {
+        boundKeys = allKeys.filter((key) => key.accountBindings?.deepseek?.accountId === accountId)
       } else {
         // 其他账号类型正常匹配
         boundKeys = allKeys.filter((key) => key[field] === accountId)
@@ -3030,6 +3075,12 @@ class ApiKeyService {
           updates.geminiAccountId = null
         } else if (accountType === 'claude-console') {
           updates.claudeConsoleAccountId = null
+        } else if (accountType === 'deepseek') {
+          const accountBindings = parseAccountBindings(key.accountBindings)
+          if (accountBindings.deepseek?.accountId === accountId) {
+            accountBindings.deepseek = { mode: 'shared', accountId: '' }
+          }
+          updates.accountBindings = accountBindings
         } else {
           updates[field] = null
         }

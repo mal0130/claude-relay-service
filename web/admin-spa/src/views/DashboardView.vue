@@ -133,6 +133,20 @@
                     dashboardData.accountsByPlatform['openai-responses'].total
                   }}</span>
                 </div>
+                <!-- DeepSeek账户 -->
+                <div
+                  v-if="
+                    dashboardData.accountsByPlatform.deepseek &&
+                    dashboardData.accountsByPlatform.deepseek.total > 0
+                  "
+                  class="inline-flex items-center gap-0.5"
+                  :title="`DeepSeek: ${dashboardData.accountsByPlatform.deepseek.total} 个 (正常: ${dashboardData.accountsByPlatform.deepseek.normal})`"
+                >
+                  <i class="fas fa-bolt text-xs text-emerald-600" />
+                  <span class="text-xs font-medium text-gray-700 dark:text-gray-300">{{
+                    dashboardData.accountsByPlatform.deepseek.total
+                  }}</span>
+                </div>
               </div>
             </div>
             <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
@@ -1246,7 +1260,8 @@ const accountGroupOptions = [
   { value: 'claude', label: 'Claude' },
   { value: 'openai', label: 'OpenAI' },
   { value: 'gemini', label: 'Gemini' },
-  { value: 'droid', label: 'Droid' }
+  { value: 'droid', label: 'Droid' },
+  { value: 'deepseek', label: 'DeepSeek' }
 ]
 
 const accountTrendUpdating = ref(false)
@@ -1272,6 +1287,7 @@ const getBalancePlatformLabel = (platform) => {
     azure_openai: 'Azure OpenAI',
     bedrock: 'Bedrock',
     droid: 'Droid',
+    deepseek: 'DeepSeek',
     ccr: 'CCR'
   }
   return map[platform] || platform

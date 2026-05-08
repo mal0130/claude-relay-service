@@ -7,7 +7,12 @@ const DEFAULT_MAX_TOTAL_CHARS = 12000
 const ENCRYPTED_CONTENT_KEY = 'encrypted_content'
 const TOOLS_KEY = 'tools'
 const PREVIEW_TRUNCATION_SUFFIX_PATTERN = /\.\.\.\[(?:truncated )?(\d+) chars\]$/
-const OPENAI_RELATED_ACCOUNT_TYPES = new Set(['openai', 'openai-responses', 'azure-openai'])
+const OPENAI_RELATED_ACCOUNT_TYPES = new Set([
+  'openai',
+  'openai-responses',
+  'azure-openai',
+  'deepseek'
+])
 
 function toFiniteNumber(value) {
   if (value === undefined || value === null || value === '') {
