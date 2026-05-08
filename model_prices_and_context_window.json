@@ -12,7 +12,7 @@
     "source_zh": "https://api-docs.deepseek.com/zh-cn/quick_start/pricing",
     "pricing_currency": "USD",
     "pricing_source": "deepseek_official_docs",
-    "pricing_updated_at": "2026-05-08T09:58:23.230Z",
+    "pricing_updated_at": "2026-05-08T11:39:54.456Z",
     "supported_endpoints": [
       "/v1/chat/completions"
     ],
@@ -40,7 +40,7 @@
     "source_zh": "https://api-docs.deepseek.com/zh-cn/quick_start/pricing",
     "pricing_currency": "USD",
     "pricing_source": "deepseek_official_docs",
-    "pricing_updated_at": "2026-05-08T09:58:23.230Z",
+    "pricing_updated_at": "2026-05-08T11:39:54.456Z",
     "supported_endpoints": [
       "/v1/chat/completions"
     ],
