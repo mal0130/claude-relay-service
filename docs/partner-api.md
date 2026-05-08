@@ -32,7 +32,7 @@
 - **接口地址**: `POST /partner/api-key/update-config`
 - **认证方式**: SHA256 签名验证
 - **Content-Type**: `application/json`
-- **功能说明**: 批量更新 API Key 的配置信息，包括 Claude/OpenAI 服务倍率及绑定账户
+- **功能说明**: 批量更新 API Key 的配置信息，包括 Claude/OpenAI/DeepSeek 服务倍率及绑定账户
 
 
 ### 5. 更新 API Key
@@ -101,8 +101,10 @@ SHA256: abc123...
   "totalCostLimit": 100.0,
   "claude_account_id": "group:381cb540-f33e-49d1-8fda-80348f8c456f",
   "openai_account_id": "responses:openai-responses-account-uuid",
+  "deepseek_account_id": "group:deepseek-group-uuid",
   "claude_rate": 2.1,
   "openai_rate": 1.8,
+  "deepseek_rate": 1.2,
   "rateLimits": [
     { "window": 300, "cost": 500 },
     { "window": 3000, "cost": 5000 }
@@ -121,8 +123,10 @@ SHA256: abc123...
 | totalCostLimit    | number | 否   | 总费用限制（美元）                                                                                |
 | claude_account_id | string | 否   | 绑定的 Claude 账户 ID；普通 ID 写入 `claudeConsoleAccountId`，`group:` 格式写入 `claudeAccountId` |
 | openai_account_id | string | 否   | 绑定的 OpenAI 账户 ID；支持普通 ID、`group:...`、`responses:...`，内部映射到 `openaiAccountId`    |
+| deepseek_account_id | string | 否 | 绑定的 DeepSeek 账户 ID；支持普通 ID、`group:...`，内部映射到 `accountBindings.deepseek.accountId` |
 | claude_rate       | number | 否   | Claude 服务倍率，内部映射到 `serviceRates.claude`                                                 |
 | openai_rate       | number | 否   | OpenAI/Codex 服务倍率，内部映射到 `serviceRates.codex`                                            |
+| deepseek_rate     | number | 否   | DeepSeek 服务倍率，内部映射到 `serviceRates.deepseek`                                             |
 | rate              | number | 否   | 兼容旧参数，等同于 `claude_rate`；若同时提供则 `claude_rate` 优先                                 |
 | rateLimits        | array  | 否   | 多窗口速率限制配置；每项至少包含 `window`，并提供 `requests` 或 `cost` 之一                       |
 | expirationMode    | string | 否   | 过期模式，支持 `fixed`（固定时间）或 `activation`（首次使用后激活）                               |
@@ -152,9 +156,11 @@ SHA256: abc123...
 
 - `claude_account_id` 示例使用了 `group:` 分组绑定格式；如果传普通账户 ID，则会写入 `claudeConsoleAccountId`
 - `openai_account_id` 示例使用了 `responses:` 前缀；实际也支持普通账户 ID 和 `group:...` 前缀
+- `deepseek_account_id` 示例使用了 `group:` 分组绑定格式；普通账户 ID 和分组都会写入 `accountBindings.deepseek.accountId`
 - 可参考的典型格式：
   - `claude_account_id`: `claude-console-account-uuid` / `group:group-uuid`
   - `openai_account_id`: `openai-account-uuid` / `group:group-uuid` / `responses:openai-responses-account-uuid`
+  - `deepseek_account_id`: `deepseek-account-uuid` / `group:deepseek-group-uuid`
 
 #### 响应格式
 
@@ -200,8 +206,9 @@ SHA256: abc123...
 - `claude_account_id` 为普通 ID 时写入 `claudeConsoleAccountId`；为 `group:` 格式时写入 `claudeAccountId`
 - `claudeAccountId` 与 `claudeConsoleAccountId` 只会有一个字段有值
 - 传入 `openai_account_id` 时，会额外写入 `openaiAccountId`
-- 默认权限包含 `claude`；传入 `openai_account_id` 时，`permissions` 会额外包含 `openai`
-- 传入 `claude_rate` / `openai_rate` 时，会分别写入 `serviceRates.claude` / `serviceRates.codex`
+- 传入 `deepseek_account_id` 时，会写入 `accountBindings.deepseek = { mode: 'shared', accountId }`
+- 默认权限包含 `claude`；传入 `openai_account_id` / `deepseek_account_id` 时，`permissions` 会额外包含 `openai` / `deepseek`
+- 传入 `claude_rate` / `openai_rate` / `deepseek_rate` 时，会分别写入 `serviceRates.claude` / `serviceRates.codex` / `serviceRates.deepseek`
 - 旧 `rate` 参数仍兼容，但建议迁移到 `claude_rate`
 - 所有新增参数在传入时也必须参与签名计算
 - API Key 创建后自动激活
@@ -482,7 +489,8 @@ SHA256: abc123...
     {
       "key_id": "xxx-xxx-xxx",
       "claude_rate": 2.1,
-      "openai_rate": 1.8
+      "openai_rate": 1.8,
+      "deepseek_rate": 1.2
     },
     {
       "key_id": "yyy-yyy-yyy",
@@ -495,6 +503,7 @@ SHA256: abc123...
   ],
   "claude_account_id": "group:381cb540-f33e-49d1-8fda-80348f8c456f",
   "openai_account_id": "responses:openai-responses-account-uuid",
+  "deepseek_account_id": "deepseek-account-uuid",
   "sign": "ABC123..."
 }
 ```
@@ -505,26 +514,30 @@ SHA256: abc123...
 | configs[].key_id      | string | 是   | API Key ID                                                                                              |
 | configs[].claude_rate | number | 否   | Claude 服务倍率，内部映射到 `serviceRates.claude`                                                       |
 | configs[].openai_rate | number | 否   | OpenAI/Codex 服务倍率，内部映射到 `serviceRates.codex`                                                  |
+| configs[].deepseek_rate | number | 否 | DeepSeek 服务倍率，内部映射到 `serviceRates.deepseek`                                                   |
 | configs[].rate        | number | 否   | 兼容旧参数，等同于 `configs[].claude_rate`；若同时提供则 `configs[].claude_rate` 优先                   |
 | claude_account_id     | string | 否   | 所有 key 共用的 Claude 绑定；普通 ID 写入 `claudeConsoleAccountId`，`group:` 格式写入 `claudeAccountId` |
 | openai_account_id     | string | 否   | 所有 key 共用的 OpenAI 绑定；支持普通 ID、`group:...`、`responses:...`，写入 `openaiAccountId`          |
+| deepseek_account_id   | string | 否   | 所有 key 共用的 DeepSeek 绑定；支持普通 ID、`group:...`，写入 `accountBindings.deepseek.accountId`      |
 | sign                  | string | 是   | SHA256 签名（大写十六进制）                                                                             |
 
 **参数验证规则**
 
 1. `configs`: 必填，必须是数组，长度 1-100
 2. `configs[].key_id`: 必填，必须是有效的 API Key ID
-3. `configs[].claude_rate` / `configs[].openai_rate`: 可选，提供时必须是正数，且最多 1 位小数
+3. `configs[].claude_rate` / `configs[].openai_rate` / `configs[].deepseek_rate`: 可选，提供时必须是正数，且最多 1 位小数
 4. `configs[].rate`: 兼容旧参数，语义等同于 `configs[].claude_rate`
 5. `claude_account_id`: 可选，普通 ID 会校验 Claude Console 账户；`group:` 格式会校验 Claude 分组
 6. `openai_account_id`: 可选，支持普通 ID、`group:...`、`responses:...`，会按对应类型校验
+7. `deepseek_account_id`: 可选，支持普通 ID、`group:...`，会按 DeepSeek 账户或 DeepSeek 分组校验
 
 示例说明：
 
 - `claude_account_id` 示例使用了 `group:` 分组绑定格式；如果传普通账户 ID，则会写入 `claudeConsoleAccountId`
 - `openai_account_id` 示例使用了 `responses:` 前缀；实际也支持普通账户 ID 和 `group:...` 前缀
-- 每个 `configs[]` 元素可独立设置 `claude_rate` / `openai_rate`
-- 如果提供 `claude_account_id` 或 `openai_account_id`，会批量更新所有目标 API Key 的绑定字段
+- `deepseek_account_id` 支持普通 DeepSeek 账户 ID 或 `group:` 分组 ID，均写入 `accountBindings.deepseek.accountId`
+- 每个 `configs[]` 元素可独立设置 `claude_rate` / `openai_rate` / `deepseek_rate`
+- 如果提供 `claude_account_id`、`openai_account_id` 或 `deepseek_account_id`，会批量更新所有目标 API Key 的绑定字段
 - `claudeAccountId` 与 `claudeConsoleAccountId` 只会有一个字段有值
 - 所有新增参数在传入时也必须参与签名计算
 
@@ -534,6 +547,7 @@ SHA256: abc123...
 - 未提供某个服务的费率时，不会覆盖该服务现有的 `serviceRates` 配置
 - 更新 OpenAI 绑定时，会确保权限中包含 `openai`
 - 更新 Claude 绑定时，会确保权限中包含 `claude`
+- 更新 DeepSeek 绑定时，会确保权限中包含 `deepseek`
 
 **响应格式**
 
@@ -614,11 +628,14 @@ SHA256: abc123...
 5. **验证绑定账户**:
    - `claude_account_id` 为普通 ID 时验证 Claude Console 账户；为 `group:` 时验证 Claude 分组
    - `openai_account_id` 按普通 ID / `group:` / `responses:` 前缀分别验证
+   - `deepseek_account_id` 按普通 ID / `group:` 前缀分别验证 DeepSeek 账户或分组
 6. **更新配置**:
    - `configs[].claude_rate`（或兼容旧 `configs[].rate`）更新 `serviceRates.claude`
    - `configs[].openai_rate` 更新 `serviceRates.codex`
+   - `configs[].deepseek_rate` 更新 `serviceRates.deepseek`
    - 如果提供 `claude_account_id`，按普通账户或分组格式更新 `claudeConsoleAccountId` / `claudeAccountId`
    - 如果提供 `openai_account_id`，更新 `openaiAccountId`
+   - 如果提供 `deepseek_account_id`，更新 `accountBindings.deepseek.accountId`
    - 如果更新了绑定字段，会确保 `permissions` 中包含对应服务
 7. **返回结果**: 返回处理总数、成功数、失败数和失败详情（包含 `key_id` 和失败原因）
 
@@ -651,8 +668,10 @@ SHA256: abc123...
   "totalCostLimit": 200.0,
   "claude_account_id": "group:381cb540-f33e-49d1-8fda-80348f8c456f",
   "openai_account_id": "responses:openai-responses-account-uuid",
+  "deepseek_account_id": "group:deepseek-group-uuid",
   "claude_rate": 2.5,
   "openai_rate": 2.0,
+  "deepseek_rate": 1.3,
   "rateLimits": [
     { "window": 300, "cost": 600 },
     { "window": 3000, "cost": 6000 }
@@ -669,8 +688,10 @@ SHA256: abc123...
 | totalCostLimit    | number | 否   | 总费用限制（美元）                                                                                |
 | claude_account_id | string | 否   | 绑定的 Claude 账户 ID；普通 ID 写入 `claudeConsoleAccountId`，`group:` 格式写入 `claudeAccountId` |
 | openai_account_id | string | 否   | 绑定的 OpenAI 账户 ID；支持普通 ID、`group:...`、`responses:...`，内部映射到 `openaiAccountId`    |
+| deepseek_account_id | string | 否 | 绑定的 DeepSeek 账户 ID；支持普通 ID、`group:...`，内部映射到 `accountBindings.deepseek.accountId` |
 | claude_rate       | number | 否   | Claude 服务倍率，内部映射到 `serviceRates.claude`                                                 |
 | openai_rate       | number | 否   | OpenAI/Codex 服务倍率，内部映射到 `serviceRates.codex`                                            |
+| deepseek_rate     | number | 否   | DeepSeek 服务倍率，内部映射到 `serviceRates.deepseek`                                             |
 | rate              | number | 否   | 兼容旧参数，等同于 `claude_rate`；若同时提供则 `claude_rate` 优先                                 |
 | rateLimits        | array  | 否   | 多窗口速率限制配置；每项至少包含 `window`，并提供 `requests` 或 `cost` 之一                       |
 | expirationMode    | string | 否   | 过期模式，支持 `fixed`（固定时间）或 `activation`（首次使用后激活）                               |
@@ -708,7 +729,7 @@ SHA256: abc123...
 
 - 所有参数均为可选，仅更新提供的字段
 - 参数验证规则与创建接口一致
-- 更新账户绑定时会自动更新权限列表
+- 更新账户绑定时会自动更新权限列表；DeepSeek 绑定写入 `accountBindings.deepseek.accountId`
 
 ---
 

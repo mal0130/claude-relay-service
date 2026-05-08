@@ -10,7 +10,8 @@
  * 1. 确保服务已启动：npm start
  * 2. 配置环境变量：export PARTNER_API_SECRET=test-secret-key-12345
  * 3. 添加 FoxCode 账户（如果还没有）
- * 4. 运行测试：node tests/partnerApi.simple.test.js
+ * 4. 可选：配置 PARTNER_TEST_DEEPSEEK_ACCOUNT_ID 测试 DeepSeek 账号绑定
+ * 5. 运行测试：node tests/partnerApi.simple.test.js
  */
 
 const crypto = require('crypto')
@@ -19,6 +20,8 @@ const axios = require('axios')
 // ==================== 配置 ====================
 const API_BASE_URL = process.env.API_BASE_URL || 'http://localhost:3000'
 const SECRET_KEY = process.env.PARTNER_API_SECRET || 'test-secret-key-12345'
+const DEEPSEEK_ACCOUNT_ID =
+  process.env.PARTNER_TEST_DEEPSEEK_ACCOUNT_ID || process.env.DEEPSEEK_ACCOUNT_ID || ''
 
 // 测试统计
 let totalTests = 0
@@ -85,6 +88,10 @@ async function test(name, fn) {
   try {
     await fn()
   } catch (error) {
+    if (!error.message?.startsWith('Assertion failed:')) {
+      totalTests++
+      failedTests++
+    }
     console.error(`  Error: ${error.message}`)
   }
 }
@@ -103,8 +110,14 @@ async function testCreateApiKey() {
     const params = {
       name: `TestApp_${Date.now()}`,
       totalCostLimit: 100.0,
-      claude_rate: 2.1
+      claude_rate: 2.1,
+      deepseek_rate: 1.2
     }
+
+    if (DEEPSEEK_ACCOUNT_ID) {
+      params.deepseek_account_id = DEEPSEEK_ACCOUNT_ID
+    }
+
     const signature = generateSignature(params)
 
     try {
@@ -128,6 +141,11 @@ async function testCreateApiKey() {
       createdApiKey = response.data.data.apiKey
 
       console.log(`  创建的 API Key: ${createdApiKey}`)
+      if (DEEPSEEK_ACCOUNT_ID) {
+        console.log(`  已绑定 DeepSeek 账户: ${DEEPSEEK_ACCOUNT_ID}`)
+      } else {
+        console.log(`  未配置 PARTNER_TEST_DEEPSEEK_ACCOUNT_ID，跳过 DeepSeek 绑定创建`)
+      }
     } catch (error) {
       if (error.response?.data?.code === 1002) {
         console.log(`  ⚠️  跳过：缺少 FoxCode 账户（${error.response.data.msg}）`)
@@ -135,6 +153,32 @@ async function testCreateApiKey() {
         return
       }
       throw error
+    }
+  })
+}
+
+/**
+ * 测试 1.5: 创建 API Key - DeepSeek 倍率格式错误
+ */
+async function testCreateApiKeyInvalidDeepSeekRate() {
+  await test('测试 1.5: 创建 API Key - DeepSeek 倍率格式错误', async () => {
+    const params = {
+      name: `TestApp_InvalidDeepSeekRate_${Date.now()}`,
+      deepseek_rate: 1.23
+    }
+    const signature = generateSignature(params)
+
+    try {
+      await axios.post(
+        `${API_BASE_URL}/partner/api-key/create`,
+        { ...params, sign: signature },
+        { headers: { 'Content-Type': 'application/json' } }
+      )
+      assert(false, '应该抛出错误')
+    } catch (error) {
+      assert(error.response.status === 400, 'HTTP 状态码应为 400')
+      assert(error.response.data.code === 1001, '错误码应为 1001')
+      assert(error.response.data.msg.includes('deepseek_rate'), '错误信息应包含 deepseek_rate')
     }
   })
 }
@@ -410,6 +454,126 @@ async function testQueryUsageDetailsMissingParam() {
   })
 }
 
+/**
+ * 测试 7.5: 更新 API Key - DeepSeek 倍率与账号绑定
+ */
+async function testUpdateApiKeyDeepSeekConfig() {
+  await test('测试 7.5: 更新 API Key - DeepSeek 倍率与账号绑定', async () => {
+    if (!createdApiKeyId) {
+      console.log('  跳过：需要先创建 API Key')
+      return
+    }
+
+    const params = {
+      deepseek_rate: 1.3
+    }
+
+    if (DEEPSEEK_ACCOUNT_ID) {
+      params.deepseek_account_id = DEEPSEEK_ACCOUNT_ID
+    }
+
+    const signature = generateSignature(params)
+
+    const response = await axios.post(
+      `${API_BASE_URL}/partner/api-key/${createdApiKeyId}/update`,
+      { ...params, sign: signature },
+      { headers: { 'Content-Type': 'application/json' } }
+    )
+
+    assert(response.status === 200, 'HTTP 状态码应为 200')
+    assert(response.data.code === 0, '响应 code 应为 0')
+    assert(response.data.msg === 'success', '响应 msg 应为 success')
+    assert(response.data.data.keyId === createdApiKeyId, 'keyId 应匹配')
+
+    console.log(`  DeepSeek 倍率更新为: ${params.deepseek_rate}`)
+    if (DEEPSEEK_ACCOUNT_ID) {
+      console.log(`  DeepSeek 绑定更新为: ${DEEPSEEK_ACCOUNT_ID}`)
+    } else {
+      console.log(`  未配置 PARTNER_TEST_DEEPSEEK_ACCOUNT_ID，仅测试 DeepSeek 倍率更新`)
+    }
+  })
+}
+
+/**
+ * 测试 7.6: 更新 API Key - DeepSeek 账号不存在
+ */
+async function testUpdateApiKeyInvalidDeepSeekAccount() {
+  await test('测试 7.6: 更新 API Key - DeepSeek 账号不存在', async () => {
+    if (!createdApiKeyId) {
+      console.log('  跳过：需要先创建 API Key')
+      return
+    }
+
+    const params = {
+      deepseek_account_id: 'non-existent-deepseek-account-id'
+    }
+    const signature = generateSignature(params)
+
+    try {
+      await axios.post(
+        `${API_BASE_URL}/partner/api-key/${createdApiKeyId}/update`,
+        { ...params, sign: signature },
+        { headers: { 'Content-Type': 'application/json' } }
+      )
+      assert(false, '应该抛出错误')
+    } catch (error) {
+      assert(error.response.status === 400, 'HTTP 状态码应为 400')
+      assert(error.response.data.code === 1001, '错误码应为 1001')
+      assert(
+        error.response.data.msg.includes('DeepSeek account'),
+        '错误信息应包含 DeepSeek account'
+      )
+    }
+  })
+}
+
+/**
+ * 测试 7.7: 批量更新 API Key 配置 - DeepSeek 倍率与账号绑定
+ */
+async function testBatchUpdateConfigDeepSeekConfig() {
+  await test('测试 7.7: 批量更新 API Key 配置 - DeepSeek 倍率与账号绑定', async () => {
+    if (!createdApiKeyId) {
+      console.log('  跳过：需要先创建 API Key')
+      return
+    }
+
+    const params = {
+      configs: [
+        {
+          key_id: createdApiKeyId,
+          deepseek_rate: 1.4
+        }
+      ]
+    }
+
+    if (DEEPSEEK_ACCOUNT_ID) {
+      params.deepseek_account_id = DEEPSEEK_ACCOUNT_ID
+    }
+
+    const signature = generateSignature(params)
+
+    const response = await axios.post(
+      `${API_BASE_URL}/partner/api-key/update-config`,
+      { ...params, sign: signature },
+      { headers: { 'Content-Type': 'application/json' } }
+    )
+
+    assert(response.status === 200, 'HTTP 状态码应为 200')
+    assert(response.data.code === 0, '响应 code 应为 0')
+    assert(response.data.msg === 'success', '响应 msg 应为 success')
+    assert(response.data.data.total === 1, '处理总数应为 1')
+    assert(response.data.data.success === 1, '成功数应为 1')
+    assert(response.data.data.failed === 0, '失败数应为 0')
+
+    console.log(`  批量更新 DeepSeek 倍率为: ${params.configs[0].deepseek_rate}`)
+    if (DEEPSEEK_ACCOUNT_ID) {
+      console.log(`  批量更新 DeepSeek 绑定为: ${DEEPSEEK_ACCOUNT_ID}`)
+    } else {
+      console.log(`  未配置 PARTNER_TEST_DEEPSEEK_ACCOUNT_ID，仅测试批量 DeepSeek 倍率更新`)
+    }
+  })
+}
+
 // ==================== 主函数 ====================
 
 async function main() {
@@ -418,11 +582,13 @@ async function main() {
   console.log('='.repeat(60))
   console.log(`API 地址: ${API_BASE_URL}`)
   console.log(`密钥: ${SECRET_KEY.substring(0, 10)}...`)
+  console.log(`DeepSeek 测试账户: ${DEEPSEEK_ACCOUNT_ID || '未配置，仅测试倍率和错误分支'}`)
   console.log('='.repeat(60))
 
   try {
     // 执行所有测试
     await testCreateApiKey()
+    await testCreateApiKeyInvalidDeepSeekRate()
     await testCreateApiKeyMissingName()
     await testCreateApiKeyInvalidSignature()
     await testQueryUsage()
@@ -432,9 +598,12 @@ async function main() {
     await testQueryUsageDetails()
     await testQueryUsageDetailsByKeyId()
     await testQueryUsageDetailsMissingParam()
+    await testUpdateApiKeyDeepSeekConfig()
+    await testUpdateApiKeyInvalidDeepSeekAccount()
+    await testBatchUpdateConfigDeepSeekConfig()
 
     // 输出测试结果
-    console.log('\n' + '='.repeat(60))
+    console.log(`\n${'='.repeat(60)}`)
     console.log('测试结果')
     console.log('='.repeat(60))
     console.log(`总测试数: ${totalTests}`)

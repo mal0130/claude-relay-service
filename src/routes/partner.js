@@ -6,6 +6,7 @@ const logger = require('../utils/logger')
 const apiKeyService = require('../services/apiKeyService')
 const accountGroupService = require('../services/accountGroupService')
 const openaiResponsesAccountService = require('../services/account/openaiResponsesAccountService')
+const deepseekAccountService = require('../services/account/deepseekAccountService')
 const config = require('../../config/config')
 
 // Helper: Find API Key by ID or Name
@@ -14,7 +15,7 @@ async function findApiKey(keyId, keyName) {
 
   if (keyId) {
     const targetKey = await redis.getApiKey(keyId)
-    if (!targetKey || targetKey.deleted) {
+    if (!targetKey || !targetKey.id || targetKey.deleted) {
       return null
     }
     return targetKey
@@ -242,6 +243,34 @@ async function validateOpenAIBinding(openaiAccountId) {
   return !!account
 }
 
+async function resolveDeepSeekBinding(deepseekAccountId) {
+  const normalizedAccountId = typeof deepseekAccountId === 'string' ? deepseekAccountId.trim() : ''
+
+  if (!normalizedAccountId) {
+    throw new Error('DeepSeek account ID is required')
+  }
+
+  if (normalizedAccountId.startsWith('group:')) {
+    const groupId = normalizedAccountId.substring('group:'.length)
+    const group = await accountGroupService.getGroup(groupId)
+
+    if (!group || group.platform !== 'deepseek') {
+      throw new Error('DeepSeek account group not found or invalid')
+    }
+  } else {
+    const account = await deepseekAccountService.getAccount(normalizedAccountId)
+
+    if (!account) {
+      throw new Error('DeepSeek account not found or inactive')
+    }
+  }
+
+  return {
+    mode: 'shared',
+    accountId: normalizedAccountId
+  }
+}
+
 function normalizePermissionList(permissions) {
   if (!permissions) {
     return []
@@ -295,7 +324,38 @@ function normalizeServiceRates(serviceRates) {
   return typeof serviceRates === 'object' && !Array.isArray(serviceRates) ? serviceRates : {}
 }
 
-function buildServiceRates(currentRates = {}, claudeRate, openaiRate) {
+function normalizeAccountBindings(accountBindings) {
+  if (!accountBindings) {
+    return {}
+  }
+
+  if (typeof accountBindings === 'object' && !Array.isArray(accountBindings)) {
+    return accountBindings
+  }
+
+  if (typeof accountBindings === 'string') {
+    try {
+      const parsed = JSON.parse(accountBindings)
+      return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {}
+    } catch {
+      return {}
+    }
+  }
+
+  return {}
+}
+
+function buildAccountBindings(currentBindings = {}, deepseekBinding = null) {
+  const accountBindings = { ...normalizeAccountBindings(currentBindings) }
+
+  if (deepseekBinding) {
+    accountBindings.deepseek = deepseekBinding
+  }
+
+  return accountBindings
+}
+
+function buildServiceRates(currentRates = {}, claudeRate, openaiRate, deepseekRate) {
   const serviceRates = { ...normalizeServiceRates(currentRates) }
 
   if (claudeRate !== undefined && claudeRate !== null && claudeRate !== '') {
@@ -304,6 +364,10 @@ function buildServiceRates(currentRates = {}, claudeRate, openaiRate) {
 
   if (openaiRate !== undefined && openaiRate !== null && openaiRate !== '') {
     serviceRates.codex = Number(openaiRate)
+  }
+
+  if (deepseekRate !== undefined && deepseekRate !== null && deepseekRate !== '') {
+    serviceRates.deepseek = Number(deepseekRate)
   }
 
   return serviceRates
@@ -748,8 +812,10 @@ router.post('/api-key/create', authenticatePartner, async (req, res) => {
       totalCostLimit,
       claude_account_id,
       openai_account_id,
+      deepseek_account_id,
       claude_rate,
       openai_rate,
+      deepseek_rate,
       rate,
       rateLimits,
       expiresAt,
@@ -857,6 +923,15 @@ router.post('/api-key/create', authenticatePartner, async (req, res) => {
       })
     }
 
+    const deepseekRateError = validateRate(deepseek_rate, 'deepseek_rate')
+    if (deepseekRateError) {
+      return res.status(400).json({
+        code: 1001,
+        msg: deepseekRateError,
+        data: null
+      })
+    }
+
     if (rateLimits !== undefined && rateLimits !== null && rateLimits !== '') {
       if (!Array.isArray(rateLimits)) {
         return res.status(400).json({
@@ -941,11 +1016,27 @@ router.post('/api-key/create', authenticatePartner, async (req, res) => {
       })
     }
 
-    const createServiceRates = buildServiceRates({}, resolvedClaudeRate, openai_rate)
+    let deepseekBinding = null
+    if (deepseek_account_id) {
+      try {
+        deepseekBinding = await resolveDeepSeekBinding(deepseek_account_id)
+      } catch (error) {
+        return res.status(400).json({
+          code: 1001,
+          msg: error.message,
+          data: null
+        })
+      }
+    }
+
+    const createServiceRates = buildServiceRates({}, resolvedClaudeRate, openai_rate, deepseek_rate)
 
     const permissions = ['claude']
     if (openai_account_id) {
       permissions.push('openai')
+    }
+    if (deepseek_account_id) {
+      permissions.push('deepseek')
     }
 
     // 准备创建参数
@@ -961,6 +1052,10 @@ router.post('/api-key/create', authenticatePartner, async (req, res) => {
 
     if (openai_account_id) {
       createParams.openaiAccountId = openai_account_id
+    }
+
+    if (deepseekBinding) {
+      createParams.accountBindings = buildAccountBindings({}, deepseekBinding)
     }
 
     if (Object.keys(createServiceRates).length > 0) {
@@ -1025,8 +1120,10 @@ router.post('/api-key/:keyId/update', authenticatePartner, async (req, res) => {
       totalCostLimit,
       claude_account_id,
       openai_account_id,
+      deepseek_account_id,
       claude_rate,
       openai_rate,
+      deepseek_rate,
       rate,
       rateLimits,
       expiresAt,
@@ -1143,6 +1240,15 @@ router.post('/api-key/:keyId/update', authenticatePartner, async (req, res) => {
       })
     }
 
+    const deepseekRateError = validateRate(deepseek_rate, 'deepseek_rate')
+    if (deepseekRateError) {
+      return res.status(400).json({
+        code: 1001,
+        msg: deepseekRateError,
+        data: null
+      })
+    }
+
     if (rateLimits !== undefined && rateLimits !== null && rateLimits !== '') {
       if (!Array.isArray(rateLimits)) {
         return res.status(400).json({
@@ -1231,22 +1337,47 @@ router.post('/api-key/:keyId/update', authenticatePartner, async (req, res) => {
       updates.openaiAccountId = openai_account_id
     }
 
-    if (resolvedClaudeRate !== undefined || openai_rate !== undefined) {
+    let deepseekBinding = null
+    if (deepseek_account_id) {
+      try {
+        deepseekBinding = await resolveDeepSeekBinding(deepseek_account_id)
+        updates.accountBindings = buildAccountBindings(
+          keyData.accountBindings || {},
+          deepseekBinding
+        )
+      } catch (error) {
+        return res.status(400).json({
+          code: 1001,
+          msg: error.message,
+          data: null
+        })
+      }
+    }
+
+    if (
+      resolvedClaudeRate !== undefined ||
+      openai_rate !== undefined ||
+      deepseek_rate !== undefined
+    ) {
       const serviceRates = buildServiceRates(
         keyData.serviceRates || {},
         resolvedClaudeRate,
-        openai_rate
+        openai_rate,
+        deepseek_rate
       )
       if (Object.keys(serviceRates).length > 0) {
         updates.serviceRates = serviceRates
       }
     }
 
-    if (claude_account_id || openai_account_id) {
+    if (claude_account_id || openai_account_id || deepseek_account_id) {
       const permissions = new Set(normalizePermissionList(keyData.permissions))
       permissions.add('claude')
       if (openai_account_id) {
         permissions.add('openai')
+      }
+      if (deepseek_account_id) {
+        permissions.add('deepseek')
       }
       updates.permissions = Array.from(permissions)
     }
@@ -1441,7 +1572,7 @@ router.post('/api-key/:keyId/expiration', authenticatePartner, async (req, res) 
 // 🔧 批量更新 API Key 配置
 router.post('/api-key/update-config', authenticatePartner, async (req, res) => {
   try {
-    const { configs, claude_account_id, openai_account_id } = req.body
+    const { configs, claude_account_id, openai_account_id, deepseek_account_id } = req.body
 
     // 参数验证
     if (!configs || !Array.isArray(configs)) {
@@ -1488,6 +1619,18 @@ router.post('/api-key/update-config', authenticatePartner, async (req, res) => {
           data: null
         })
       }
+
+      const deepseekRateError = validateRate(
+        keyConfig.deepseek_rate,
+        `configs[${index}].deepseek_rate`
+      )
+      if (deepseekRateError) {
+        return res.status(400).json({
+          code: 1001,
+          msg: deepseekRateError,
+          data: null
+        })
+      }
     }
 
     let claudeBindingUpdates = null
@@ -1509,6 +1652,19 @@ router.post('/api-key/update-config', authenticatePartner, async (req, res) => {
         msg: 'OpenAI account not found or inactive',
         data: null
       })
+    }
+
+    let deepseekBinding = null
+    if (deepseek_account_id) {
+      try {
+        deepseekBinding = await resolveDeepSeekBinding(deepseek_account_id)
+      } catch (error) {
+        return res.status(400).json({
+          code: 1001,
+          msg: error.message,
+          data: null
+        })
+      }
     }
 
     logger.info(`🔧 Partner updating API Key configs: count=${configs.length}`)
@@ -1536,7 +1692,8 @@ router.post('/api-key/update-config', authenticatePartner, async (req, res) => {
         const serviceRates = buildServiceRates(
           apiKey.serviceRates || {},
           resolvedClaudeRate,
-          keyConfig.openai_rate
+          keyConfig.openai_rate,
+          keyConfig.deepseek_rate
         )
 
         if (Object.keys(serviceRates).length > 0) {
@@ -1551,11 +1708,21 @@ router.post('/api-key/update-config', authenticatePartner, async (req, res) => {
           updates.openaiAccountId = openai_account_id
         }
 
-        if (claudeBindingUpdates || openai_account_id) {
+        if (deepseekBinding) {
+          updates.accountBindings = buildAccountBindings(
+            apiKey.accountBindings || {},
+            deepseekBinding
+          )
+        }
+
+        if (claudeBindingUpdates || openai_account_id || deepseekBinding) {
           const permissions = new Set(normalizePermissionList(apiKey.permissions))
           permissions.add('claude')
           if (openai_account_id) {
             permissions.add('openai')
+          }
+          if (deepseekBinding) {
+            permissions.add('deepseek')
           }
           updates.permissions = Array.from(permissions)
         }
@@ -1565,7 +1732,7 @@ router.post('/api-key/update-config', authenticatePartner, async (req, res) => {
 
         successCount++
         logger.info(
-          `✅ Updated API Key config: ${keyConfig.key_id}, claude_rate=${resolvedClaudeRate ?? '-'}, openai_rate=${keyConfig.openai_rate ?? '-'}${claude_account_id ? `, claude_account=${claude_account_id}` : ''}${openai_account_id ? `, openai_account=${openai_account_id}` : ''}`
+          `✅ Updated API Key config: ${keyConfig.key_id}, claude_rate=${resolvedClaudeRate ?? '-'}, openai_rate=${keyConfig.openai_rate ?? '-'}, deepseek_rate=${keyConfig.deepseek_rate ?? '-'}${claude_account_id ? `, claude_account=${claude_account_id}` : ''}${openai_account_id ? `, openai_account=${openai_account_id}` : ''}${deepseek_account_id ? `, deepseek_account=${deepseek_account_id}` : ''}`
         )
       } catch (error) {
         logger.error(`❌ Failed to update API Key ${keyConfig.key_id}:`, error)

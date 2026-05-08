@@ -238,12 +238,13 @@ accountBindings: {
 }
 ```
 
-第一版降低范围：
+第一版范围：
 
 - 只做 API Key 多平台权限。
-- DeepSeek 账号全部走 shared pool 和账号组调度。
-- 可以先设计 `accountBindings.deepseek` 字段，但后台不一定第一版开放绑定能力。
-- 暂不支持 API Key 绑定指定 DeepSeek 账号。
+- DeepSeek 默认走 shared pool 和账号组调度。
+- 支持通过 `accountBindings.deepseek.accountId` 绑定指定 DeepSeek 账号或 `group:` 分组。
+- 管理后台和 Partner API 都使用 `accountBindings.deepseek`，不新增 `deepseekAccountId` 顶层字段。
+- Partner API 创建/更新 Key 时，`deepseek_account_id` 写入 `accountBindings.deepseek.accountId`，`deepseek_rate` 写入 `serviceRates.deepseek`，并确保权限包含 `deepseek`。
 
 ## 调度设计
 
@@ -601,6 +602,7 @@ web/admin-spa/src/stores/accounts.js
 6. 接入 API Key `deepseek` 权限校验。
 7. 接入 DeepSeek usage mapper。
 8. 接入 `recordUsageWithDetails()` 和 rate limit cost 计数。
+9. Partner API 支持 `deepseek_account_id` 和 `deepseek_rate`。
 
 第二阶段：统计、价格和后台
 
@@ -629,10 +631,9 @@ web/admin-spa/src/stores/accounts.js
 - DeepSeek 通过独立 route `/deepseek/anthropic/v1/messages` 提供 Anthropic-compatible 服务。
 - 后台新增 DeepSeek 平台和 `DeepSeek API / 标准 API` 类型。
 - DeepSeek 账号字段尽量与现有平台账号字段对齐。
-- DeepSeek 账号先走 shared pool 调度。
+- DeepSeek 账号默认走 shared pool 调度，并支持按 API Key 绑定指定账号或分组。
 - 请求正常记录 token、真实成本、倍率成本和请求明细。
 - 暂不支持 Responses API 转 DeepSeek。
-- 暂不支持每个 API Key 绑定指定 DeepSeek 账号。
 - 暂不实现 GLM/Kimi，仅保留扩展位。
 
 ## 官方文档参考
