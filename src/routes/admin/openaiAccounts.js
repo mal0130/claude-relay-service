@@ -27,13 +27,13 @@ function isUsageStopDisabled(stopReason, flags) {
     return false
   }
 
-  if (stopReason.includes('5小时')) {
+  if (stopReason.includes('5小时') || stopReason.includes('5小时限额')) {
     return !flags.autoStopOnFiveHourLimit
   }
-  if (stopReason.includes('周限额使用量接近上限')) {
+  if (stopReason.includes('周限额使用量') || stopReason.includes('周限额')) {
     return !flags.autoStopOnWeeklyLimit
   }
-  if (stopReason.includes('当日均摊')) {
+  if (stopReason.includes('当日均摊') || stopReason.includes('日均摊')) {
     return !flags.autoStopOnDailyOveruse
   }
 
@@ -724,6 +724,20 @@ router.put('/:id', authenticateAdmin, async (req, res) => {
     }
 
     const updatedAccount = await openaiAccountService.updateAccount(id, updateData)
+
+    // 如果保存时已启用使用量保护，立即按现有 Codex 用量快照检查一次。
+    if (Object.values(nextUsageProtectionFlags).some(Boolean)) {
+      const latestAccount = await openaiAccountService.getAccount(id)
+      const isSchedulable =
+        latestAccount &&
+        latestAccount.schedulable !== false &&
+        latestAccount.schedulable !== 'false'
+      const canAutoStop = latestAccount && isSchedulable
+
+      if (canAutoStop) {
+        await openaiAccountService.checkAndApplyUsageLimitStop(id, latestAccount)
+      }
+    }
 
     // 如果需要刷新但不强制成功（非关键更新）
     if (needsImmediateRefresh && !requireRefreshSuccess) {

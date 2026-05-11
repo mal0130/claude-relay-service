@@ -192,6 +192,24 @@ describe('openaiAccountService.checkAndApplyUsageLimitStop', () => {
     )
   })
 
+  it('accepts boolean usage-limit flags from service callers', async () => {
+    const { service, hashStore } = loadService({
+      autoStopOnWeeklyLimit: true,
+      codexSecondaryUsedPercent: '95'
+    })
+
+    const account = await service.getAccount(accountId)
+    await service.checkAndApplyUsageLimitStop(accountId, account)
+
+    expect(hashStore.get(accountKey)).toEqual(
+      expect.objectContaining({
+        schedulable: 'false',
+        usageLimitAutoStopped: 'true',
+        usageLimitStopReason: '周限额使用量接近上限，已自动停止调度'
+      })
+    )
+  })
+
   it('does not stop when the weekly usage stays below 95 percent', async () => {
     const { service, hashStore, webhookNotifier } = loadService({
       autoStopOnWeeklyLimit: 'true',

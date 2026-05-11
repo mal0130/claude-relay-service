@@ -5344,6 +5344,9 @@ const handleOAuthSuccess = async (tokenInfoOrList) => {
       data.openaiOauth = tokenInfo.tokens || tokenInfo
       data.accountInfo = tokenInfo.accountInfo
       data.priority = form.value.priority || 50
+      data.autoStopOnFiveHourLimit = !!form.value.autoStopOnFiveHourLimit
+      data.autoStopOnWeeklyLimit = !!form.value.autoStopOnWeeklyLimit
+      data.autoStopOnDailyOveruse = !!form.value.autoStopOnDailyOveruse
     } else if (currentPlatform === 'droid') {
       const rawTokens = tokenInfo.tokens || tokenInfo || {}
 

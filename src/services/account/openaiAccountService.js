@@ -1262,7 +1262,6 @@ const USAGE_LIMIT_STOP_THRESHOLD = 95
 
 // 检查并应用使用量限制停止调度逻辑
 async function checkAndApplyUsageLimitStop(accountId, accountData) {
-  // 已停止则跳过，防止重复触发
   if (accountData.usageLimitAutoStopped === 'true') {
     return
   }
@@ -1276,7 +1275,7 @@ async function checkAndApplyUsageLimitStop(accountId, accountData) {
   let resumeAt = null
 
   // 功能1：5小时限额达到阈值
-  if (accountData.autoStopOnFiveHourLimit === 'true' && primaryUsedPercent !== null) {
+  if (toBoolean(accountData.autoStopOnFiveHourLimit) && primaryUsedPercent !== null) {
     if (primaryUsedPercent >= USAGE_LIMIT_STOP_THRESHOLD) {
       stopReason = '5小时限额使用量接近上限，已自动停止调度'
     }
@@ -1285,7 +1284,7 @@ async function checkAndApplyUsageLimitStop(accountId, accountData) {
   // 功能2：周限额达到阈值
   if (
     !stopReason &&
-    accountData.autoStopOnWeeklyLimit === 'true' &&
+    toBoolean(accountData.autoStopOnWeeklyLimit) &&
     secondaryUsedPercent !== null
   ) {
     if (secondaryUsedPercent >= USAGE_LIMIT_STOP_THRESHOLD) {
@@ -1296,7 +1295,7 @@ async function checkAndApplyUsageLimitStop(accountId, accountData) {
   // 功能3：周限额按日均摊（指数递减5天）
   if (
     !stopReason &&
-    accountData.autoStopOnDailyOveruse === 'true' &&
+    toBoolean(accountData.autoStopOnDailyOveruse) &&
     secondaryUsedPercent !== null &&
     secondaryResetAfterSeconds !== null &&
     secondaryWindowMinutes !== null
