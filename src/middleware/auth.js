@@ -73,14 +73,20 @@ function parseJsonArrayWithDefault(value) {
 
 // AI修复专属包：匹配以 pack-free-3 结尾的 key name
 const isAiFixPack = (name) => /pack-free-3$/i.test(name)
+// 套餐：匹配 pack-month-149/360/1490
+const isPackageName = (name) => /pack-month-(149|360|1490)$/i.test(name)
 
 // 校验请求是否为 AI修复 场景
 // 规则：第一条 user 消息匹配 AI修复 pattern（历史会话每次都带上，多轮对话自然满足）
 function isAiFixRequest(req) {
   const messages = req.body?.messages || req.body?.input
-  if (!Array.isArray(messages) || messages.length === 0) return false
+  if (!Array.isArray(messages) || messages.length === 0) {
+    return false
+  }
   const firstUserMsg = messages.find((m) => m.role === 'user')
-  if (!firstUserMsg) return false
+  if (!firstUserMsg) {
+    return false
+  }
   let text = ''
   if (typeof firstUserMsg.content === 'string') {
     text = firstUserMsg.content
@@ -518,6 +524,65 @@ async function checkApiKeyLimits(keyData, req) {
 }
 
 /**
+ * 从 keyData + limitCheck 构建标准 validation 对象
+ */
+function buildValidationFromKeyData(keyData, limitCheck) {
+  let parsedRateLimits = []
+  try {
+    parsedRateLimits = JSON.parse(keyData.rateLimits || '[]')
+  } catch {
+    parsedRateLimits = []
+  }
+  return {
+    valid: true,
+    keyData: {
+      id: keyData.id,
+      name: keyData.name,
+      tokenLimit: keyData.tokenLimit,
+      claudeAccountId: keyData.claudeAccountId,
+      claudeConsoleAccountId: keyData.claudeConsoleAccountId,
+      geminiAccountId: keyData.geminiAccountId,
+      openaiAccountId: keyData.openaiAccountId,
+      bedrockAccountId: keyData.bedrockAccountId,
+      droidAccountId: keyData.droidAccountId,
+      accountBindings: (() => {
+        try {
+          return keyData.accountBindings ? JSON.parse(keyData.accountBindings) : {}
+        } catch {
+          return {}
+        }
+      })(),
+      permissions: keyData.permissions,
+      concurrencyLimit: keyData.concurrencyLimit,
+      rateLimitWindow: keyData.rateLimitWindow,
+      rateLimitRequests: keyData.rateLimitRequests,
+      rateLimitCost: keyData.rateLimitCost,
+      rateLimits: parsedRateLimits,
+      enableModelRestriction: keyData.enableModelRestriction,
+      restrictedModels: keyData.restrictedModels,
+      enableClientRestriction: keyData.enableClientRestriction,
+      allowedClients: keyData.allowedClients,
+      dailyCostLimit: parseFloat(keyData.dailyCostLimit || 0),
+      dailyCost: limitCheck.usage.dailyCost,
+      totalCostLimit: parseFloat(keyData.totalCostLimit || 0),
+      totalCost: limitCheck.usage.totalCost,
+      weeklyOpusCostLimit: parseFloat(keyData.weeklyOpusCostLimit || 0),
+      weeklyOpusCost: limitCheck.usage.weeklyOpusCost,
+      externalUid: keyData.externalUid || '',
+      enableOpenAIResponsesCodexAdaptation: parseBooleanWithDefault(
+        keyData.enableOpenAIResponsesCodexAdaptation,
+        true
+      ),
+      enableOpenAIResponsesPayloadRules: parseBooleanWithDefault(
+        keyData.enableOpenAIResponsesPayloadRules,
+        false
+      ),
+      openaiResponsesPayloadRules: parseJsonArrayWithDefault(keyData.openaiResponsesPayloadRules)
+    }
+  }
+}
+
+/**
  * 完整的 API Key 验证（包含所有限制检查）
  * @param {string} apiKey - API Key 明文
  * @param {Object} req - Express 请求对象
@@ -803,8 +868,54 @@ const authenticateApiKey = async (req, res, next) => {
     // 主进程 AI修复请求：若当前 key 非 pack-free-3，标记优先切换到 pack-free-3
     if (validation.valid) {
       const processType = (req.headers['uni_agent_agent_type'] || '').trim().toLowerCase()
-      if (processType === 'primary' && isAiFixRequest(req) && !isAiFixPack(validation.keyData.name)) {
-        validation = { valid: false, keyData: validation.keyData, error: { code: 'prefer_ai_fix_pack' }, statusCode: 403 }
+      if (
+        processType === 'primary' &&
+        isAiFixRequest(req) &&
+        !isAiFixPack(validation.keyData.name)
+      ) {
+        validation = {
+          valid: false,
+          keyData: validation.keyData,
+          error: { code: 'prefer_ai_fix_pack' },
+          statusCode: 403
+        }
+      }
+    }
+
+    // 当前 key 可用但不是套餐：检查该 uid 下是否有可用套餐 key，有则优先切换
+    // 例外：已切到 free-3（AI修复专属），不再切换到订阅
+    if (
+      validation.valid &&
+      !isPackageName(validation.keyData.name) &&
+      !isAiFixPack(validation.keyData.name) &&
+      validation.keyData.externalUid
+    ) {
+      const keyIds = await redis.getKeysByUid(validation.keyData.externalUid)
+      if (keyIds && keyIds.length > 0) {
+        for (const keyId of keyIds) {
+          if (keyId === validation.keyData.id) {
+            continue
+          }
+          const kd = await redis.getApiKey(keyId)
+          if (!kd || Object.keys(kd).length === 0 || !isPackageName(kd.name)) {
+            continue
+          }
+          if (kd.isActive !== 'true') {
+            continue
+          }
+          if (kd.expiresAt && new Date(kd.expiresAt) < new Date()) {
+            continue
+          }
+          const limitCheck = await checkApiKeyLimits(kd, req)
+          if (!limitCheck.valid) {
+            continue
+          }
+          logger.api(
+            `🔄 Switching to package key ${kd.name} (uid: ${validation.keyData.externalUid})`
+          )
+          validation = buildValidationFromKeyData(kd, limitCheck)
+          break
+        }
       }
     }
 
@@ -837,7 +948,7 @@ const authenticateApiKey = async (req, res, next) => {
           }
 
           // 分类：套餐和资源包
-          const isPackage = (name) => /pack-month-(149|360|1490)$/i.test(name)
+          const isPackage = isPackageName
           const isResourcePack = (name) => /_pack-(10|100|1000|10000)-month$/i.test(name)
 
           const packages = allKeys.filter((k) => isPackage(k.name))
@@ -897,7 +1008,6 @@ const authenticateApiKey = async (req, res, next) => {
             logger.api(`🔄 Non-primary process, adding ${aiFixPacks.length} ai fix packs as normal`)
           }
 
-
           // 3. 最后尝试资源包
           if (currentIsResourcePack) {
             // 当前是资源包，可以直接切换到其他资源包
@@ -956,64 +1066,7 @@ const authenticateApiKey = async (req, res, next) => {
 
             // 找到可用的 Key
             logger.api(`✅ Switched to alternative key: ${keyData.id} (${keyData.name})`)
-
-            // 解析 rateLimits
-            let parsedRateLimits = []
-            try {
-              parsedRateLimits = JSON.parse(keyData.rateLimits || '[]')
-            } catch (e) {
-              parsedRateLimits = []
-            }
-
-            // 构建完整的 keyData（使用实时费用数据）
-            validation = {
-              valid: true,
-              keyData: {
-                id: keyData.id,
-                name: keyData.name,
-                tokenLimit: keyData.tokenLimit,
-                claudeAccountId: keyData.claudeAccountId,
-                claudeConsoleAccountId: keyData.claudeConsoleAccountId,
-                geminiAccountId: keyData.geminiAccountId,
-                openaiAccountId: keyData.openaiAccountId,
-                bedrockAccountId: keyData.bedrockAccountId,
-                droidAccountId: keyData.droidAccountId,
-                accountBindings: (() => {
-                  try {
-                    return keyData.accountBindings ? JSON.parse(keyData.accountBindings) : {}
-                  } catch {
-                    return {}
-                  }
-                })(),
-                permissions: keyData.permissions,
-                concurrencyLimit: keyData.concurrencyLimit,
-                rateLimitWindow: keyData.rateLimitWindow,
-                rateLimitRequests: keyData.rateLimitRequests,
-                rateLimitCost: keyData.rateLimitCost,
-                rateLimits: parsedRateLimits,
-                enableModelRestriction: keyData.enableModelRestriction,
-                restrictedModels: keyData.restrictedModels,
-                enableClientRestriction: keyData.enableClientRestriction,
-                allowedClients: keyData.allowedClients,
-                dailyCostLimit: parseFloat(keyData.dailyCostLimit || 0),
-                dailyCost: limitCheck.usage.dailyCost,
-                totalCostLimit: parseFloat(keyData.totalCostLimit || 0),
-                totalCost: limitCheck.usage.totalCost,
-                weeklyOpusCostLimit: parseFloat(keyData.weeklyOpusCostLimit || 0),
-                weeklyOpusCost: limitCheck.usage.weeklyOpusCost,
-                enableOpenAIResponsesCodexAdaptation: parseBooleanWithDefault(
-                  keyData.enableOpenAIResponsesCodexAdaptation,
-                  true
-                ),
-                enableOpenAIResponsesPayloadRules: parseBooleanWithDefault(
-                  keyData.enableOpenAIResponsesPayloadRules,
-                  false
-                ),
-                openaiResponsesPayloadRules: parseJsonArrayWithDefault(
-                  keyData.openaiResponsesPayloadRules
-                )
-              }
-            }
+            validation = buildValidationFromKeyData(keyData, limitCheck)
             break
           }
         }
@@ -1145,7 +1198,8 @@ const authenticateApiKey = async (req, res, next) => {
         // 3. 排队功能未启用，直接返回 429（保持现有行为）
         if (!queueConfig.concurrentRequestQueueEnabled) {
           logger.security(
-            `🚦 Concurrency limit exceeded for key: ${validation.keyData.id} (${validation.keyData.name
+            `🚦 Concurrency limit exceeded for key: ${validation.keyData.id} (${
+              validation.keyData.name
             }), current: ${currentConcurrency - 1}, limit: ${concurrencyLimit}`
           )
           // 建议客户端在短暂延迟后重试（并发场景下通常很快会有槽位释放）
@@ -1177,9 +1231,9 @@ const authenticateApiKey = async (req, res, next) => {
           const currentQueueCount = overloadCheck.currentQueueCount || 0
           logger.api(
             `🚨 Queue overloaded for key: ${validation.keyData.id} (${validation.keyData.name}), ` +
-            `P90=${overloadCheck.estimatedWaitMs}ms, timeout=${overloadCheck.timeoutMs}ms, ` +
-            `threshold=${overloadCheck.threshold}, samples=${overloadCheck.sampleCount}, ` +
-            `concurrency=${concurrencyLimit}, queue=${currentQueueCount}/${maxQueueSize}`
+              `P90=${overloadCheck.estimatedWaitMs}ms, timeout=${overloadCheck.timeoutMs}ms, ` +
+              `threshold=${overloadCheck.threshold}, samples=${overloadCheck.sampleCount}, ` +
+              `concurrency=${concurrencyLimit}, queue=${currentQueueCount}/${maxQueueSize}`
           )
           // 记录被拒绝的过载统计
           redis
@@ -1217,7 +1271,7 @@ const authenticateApiKey = async (req, res, next) => {
             queueIncremented = false
             logger.api(
               `🚦 Concurrency queue full for key: ${validation.keyData.id} (${validation.keyData.name}), ` +
-              `queue: ${newQueueCount - 1}, maxQueue: ${maxQueueSize}`
+                `queue: ${newQueueCount - 1}, maxQueue: ${maxQueueSize}`
             )
             // 队列已满，建议客户端在排队超时时间后重试
             const retryAfterSeconds = Math.ceil(queueConfig.concurrentRequestQueueTimeoutMs / 1000)
@@ -1237,7 +1291,7 @@ const authenticateApiKey = async (req, res, next) => {
           // 6. 已成功进入排队，记录统计并开始等待槽位
           logger.api(
             `⏳ Request entering queue for key: ${validation.keyData.id} (${validation.keyData.name}), ` +
-            `queue position: ${newQueueCount}`
+              `queue position: ${newQueueCount}`
           )
           redis
             .incrConcurrencyQueueStats(validation.keyData.id, 'entered')
@@ -1330,7 +1384,7 @@ const authenticateApiKey = async (req, res, next) => {
           // 8. 排队成功，slot.acquired 表示已在 waitForConcurrencySlot 中获取到槽位
           logger.api(
             `✅ Queue wait completed for key: ${validation.keyData.id} (${validation.keyData.name}), ` +
-            `waited: ${slot.waitTimeMs}ms`
+              `waited: ${slot.waitTimeMs}ms`
           )
           hasConcurrencySlot = true
           setTemporaryConcurrencyCleanup()
@@ -1345,8 +1399,8 @@ const authenticateApiKey = async (req, res, next) => {
           if (res.destroyed || res.writableEnded || postQueueSocket?.destroyed) {
             logger.warn(
               `⚠️ Client no longer waiting after queue for key: ${validation.keyData.id} (${validation.keyData.name}), ` +
-              `waited: ${slot.waitTimeMs}ms | destroyed: ${res.destroyed}, ` +
-              `writableEnded: ${res.writableEnded}, socketDestroyed: ${postQueueSocket?.destroyed}`
+                `waited: ${slot.waitTimeMs}ms | destroyed: ${res.destroyed}, ` +
+                `writableEnded: ${res.writableEnded}, socketDestroyed: ${postQueueSocket?.destroyed}`
             )
             // 释放刚获取的槽位
             hasConcurrencySlot = false
@@ -1370,10 +1424,10 @@ const authenticateApiKey = async (req, res, next) => {
           if (socketIdentityChanged) {
             logger.error(
               `❌ [Queue] Socket identity changed during queue wait! ` +
-              `key: ${validation.keyData.id} (${validation.keyData.name}), ` +
-              `waited: ${slot.waitTimeMs}ms | ` +
-              `tokenMatch: ${queueData?.queueToken === savedToken}, ` +
-              `socketMatch: ${queueData?.originalSocket === savedSocket}`
+                `key: ${validation.keyData.id} (${validation.keyData.name}), ` +
+                `waited: ${slot.waitTimeMs}ms | ` +
+                `tokenMatch: ${queueData?.queueToken === savedToken}, ` +
+                `socketMatch: ${queueData?.originalSocket === savedSocket}`
             )
             // 释放刚获取的槽位
             hasConcurrencySlot = false
@@ -1644,7 +1698,8 @@ const authenticateApiKey = async (req, res, next) => {
         if (ruleCost > 0) {
           if (currentCost >= ruleCost) {
             logger.security(
-              `💰 Rate limit exceeded (cost, rule ${i}) for key: ${validation.keyData.id} (${validation.keyData.name
+              `💰 Rate limit exceeded (cost, rule ${i}) for key: ${validation.keyData.id} (${
+                validation.keyData.name
               }), cost: $${currentCost.toFixed(2)}/$${ruleCost}, window: ${ruleWindow}min`
             )
             return res.status(429).json({
@@ -1691,7 +1746,8 @@ const authenticateApiKey = async (req, res, next) => {
 
       if (dailyCost >= dailyCostLimit) {
         logger.security(
-          `💰 Daily cost limit exceeded for key: ${validation.keyData.id} (${validation.keyData.name
+          `💰 Daily cost limit exceeded for key: ${validation.keyData.id} (${
+            validation.keyData.name
           }), cost: $${dailyCost.toFixed(2)}/$${dailyCostLimit}`
         )
 
@@ -1710,7 +1766,8 @@ const authenticateApiKey = async (req, res, next) => {
 
       // 记录当前费用使用情况
       logger.api(
-        `💰 Cost usage for key: ${validation.keyData.id} (${validation.keyData.name
+        `💰 Cost usage for key: ${validation.keyData.id} (${
+          validation.keyData.name
         }), current: $${dailyCost.toFixed(2)}/$${dailyCostLimit}`
       )
     }
@@ -1722,7 +1779,8 @@ const authenticateApiKey = async (req, res, next) => {
 
       if (totalCost >= totalCostLimit) {
         logger.security(
-          `💰 Total cost limit exceeded for key: ${validation.keyData.id} (${validation.keyData.name
+          `💰 Total cost limit exceeded for key: ${validation.keyData.id} (${
+            validation.keyData.name
           }), cost: $${totalCost.toFixed(2)}/$${totalCostLimit}`
         )
 
@@ -1739,7 +1797,8 @@ const authenticateApiKey = async (req, res, next) => {
       }
 
       logger.api(
-        `💰 Total cost usage for key: ${validation.keyData.id} (${validation.keyData.name
+        `💰 Total cost usage for key: ${validation.keyData.id} (${
+          validation.keyData.name
         }), current: $${totalCost.toFixed(2)}/$${totalCostLimit}`
       )
     }
@@ -1757,7 +1816,8 @@ const authenticateApiKey = async (req, res, next) => {
 
         if (weeklyOpusCost >= weeklyOpusCostLimit) {
           logger.security(
-            `💰 Weekly Claude cost limit exceeded for key: ${validation.keyData.id} (${validation.keyData.name
+            `💰 Weekly Claude cost limit exceeded for key: ${validation.keyData.id} (${
+              validation.keyData.name
             }), cost: $${weeklyOpusCost.toFixed(2)}/$${weeklyOpusCostLimit}`
           )
 
@@ -1781,7 +1841,8 @@ const authenticateApiKey = async (req, res, next) => {
 
         // 记录当前 Claude 费用使用情况
         logger.api(
-          `💰 Claude weekly cost usage for key: ${validation.keyData.id} (${validation.keyData.name
+          `💰 Claude weekly cost usage for key: ${validation.keyData.id} (${
+            validation.keyData.name
           }), current: $${weeklyOpusCost.toFixed(2)}/$${weeklyOpusCostLimit}`
         )
       }
