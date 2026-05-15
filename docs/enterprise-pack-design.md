@@ -118,8 +118,7 @@ POST /partner/api-keys
 
 ```
 POST /partner/enterprise/key/batch-create     批量创建企业 Key（单个时数组传一个元素）
-POST /partner/enterprise/key/members/add      添加成员
-POST /partner/enterprise/key/members/remove   移除成员
+POST /partner/enterprise/key/members/set      设置成员（全量覆盖）
 ```
 
 更新配置、更新过期时间、查询用量等操作直接复用个人版接口，传企业 Key 的 `keyId` 即可。
@@ -132,7 +131,7 @@ POST /partner/enterprise/key/members/remove   移除成员
 
 | 文件 | 改动内容 |
 |------|----------|
-| `src/services/apiKeyService.js` | `createApiKey` 加 `memberUids` 字段；新增成员管理方法（增/删/查，同步维护 `enterprise_pack_member` 索引） |
+| `src/services/apiKeyService.js` | `createApiKey` 加 `memberUids` 字段；新增成员设置方法（全量覆盖，自动 diff 维护 `enterprise_pack_member` 索引） |
 | `src/models/redis.js` | 新增 `enterprise_pack_member` 索引的 CRUD 方法 |
 | `src/routes/partner.js` | 新增 `/partner/enterprise/` 下的全部企业版接口，与个人版接口完全隔离 |
 | `src/middleware/auth.js` | 读取 `x-pack-mode` + `x-user-id`；企业版模式走 `enterprise_pack_member` 索引，跳过 `pack_consent` 检查；个人模式走现有 `uid_keys` 逻辑不变 |

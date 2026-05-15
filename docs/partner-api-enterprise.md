@@ -13,8 +13,7 @@
 | # | 接口 | 说明 |
 |---|------|------|
 | 1 | `POST /partner/enterprise/key/batch-create` | 批量创建企业 Key（单个时数组传一个元素） |
-| 2 | `POST /partner/enterprise/key/members/add` | 添加成员 |
-| 3 | `POST /partner/enterprise/key/members/remove` | 移除成员 |
+| 2 | `POST /partner/enterprise/key/members/set` | 设置成员（全量覆盖） |
 
 > 更新配置、更新过期时间、查询用量等操作直接复用个人版接口，传企业 Key 的 `keyId` 即可，参见 [partner-api.md](partner-api.md)。
 
@@ -138,17 +137,17 @@
 
 ---
 
-### 接口 2：添加成员
+### 接口 2：设置成员（全量覆盖）
 
-- **地址**：`POST /partner/enterprise/key/members/add`
-- **说明**：向企业 Key 添加一个或多个成员 uid，已存在的 uid 自动忽略
+- **地址**：`POST /partner/enterprise/key/members/set`
+- **说明**：设置企业 Key 的成员列表，传入当前所有可用成员 uid，**全量覆盖**原有列表。后端自动计算差量并同步维护 `enterprise_pack_member` 反向索引
 
 #### 请求参数
 
 ```json
 {
   "keyId": "xxx-xxx-xxx",
-  "memberUids": ["uid_d", "uid_e"],
+  "memberUids": ["uid_a", "uid_b", "uid_c"],
   "sign": "ABC123..."
 }
 ```
@@ -156,7 +155,7 @@
 | 参数 | 类型 | 必填 | 说明 |
 |------|------|------|------|
 | keyId | string | 是 | 企业 Key ID |
-| memberUids | array | 是 | 要添加的成员 uid 列表，至少 1 个 |
+| memberUids | array | 是 | 当前全部成员 uid 列表，传空数组表示清空所有成员 |
 | sign | string | 是 | SHA256 签名 |
 
 #### 响应
@@ -167,45 +166,47 @@
   "msg": "success",
   "data": {
     "keyId": "xxx-xxx-xxx",
-    "memberUids": ["uid_a", "uid_b", "uid_c", "uid_d", "uid_e"]
+    "memberUids": ["uid_a", "uid_b", "uid_c"]
   }
 }
 ```
 
 ---
 
-### 接口 3：移除成员
+## enterprise_pack_member 索引说明
 
-- **地址**：`POST /partner/enterprise/key/members/remove`
-- **说明**：从企业 Key 移除一个或多个成员 uid，不存在的 uid 自动忽略
+`enterprise_pack_member:{uid}` 是企业版的反向索引，记录某个成员 uid 有权使用哪些企业 Key，用于鉴权时快速查找候选 Key。
 
-#### 请求参数
+### 数据结构
 
-```json
-{
-  "keyId": "xxx-xxx-xxx",
-  "memberUids": ["uid_e"],
-  "sign": "ABC123..."
-}
+```
+enterprise_pack_member:{memberUid}  →  Redis Set{ keyId1, keyId2, ... }
 ```
 
-| 参数 | 类型 | 必填 | 说明 |
-|------|------|------|------|
-| keyId | string | 是 | 企业 Key ID |
-| memberUids | array | 是 | 要移除的成员 uid 列表，至少 1 个 |
-| sign | string | 是 | SHA256 签名 |
+### 维护时机
 
-#### 响应
+| 操作 | 索引变更 |
+|------|----------|
+| 批量创建企业 Key（`batch-create`） | 为每个 `memberUids` 中的 uid 添加 `keyId` |
+| 设置成员（`members/set`） | 对比新旧列表：新增的 uid 添加 `keyId`，移除的 uid 删除 `keyId` |
+| 个人版接口停用/删除企业 Key | 从所有成员的索引中删除该 `keyId` |
 
-```json
-{
-  "code": 0,
-  "msg": "success",
-  "data": {
-    "keyId": "xxx-xxx-xxx",
-    "memberUids": ["uid_a", "uid_b", "uid_c", "uid_d"]
-  }
-}
+### 维护逻辑（set 操作伪代码）
+
+```
+旧列表 = 读取 apikey:{keyId}.memberUids
+新列表 = 请求传入的 memberUids
+
+新增 = 新列表 - 旧列表
+移除 = 旧列表 - 新列表
+
+for uid in 新增:
+    SADD enterprise_pack_member:{uid} keyId
+
+for uid in 移除:
+    SREM enterprise_pack_member:{uid} keyId
+
+更新 apikey:{keyId}.memberUids = 新列表
 ```
 
 ---
