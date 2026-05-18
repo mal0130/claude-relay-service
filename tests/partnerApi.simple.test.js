@@ -101,6 +101,8 @@ async function test(name, fn) {
 let createdApiKeyId = null
 let createdApiKeyName = null
 let createdApiKey = null
+let createdEnterpriseKeyId = null
+let createdEnterpriseApiKey = null
 
 /**
  * 测试 1: 创建 API Key
@@ -574,6 +576,175 @@ async function testBatchUpdateConfigDeepSeekConfig() {
   })
 }
 
+/**
+ * 测试 9: 批量创建企业 API Key
+ */
+async function testEnterpriseBatchCreate() {
+  await test('测试 9: 批量创建企业 API Key', async () => {
+    const enterpriseName = `EnterprisePack_${Date.now()}`
+    const params = {
+      keys: [
+        {
+          name: enterpriseName,
+          externalUid: `owner_${Date.now()}`,
+          memberUids: ['member_a', ' member_b ', 'member_a'],
+          totalCostLimit: 500,
+          dailyCostLimit: 50,
+          claude_rate: 2.1
+        }
+      ]
+    }
+
+    const signature = generateSignature(params)
+
+    const response = await axios.post(
+      `${API_BASE_URL}/partner/enterprise/key/batch-create`,
+      { ...params, sign: signature },
+      { headers: { 'Content-Type': 'application/json' } }
+    )
+
+    assert(response.status === 200, 'HTTP 状态码应为 200')
+    assert(response.data.code === 0, '响应 code 应为 0')
+    assert(response.data.msg === 'success', '响应 msg 应为 success')
+    assert(response.data.data.total === 1, 'total 应为 1')
+    assert(response.data.data.created === 1, 'created 应为 1')
+    assert(response.data.data.failed === 0, 'failed 应为 0')
+    assert(Array.isArray(response.data.data.keys), 'keys 应为数组')
+    assert(response.data.data.keys.length === 1, 'keys 应返回 1 条')
+    assert(Array.isArray(response.data.data.errors), 'errors 应为数组')
+    assert(response.data.data.errors.length === 0, 'errors 应为空')
+
+    const createdKey = response.data.data.keys[0]
+    assert(createdKey.keyId, '应返回企业 keyId')
+    assert(createdKey.keyName === enterpriseName, '企业 keyName 应匹配')
+    assert(createdKey.apiKey, '应返回企业 apiKey')
+    assert(createdKey.apiKey.startsWith('cr_'), '企业 apiKey 应以 cr_ 开头')
+    assert(
+      JSON.stringify(createdKey.memberUids) === JSON.stringify(['member_a', 'member_b']),
+      'memberUids 应去重并 trim'
+    )
+
+    createdEnterpriseKeyId = createdKey.keyId
+    createdEnterpriseApiKey = createdKey.apiKey
+
+    console.log(`  创建的企业 API Key: ${createdEnterpriseApiKey}`)
+  })
+}
+
+/**
+ * 测试 10: 批量创建企业 API Key - 部分失败
+ */
+async function testEnterpriseBatchCreatePartialFailure() {
+  await test('测试 10: 批量创建企业 API Key - 部分失败', async () => {
+    const params = {
+      keys: [
+        {
+          name: `EnterprisePack_Ok_${Date.now()}`,
+          externalUid: `owner_ok_${Date.now()}`,
+          memberUids: ['member_ok_1'],
+          totalCostLimit: 100,
+          claude_rate: 2.1
+        },
+        {
+          name: `EnterprisePack_Bad_${Date.now()}`,
+          externalUid: `owner_bad_${Date.now()}`,
+          memberUids: [],
+          totalCostLimit: 100,
+          claude_rate: 2.1
+        }
+      ]
+    }
+
+    const signature = generateSignature(params)
+
+    const response = await axios.post(
+      `${API_BASE_URL}/partner/enterprise/key/batch-create`,
+      { ...params, sign: signature },
+      { headers: { 'Content-Type': 'application/json' } }
+    )
+
+    assert(response.status === 200, 'HTTP 状态码应为 200')
+    assert(response.data.code === 0, '响应 code 应为 0')
+    assert(response.data.data.total === 2, 'total 应为 2')
+    assert(response.data.data.created === 1, 'created 应为 1')
+    assert(response.data.data.failed === 1, 'failed 应为 1')
+    assert(response.data.data.keys.length === 1, '成功 keys 应为 1 条')
+    assert(response.data.data.errors.length === 1, 'errors 应为 1 条')
+    assert(response.data.data.errors[0].index === 1, '失败项 index 应为 1')
+    assert(response.data.data.errors[0].name === params.keys[1].name, '失败项 name 应匹配')
+    assert(
+      response.data.data.errors[0].msg.includes('memberUids is required'),
+      '失败原因应包含 memberUids is required'
+    )
+  })
+}
+
+/**
+ * 测试 11: 设置企业成员（全量覆盖）
+ */
+async function testEnterpriseSetMembers() {
+  await test('测试 11: 设置企业成员（全量覆盖）', async () => {
+    if (!createdEnterpriseKeyId) {
+      console.log('  跳过：需要先创建企业 API Key')
+      return
+    }
+
+    const params = {
+      keyId: createdEnterpriseKeyId,
+      memberUids: ['member_x', ' member_y ', 'member_x']
+    }
+
+    const signature = generateSignature(params)
+
+    const response = await axios.post(
+      `${API_BASE_URL}/partner/enterprise/key/members/set`,
+      { ...params, sign: signature },
+      { headers: { 'Content-Type': 'application/json' } }
+    )
+
+    assert(response.status === 200, 'HTTP 状态码应为 200')
+    assert(response.data.code === 0, '响应 code 应为 0')
+    assert(response.data.msg === 'success', '响应 msg 应为 success')
+    assert(response.data.data.keyId === createdEnterpriseKeyId, 'keyId 应匹配')
+    assert(
+      JSON.stringify(response.data.data.memberUids) === JSON.stringify(['member_x', 'member_y']),
+      'memberUids 应全量覆盖并标准化'
+    )
+  })
+}
+
+/**
+ * 测试 12: 设置企业成员 - 个人版 Key 不允许
+ */
+async function testEnterpriseSetMembersRejectPersonalKey() {
+  await test('测试 12: 设置企业成员 - 个人版 Key 不允许', async () => {
+    if (!createdApiKeyId) {
+      console.log('  跳过：需要先创建个人 API Key')
+      return
+    }
+
+    const params = {
+      keyId: createdApiKeyId,
+      memberUids: ['member_personal_test']
+    }
+
+    const signature = generateSignature(params)
+
+    try {
+      await axios.post(
+        `${API_BASE_URL}/partner/enterprise/key/members/set`,
+        { ...params, sign: signature },
+        { headers: { 'Content-Type': 'application/json' } }
+      )
+      assert(false, '应该抛出错误')
+    } catch (error) {
+      assert(error.response.status === 400, 'HTTP 状态码应为 400')
+      assert(error.response.data.code === 1004, '错误码应为 1004')
+      assert(error.response.data.msg.includes('not enterprise edition'), '错误信息应说明不是企业版')
+    }
+  })
+}
+
 // ==================== 主函数 ====================
 
 async function main() {
@@ -601,6 +772,10 @@ async function main() {
     await testUpdateApiKeyDeepSeekConfig()
     await testUpdateApiKeyInvalidDeepSeekAccount()
     await testBatchUpdateConfigDeepSeekConfig()
+    await testEnterpriseBatchCreate()
+    await testEnterpriseBatchCreatePartialFailure()
+    await testEnterpriseSetMembers()
+    await testEnterpriseSetMembersRejectPersonalKey()
 
     // 输出测试结果
     console.log(`\n${'='.repeat(60)}`)

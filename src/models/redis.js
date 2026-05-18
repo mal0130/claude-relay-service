@@ -5364,4 +5364,61 @@ redisClient.getKeysByUid = async function (externalUid) {
   }
 }
 
+/**
+ * 添加 Key 到企业成员索引
+ * @param {string} memberUid - 企业成员 UID
+ * @param {string} keyId - API Key ID
+ * @returns {Promise<void>}
+ */
+redisClient.addKeyToEnterpriseMemberIndex = async function (memberUid, keyId) {
+  if (!memberUid || !keyId) {
+    return
+  }
+  const key = `enterprise_pack_member:${memberUid}`
+  try {
+    await this.client.sadd(key, keyId)
+    logger.debug(`🏢 Added key ${keyId} to enterprise member index ${memberUid}`)
+  } catch (error) {
+    logger.error(`Failed to add key to enterprise member index:`, error)
+  }
+}
+
+/**
+ * 从企业成员索引移除 Key
+ * @param {string} memberUid - 企业成员 UID
+ * @param {string} keyId - API Key ID
+ * @returns {Promise<void>}
+ */
+redisClient.removeKeyFromEnterpriseMemberIndex = async function (memberUid, keyId) {
+  if (!memberUid || !keyId) {
+    return
+  }
+  const key = `enterprise_pack_member:${memberUid}`
+  try {
+    await this.client.srem(key, keyId)
+    logger.debug(`🏢 Removed key ${keyId} from enterprise member index ${memberUid}`)
+  } catch (error) {
+    logger.error(`Failed to remove key from enterprise member index:`, error)
+  }
+}
+
+/**
+ * 获取某个企业成员可用的所有 Key ID
+ * @param {string} memberUid - 企业成员 UID
+ * @returns {Promise<string[]>} Key ID 列表
+ */
+redisClient.getEnterpriseKeysByMemberUid = async function (memberUid) {
+  if (!memberUid) {
+    return []
+  }
+  const key = `enterprise_pack_member:${memberUid}`
+  try {
+    const keyIds = await this.client.smembers(key)
+    return keyIds || []
+  } catch (error) {
+    logger.error(`Failed to get enterprise keys by member uid:`, error)
+    return []
+  }
+}
+
 module.exports = redisClient

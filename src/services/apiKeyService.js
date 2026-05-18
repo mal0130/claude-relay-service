@@ -188,6 +188,52 @@ function parseAccountBindings(rawBindings) {
   return {}
 }
 
+function parseMemberUids(rawMemberUids) {
+  if (rawMemberUids === undefined || rawMemberUids === null || rawMemberUids === '') {
+    return []
+  }
+
+  if (Array.isArray(rawMemberUids)) {
+    return rawMemberUids.map((uid) => (typeof uid === 'string' ? uid.trim() : '')).filter(Boolean)
+  }
+
+  if (typeof rawMemberUids === 'string') {
+    try {
+      const parsed = JSON.parse(rawMemberUids)
+      return Array.isArray(parsed)
+        ? parsed.map((uid) => (typeof uid === 'string' ? uid.trim() : '')).filter(Boolean)
+        : []
+    } catch {
+      return []
+    }
+  }
+
+  return []
+}
+
+async function syncEnterpriseMemberIndex(keyId, previousMemberUids = [], nextMemberUids = []) {
+  const previousSet = new Set(previousMemberUids)
+  const nextSet = new Set(nextMemberUids)
+
+  for (const memberUid of nextSet) {
+    if (!previousSet.has(memberUid)) {
+      await redis.addKeyToEnterpriseMemberIndex(memberUid, keyId)
+    }
+  }
+
+  for (const memberUid of previousSet) {
+    if (!nextSet.has(memberUid)) {
+      await redis.removeKeyFromEnterpriseMemberIndex(memberUid, keyId)
+    }
+  }
+}
+
+async function clearEnterpriseMemberIndex(keyId, memberUids = []) {
+  for (const memberUid of memberUids) {
+    await redis.removeKeyFromEnterpriseMemberIndex(memberUid, keyId)
+  }
+}
+
 class ApiKeyService {
   constructor() {
     this.prefix = config.security.apiKeyPrefix
@@ -269,6 +315,8 @@ class ApiKeyService {
       weeklyResetHour = 0, // 周费用重置时 (0-23)
       translateReasoning = false, // 是否对该 Key 启用思考链路翻译
       externalUid = null, // 新增：外部用户ID，用于多Key自动切换
+      packMode = 'personal',
+      memberUids = [],
       enableOpenAIResponsesCodexAdaptation = true,
       enableOpenAIResponsesPayloadRules = false,
       openaiResponsesPayloadRules = []
@@ -280,6 +328,8 @@ class ApiKeyService {
     if (!payloadRulesValidation.valid) {
       throw new Error(payloadRulesValidation.error)
     }
+
+    const normalizedMemberUids = parseMemberUids(memberUids)
 
     // 生成简单的API Key (64字符十六进制)
     const apiKey = `${this.prefix}${this._generateSecretKey()}`
@@ -335,6 +385,8 @@ class ApiKeyService {
       weeklyResetHour: String(weeklyResetHour || 0), // 周费用重置时 (0-23)
       translateReasoning: String(translateReasoning || false), // 思考链路翻译
       externalUid: externalUid || '', // 外部用户ID，用于多Key自动切换
+      packMode: packMode || 'personal',
+      memberUids: JSON.stringify(normalizedMemberUids),
       enableOpenAIResponsesCodexAdaptation: String(enableOpenAIResponsesCodexAdaptation !== false),
       enableOpenAIResponsesPayloadRules: String(enableOpenAIResponsesPayloadRules === true),
       openaiResponsesPayloadRules: JSON.stringify(payloadRulesValidation.rules)
@@ -346,6 +398,10 @@ class ApiKeyService {
     // 维护 externalUid 索引
     if (externalUid) {
       await redis.addKeyToUidIndex(externalUid, keyId)
+    }
+
+    if (normalizedMemberUids.length > 0 && (packMode || 'personal') === 'enterprise') {
+      await syncEnterpriseMemberIndex(keyId, [], normalizedMemberUids)
     }
 
     // 同步添加到费用排序索引
@@ -431,7 +487,9 @@ class ApiKeyService {
       ),
       openaiResponsesPayloadRules: parseOpenAIResponsesPayloadRules(
         keyData.openaiResponsesPayloadRules
-      )
+      ),
+      packMode: keyData.packMode || 'personal',
+      memberUids: parseMemberUids(keyData.memberUids)
     }
   }
 
@@ -494,7 +552,8 @@ class ApiKeyService {
         await redis.setApiKey(keyData.id, keyData)
 
         logger.success(
-          `🔓 API key activated: ${keyData.id} (${keyData.name
+          `🔓 API key activated: ${keyData.id} (${
+            keyData.name
           }), will expire in ${activationPeriod} ${activationUnit} at ${expiresAt.toISOString()}`
         )
       }
@@ -1497,6 +1556,8 @@ class ApiKeyService {
         'weeklyResetHour', // 周费用重置时 (0-23)
         'translateReasoning', // 思考链路翻译
         'externalUid', // 外部用户ID
+        'packMode',
+        'memberUids',
         'enableOpenAIResponsesCodexAdaptation',
         'enableOpenAIResponsesPayloadRules',
         'openaiResponsesPayloadRules'
@@ -1512,6 +1573,7 @@ class ApiKeyService {
             field === 'serviceRates' ||
             field === 'rateLimits' ||
             field === 'accountBindings' ||
+            field === 'memberUids' ||
             field === 'openaiResponsesPayloadRules'
           ) {
             // 特殊处理数组/对象字段
@@ -1541,6 +1603,12 @@ class ApiKeyService {
 
       updatedData.updatedAt = new Date().toISOString()
 
+      const currentPackMode =
+        updates.packMode !== undefined ? updates.packMode : keyData.packMode || 'personal'
+      const previousMemberUids = parseMemberUids(keyData.memberUids)
+      const nextMemberUids =
+        updates.memberUids !== undefined ? parseMemberUids(updates.memberUids) : previousMemberUids
+
       // 如果 externalUid 发生变化，更新索引
       if (updates.externalUid !== undefined && updates.externalUid !== keyData.externalUid) {
         // 从旧索引移除
@@ -1551,6 +1619,15 @@ class ApiKeyService {
         if (updates.externalUid) {
           await redis.addKeyToUidIndex(updates.externalUid, keyId)
         }
+      }
+
+      if (currentPackMode === 'enterprise') {
+        await syncEnterpriseMemberIndex(keyId, previousMemberUids, nextMemberUids)
+      } else if (
+        (keyData.packMode || 'personal') === 'enterprise' &&
+        previousMemberUids.length > 0
+      ) {
+        await clearEnterpriseMemberIndex(keyId, previousMemberUids)
       }
 
       // 传递hashedKey以确保映射表一致性
@@ -1665,6 +1742,10 @@ class ApiKeyService {
         await redis.removeKeyFromUidIndex(keyData.externalUid, keyId)
       }
 
+      if ((keyData.packMode || 'personal') === 'enterprise') {
+        await clearEnterpriseMemberIndex(keyId, parseMemberUids(keyData.memberUids))
+      }
+
       // 从费用排序索引中移除
       try {
         const costRankService = require('./costRankService')
@@ -1744,6 +1825,10 @@ class ApiKeyService {
       // 重新添加到 externalUid 索引
       if (keyData.externalUid) {
         await redis.addKeyToUidIndex(keyData.externalUid, keyId)
+      }
+
+      if ((keyData.packMode || 'personal') === 'enterprise') {
+        await syncEnterpriseMemberIndex(keyId, [], parseMemberUids(keyData.memberUids))
       }
 
       // 重新添加到费用排序索引

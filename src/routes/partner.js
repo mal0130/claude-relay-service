@@ -50,6 +50,31 @@ function parseRateLimits(rateLimits) {
   return Array.isArray(parsed) ? parsed : []
 }
 
+function normalizeMemberUids(memberUids) {
+  if (!Array.isArray(memberUids)) {
+    return []
+  }
+
+  const normalized = []
+  const seen = new Set()
+
+  for (const memberUid of memberUids) {
+    if (typeof memberUid !== 'string') {
+      continue
+    }
+
+    const trimmedUid = memberUid.trim()
+    if (!trimmedUid || seen.has(trimmedUid)) {
+      continue
+    }
+
+    seen.add(trimmedUid)
+    normalized.push(trimmedUid)
+  }
+
+  return normalized
+}
+
 // Helper: Get usage summary for a key
 async function getUsageSummary(apiKey) {
   const client = redis.getClientSafe()
@@ -1103,6 +1128,344 @@ router.post('/api-key/create', authenticatePartner, async (req, res) => {
     })
   } catch (error) {
     logger.error('❌ Partner create API Key error:', error)
+    return res.status(500).json({
+      code: 1003,
+      msg: error.message || 'Internal server error',
+      data: null
+    })
+  }
+})
+
+router.post('/enterprise/key/batch-create', authenticatePartner, async (req, res) => {
+  try {
+    const { keys } = req.body
+
+    if (!Array.isArray(keys)) {
+      return res.status(400).json({
+        code: 1001,
+        msg: 'keys is required and must be an array',
+        data: null
+      })
+    }
+
+    if (keys.length === 0 || keys.length > 100) {
+      return res.status(400).json({
+        code: 1001,
+        msg: 'keys length must be between 1 and 100',
+        data: null
+      })
+    }
+
+    const results = []
+    const errors = []
+
+    for (const [index, item] of keys.entries()) {
+      try {
+        const {
+          name,
+          externalUid,
+          memberUids,
+          totalCostLimit,
+          dailyCostLimit,
+          claude_account_id,
+          openai_account_id,
+          deepseek_account_id,
+          claude_rate,
+          openai_rate,
+          deepseek_rate,
+          rate,
+          rateLimits,
+          expiresAt,
+          expirationMode,
+          activationDays,
+          activationUnit
+        } = item || {}
+
+        const resolvedClaudeRate = resolveClaudeRate(claude_rate, rate)
+        const normalizedMemberUids = normalizeMemberUids(memberUids)
+
+        if (!name || typeof name !== 'string' || name.trim().length === 0) {
+          throw new Error('name is required and must be a non-empty string')
+        }
+
+        if (name.length > 100) {
+          throw new Error('name must be less than 100 characters')
+        }
+
+        if (!externalUid || typeof externalUid !== 'string' || externalUid.trim().length === 0) {
+          throw new Error('externalUid is required')
+        }
+
+        if (normalizedMemberUids.length === 0) {
+          throw new Error('memberUids is required')
+        }
+
+        if (
+          totalCostLimit !== undefined &&
+          totalCostLimit !== null &&
+          totalCostLimit !== '' &&
+          (Number.isNaN(Number(totalCostLimit)) || Number(totalCostLimit) < 0)
+        ) {
+          throw new Error('totalCostLimit must be a non-negative number')
+        }
+
+        if (
+          dailyCostLimit !== undefined &&
+          dailyCostLimit !== null &&
+          dailyCostLimit !== '' &&
+          (Number.isNaN(Number(dailyCostLimit)) || Number(dailyCostLimit) < 0)
+        ) {
+          throw new Error('dailyCostLimit must be a non-negative number')
+        }
+
+        if (expirationMode && !['fixed', 'activation'].includes(expirationMode)) {
+          throw new Error('expirationMode must be either "fixed" or "activation"')
+        }
+
+        if (expirationMode === 'activation') {
+          if (!activationUnit || !['hours', 'days'].includes(activationUnit)) {
+            throw new Error(
+              'activationUnit must be either "hours" or "days" when using activation mode'
+            )
+          }
+
+          if (
+            !activationDays ||
+            !Number.isInteger(Number(activationDays)) ||
+            Number(activationDays) < 1
+          ) {
+            const unitText = activationUnit === 'hours' ? 'hours' : 'days'
+            throw new Error(
+              `activation ${unitText} must be a positive integer when using activation mode`
+            )
+          }
+
+          if (expiresAt) {
+            throw new Error('cannot set fixed expiration date when using activation mode')
+          }
+        }
+
+        if (expiresAt && Number.isNaN(new Date(expiresAt).getTime())) {
+          throw new Error('invalid expiration date format')
+        }
+
+        const claudeRateError = validateRate(resolvedClaudeRate, 'claude_rate')
+        if (claudeRateError) {
+          throw new Error(claudeRateError)
+        }
+
+        const openaiRateError = validateRate(openai_rate, 'openai_rate')
+        if (openaiRateError) {
+          throw new Error(openaiRateError)
+        }
+
+        const deepseekRateError = validateRate(deepseek_rate, 'deepseek_rate')
+        if (deepseekRateError) {
+          throw new Error(deepseekRateError)
+        }
+
+        if (rateLimits !== undefined && rateLimits !== null && rateLimits !== '') {
+          if (!Array.isArray(rateLimits)) {
+            throw new Error('rateLimits must be an array')
+          }
+
+          for (let rateLimitIndex = 0; rateLimitIndex < rateLimits.length; rateLimitIndex++) {
+            const rule = rateLimits[rateLimitIndex]
+            if (!rule || typeof rule !== 'object') {
+              throw new Error(`rateLimits[${rateLimitIndex}] must be an object`)
+            }
+            if (!Number.isInteger(rule.window) || rule.window <= 0) {
+              throw new Error(
+                `rateLimits[${rateLimitIndex}].window must be a positive integer (minutes)`
+              )
+            }
+            if (rule.requests === undefined && rule.cost === undefined) {
+              throw new Error(
+                `rateLimits[${rateLimitIndex}] must have at least one of: requests, cost`
+              )
+            }
+            if (
+              rule.requests !== undefined &&
+              (!Number.isInteger(rule.requests) || rule.requests <= 0)
+            ) {
+              throw new Error(`rateLimits[${rateLimitIndex}].requests must be a positive integer`)
+            }
+            if (
+              rule.cost !== undefined &&
+              (Number.isNaN(Number(rule.cost)) || Number(rule.cost) < 0)
+            ) {
+              throw new Error(`rateLimits[${rateLimitIndex}].cost must be a non-negative number`)
+            }
+          }
+        }
+
+        const targetAccountId = claude_account_id || config.partnerApi.defaultClaudeAccountId
+        if (!targetAccountId) {
+          throw new Error(
+            'Partner default Claude account ID not configured. Please set PARTNER_DEFAULT_CLAUDE_ACCOUNT_ID environment variable.'
+          )
+        }
+
+        const claudeBindingFields = await resolveClaudeBindingFields(targetAccountId)
+
+        if (openai_account_id && !(await validateOpenAIBinding(openai_account_id))) {
+          throw new Error('OpenAI account not found or inactive')
+        }
+
+        let deepseekBinding = null
+        if (deepseek_account_id) {
+          deepseekBinding = await resolveDeepSeekBinding(deepseek_account_id)
+        }
+
+        const createServiceRates = buildServiceRates(
+          {},
+          resolvedClaudeRate,
+          openai_rate,
+          deepseek_rate
+        )
+
+        const permissions = ['claude']
+        if (openai_account_id) {
+          permissions.push('openai')
+        }
+        if (deepseek_account_id) {
+          permissions.push('deepseek')
+        }
+
+        const createParams = {
+          name: name.trim(),
+          description: 'Created by partner enterprise API',
+          tags: ['uni-agent'],
+          totalCostLimit: totalCostLimit ? Number(totalCostLimit) : 0,
+          dailyCostLimit: dailyCostLimit ? Number(dailyCostLimit) : 0,
+          ...claudeBindingFields,
+          permissions,
+          isActive: true,
+          externalUid: externalUid.trim(),
+          packMode: 'enterprise',
+          memberUids: normalizedMemberUids
+        }
+
+        if (openai_account_id) {
+          createParams.openaiAccountId = openai_account_id
+        }
+
+        if (deepseekBinding) {
+          createParams.accountBindings = buildAccountBindings({}, deepseekBinding)
+        }
+
+        if (Object.keys(createServiceRates).length > 0) {
+          createParams.serviceRates = createServiceRates
+        }
+
+        if (rateLimits && rateLimits.length > 0) {
+          createParams.rateLimits = rateLimits
+        }
+
+        if (expiresAt) {
+          createParams.expiresAt = new Date(expiresAt).toISOString()
+        }
+
+        if (expirationMode) {
+          createParams.expirationMode = expirationMode
+        }
+
+        if (activationDays !== undefined && activationDays !== null && activationDays !== '') {
+          createParams.activationDays = Number(activationDays)
+        }
+
+        if (activationUnit) {
+          createParams.activationUnit = activationUnit
+        }
+
+        const newKey = await apiKeyService.generateApiKey(createParams)
+
+        results.push({
+          keyId: newKey.id,
+          keyName: newKey.name,
+          apiKey: newKey.apiKey,
+          memberUids: normalizedMemberUids
+        })
+      } catch (error) {
+        errors.push({
+          index,
+          name: item?.name || '',
+          msg: error.message || 'Unknown error'
+        })
+      }
+    }
+
+    return res.json({
+      code: 0,
+      msg: 'success',
+      data: {
+        total: keys.length,
+        created: results.length,
+        failed: errors.length,
+        keys: results,
+        errors
+      }
+    })
+  } catch (error) {
+    logger.error('❌ Partner enterprise batch create error:', error)
+    return res.status(500).json({
+      code: 1003,
+      msg: error.message || 'Internal server error',
+      data: null
+    })
+  }
+})
+
+router.post('/enterprise/key/members/set', authenticatePartner, async (req, res) => {
+  try {
+    const { keyId, memberUids } = req.body
+
+    if (!keyId || typeof keyId !== 'string') {
+      return res.status(400).json({
+        code: 1001,
+        msg: 'keyId is required',
+        data: null
+      })
+    }
+
+    if (!Array.isArray(memberUids)) {
+      return res.status(400).json({
+        code: 1001,
+        msg: 'memberUids is required and must be an array',
+        data: null
+      })
+    }
+
+    const keyData = await findApiKey(keyId, null)
+    if (!keyData) {
+      return res.status(404).json({
+        code: 1003,
+        msg: 'Key not found',
+        data: null
+      })
+    }
+
+    if ((keyData.packMode || 'personal') !== 'enterprise') {
+      return res.status(400).json({
+        code: 1004,
+        msg: 'Key is not enterprise edition',
+        data: null
+      })
+    }
+
+    const normalizedMemberUids = normalizeMemberUids(memberUids)
+    await apiKeyService.updateApiKey(keyId, { memberUids: normalizedMemberUids })
+
+    return res.json({
+      code: 0,
+      msg: 'success',
+      data: {
+        keyId,
+        memberUids: normalizedMemberUids
+      }
+    })
+  } catch (error) {
+    logger.error('❌ Partner enterprise set members error:', error)
     return res.status(500).json({
       code: 1003,
       msg: error.message || 'Internal server error',
