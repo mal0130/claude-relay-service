@@ -1,3 +1,4 @@
+const crypto = require('crypto')
 const { v4: uuidv4 } = require('uuid')
 const config = require('../../config/config')
 const apiKeyService = require('../services/apiKeyService')
@@ -17,6 +18,41 @@ const subscriptionUrl =
 // 工具函数
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+function commonAes128Decrypt(data) {
+  if (!data) {
+    return false
+  }
+
+  const keyValue = config.security?.enterpriseUserIdAesKey
+  const ivValue = config.security?.enterpriseUserIdAesIv
+  if (!keyValue || !ivValue) {
+    logger.warn('Enterprise user id AES config is missing')
+    return false
+  }
+
+  try {
+    const key = Buffer.from(keyValue)
+    const iv = Buffer.from(ivValue)
+    const encrypted = Buffer.from(data, 'base64')
+
+    const decipher = crypto.createDecipheriv('aes-128-cbc', key, iv)
+    const decrypted = Buffer.concat([decipher.update(encrypted), decipher.final()])
+
+    return decrypted.toString('utf8')
+  } catch (_error) {
+    return false
+  }
+}
+
+function extractEnterpriseUserId(encryptedUserId) {
+  const decrypted = commonAes128Decrypt(encryptedUserId)
+  if (!decrypted || typeof decrypted !== 'string') {
+    return ''
+  }
+
+  return decrypted.split('|')[0]?.trim() || ''
 }
 
 function parseRateLimits(rateLimits) {
@@ -870,16 +906,27 @@ const authenticateApiKey = async (req, res, next) => {
     // ── 企业版切换逻辑（与个人版完全隔离）──────────────────────────────────
     // x-pack-mode: enterprise 时走企业版索引，不触碰个人版任何逻辑
     const packMode = (req.headers['x-pack-mode'] || '').trim().toLowerCase()
-    const xUserId = (req.headers['x-user-id'] || '').trim()
+    const rawXUserId = (req.headers['x-user-id'] || '').trim()
+    const xUserId = extractEnterpriseUserId(rawXUserId)
 
     if (packMode === 'enterprise') {
       // x-pack-mode=enterprise 但缺少 x-user-id，直接报错
-      if (!xUserId) {
+      if (!rawXUserId) {
         return res.status(400).json({
           error: {
             type: 'invalid_request',
             message: '参数错误，请检查 uni-agent 版本是否为最新版！',
             code: 'missing_user_id'
+          }
+        })
+      }
+
+      if (!xUserId) {
+        return res.status(400).json({
+          error: {
+            type: 'invalid_request',
+            message: '参数错误，请检查 uni-agent 版本是否为最新版！',
+            code: 'invalid_user_id'
           }
         })
       }
