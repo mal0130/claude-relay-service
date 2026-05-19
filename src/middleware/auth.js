@@ -77,28 +77,26 @@ const isAiFixPack = (name) => /pack-free-3$/i.test(name)
 const isPackageName = (name) => /pack-month-(149|360|1490)$/i.test(name)
 
 // 校验请求是否为 AI修复 场景
-// 规则：第一条 user 消息匹配 AI修复 pattern（历史会话每次都带上，多轮对话自然满足）
+// 规则：任意一条 user 消息匹配 AI修复 pattern 即满足（历史会话每次都带上，多轮对话自然满足）
 function isAiFixRequest(req) {
   const messages = req.body?.messages || req.body?.input
   if (!Array.isArray(messages) || messages.length === 0) {
     return false
   }
-  const firstUserMsg = messages.find((m) => m.role === 'user')
-  if (!firstUserMsg) {
-    return false
-  }
-  let text = ''
-  if (typeof firstUserMsg.content === 'string') {
-    text = firstUserMsg.content
-  } else if (Array.isArray(firstUserMsg.content)) {
-    text = firstUserMsg.content
-      .filter((part) => part.type === 'text' && part.text)
-      .map((part) => part.text)
-      .join('\n')
-  }
-
   const aiFixPattern = /请修复.+控制台中的错误，修复后继续分析.+控制台日志，直到控制台没有错误。/
-  return aiFixPattern.test(text)
+  return messages.some((m) => {
+    if (m.role !== 'user') return false
+    let text = ''
+    if (typeof m.content === 'string') {
+      text = m.content
+    } else if (Array.isArray(m.content)) {
+      text = m.content
+        .filter((part) => (part.type === 'text' || part.type === 'input_text') && part.text)
+        .map((part) => part.text)
+        .join('\n')
+    }
+    return aiFixPattern.test(text)
+  })
 }
 
 async function getWindowRatedCostFallback(keyId, windowStartTime) {
