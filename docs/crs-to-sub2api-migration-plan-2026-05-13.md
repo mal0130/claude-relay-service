@@ -16,13 +16,16 @@
 
 | 维度 | sub2api 现状 | 与 CRS 的差距 | 迁移方向 |
 | --- | --- | --- | --- |
-| API Key | `api_keys.key` 保存明文 Key，`group_id` 只绑定一个 group | CRS Key 只存 hash，且同 Key 跨 Claude/OpenAI/Gemini/DeepSeek 多平台 | 增加 legacy hash lookup 和多平台 binding，保留标准 sub2api Key 行为 |
+| API Key | `api_keys.key` 保存明文 Key，`group_id` 只绑定一个 group | CRS Redis 只存 hash，但外部业务系统保存了原始 `cr_...` Key；核心差距仍是同 Key 跨 Claude/OpenAI/Gemini/DeepSeek 多平台 | 优先从外部业务系统导入原始 Key 到 sub2api，同时保留 legacy hash/ID 做对账和兜底；新增多平台 binding |
 | 平台选择 | 主要由 Key 所属 group 的 `platform` 决定 | CRS 由请求入口和 Key 权限共同决定平台 | 在认证后、调度前增加 platform resolver，按路径/协议选 binding |
 | 计费 | `usage_logs.total_cost` + `actual_cost`，存在 group/user/account 倍率 | CRS 业务计费以 API Key 为中心，平台倍率不同，不能双重相乘 | CRS 兼容 Key 的最终倍率由 binding/serviceRates 计算并写 usage log |
-| 限额 | API Key 只有 5h/1d/7d 成本窗口 | CRS 支持任意多窗口 request/cost 限制和资源包切换 | 增加多窗口规则与运行时计数，兼容现有 5h/1d/7d 字段 |
+| 限额 | API Key 已有 5h/1d/7d 成本窗口 | CRS 虽支持任意多窗口，但当前实际只使用 5h 和 7d 限制；sub2api 现有字段已满足首批迁移 | 不新增多窗口结构；只迁移 5h/7d 限额值和必要的已用量口径 |
 | 用量日志 | `usage_logs` 有 token/cost/model/account/group/request_id 等字段 | CRS 额外有 session/userInput/processType/projectType/assistantContent 等 | 小字段进入 `usage_logs.extra` 或扩展列，大内容进入 request detail 表 |
 | OpenAI Codex 用量 | 已能解析部分 `x-codex-*` 快照到 `account.extra` | CRS 还有自动停止调度、自动恢复、阈值、通知、UI 状态 | 补齐保护策略和调度排除逻辑，复用现有 snapshot |
 | DeepSeek | 可按 OpenAI-compatible 思路承接，但未形成 CRS 兼容闭环 | CRS 是一等平台，有路由、账号、统计、价格、cache hit/miss | 以 platform alias + OpenAI-compatible gateway 承接，补 usage/pricing/同步 |
+| 价格同步 | sub2api 价格同步当前需要确认是否仍跟随 `Wei-Shaw/sub2api` 上游 | 迁移后价格、模型和业务补丁应以 `mal0130/sub2api` fork 分支为准，不能继续从 weishaw 上游直接覆盖 | 将价格同步源改为 `mal0130` fork 指定分支，并固定 repo/branch 配置；同步前做 diff/dry-run，避免覆盖本地业务定价 |
+| Partner API | sub2api 有 admin/API Key/usage 能力，但没有 CRS `/partner` 兼容接口 | 外部业务系统依赖 CRS Partner API 的 SHA-256 签名、字段名、批量更新、用量查询和平台绑定语义 | 新增 `/partner` 兼容层，保持签名和字段契约，内部落到 sub2api Key、binding、usage 聚合 |
+| 分布式部署/后台任务 | 单实例部署下后台任务可直接在服务进程内执行 | 多实例部署会导致价格同步、账号刷新、用量保护恢复、通知、清理等任务重复执行或互相覆盖 | 后台任务需要分布式锁/leader election/独立 worker，所有任务保证幂等；定时任务和 Web 服务实例职责要拆清 |
 | 外部同步 | 有 Postgres/服务 API 基础 | 业务系统原来直接读 CRS Redis | 提供稳定 API/view/Webhook 和 legacy id 映射 |
 
 ## 3. 统一前置设计：CRS API Key 兼容层与统一计费
@@ -31,8 +34,9 @@
 
 ### 3.1 API Key 兼容模型
 
-- 新增 legacy Key 索引：保存 `legacy_crs_key_id`、`key_hash`、`source=crs`、`api_key_id`、状态和迁移批次；不保存已有 `cr_...` 明文。
-- 保留 sub2api 原生 Key：非 `cr_` 或未命中 legacy hash 的 Key 继续走现有 `api_keys.key` 明文查找，避免破坏原功能。
+- 优先从外部业务系统导入原始 `cr_...` Key，写入 sub2api 现有 `api_keys.key`，这样认证链路可复用原生 Key lookup。
+- 同步新增 legacy Key 索引：保存 `legacy_crs_key_id`、`key_hash`、`source=crs`、`api_key_id`、状态和迁移批次，用于和 CRS Redis 对账、兜底校验以及处理外部系统缺失原始 Key 的少量异常。
+- 保留 sub2api 原生 Key 行为：非 CRS 迁移 Key 继续走现有流程；CRS 迁移 Key 只有在外部系统没有原始 Key 时才进入 hash-only 兼容或要求换 Key。
 - 新增 Key 元数据：`external_uid`、`tags`、`pack_consent`、`translate_reasoning`、`legacy_permissions`、`legacy_client_restrictions`、`legacy_model_blacklist`。
 - 新增多平台 binding：一个 `api_key_id` 可以绑定多条平台记录，字段至少包括 `platform/service`、`group_id`、`account_id/group_ref`、`enabled`、`rate_multiplier`、`binding_mode`、`legacy_account_id`、`metadata`。
 - 平台解析顺序：先根据路由/协议识别目标平台，再校验 Key 是否有该平台 binding、权限、客户端限制、模型黑名单、余额和限额。
@@ -49,7 +53,7 @@ raw_model_cost -> service/global rate -> API Key 平台倍率 -> billed actual_c
 - `usage_logs.group_id` 写本次请求选中的平台 group，保证平台、账号、模型维度可拆分统计。
 - CRS 兼容 Key 的 `usage_logs.rate_multiplier` 写最终扣费倍率；避免再叠加 sub2api group/user multiplier。
 - `usage_logs.account_rate_multiplier` 可继续作为账号维度成本快照，但不影响 API Key 扣费口径。
-- quota、余额、多窗口 cost 限制必须按最终 `actual_cost` 消耗，不能按原始 `total_cost` 消耗。
+- quota、余额、5h/7d cost 限制必须按最终 `actual_cost` 消耗，不能按原始 `total_cost` 消耗。
 
 ### 3.3 路由到 binding 的建议映射
 
@@ -160,7 +164,7 @@ raw_model_cost -> service/global rate -> API Key 平台倍率 -> billed actual_c
 | `claude_rate` | `claude` binding `rate_multiplier` |
 | `openai_rate` | `openai/codex` binding `rate_multiplier` |
 | `deepseek_rate` | `deepseek` binding `rate_multiplier` |
-| `rateLimits` | 多窗口限制规则表/JSONB |
+| `rateLimits` | 首批仅映射当前实际使用的 5h/7d 限额到 sub2api 现有字段 |
 | `pack_consent` | `tags` 包含 `pack_consent` 或 metadata bool |
 
 **验收标准**
@@ -183,21 +187,21 @@ raw_model_cost -> service/global rate -> API Key 平台倍率 -> billed actual_c
 **sub2api 现状与差距**
 
 - API Key 只有 `quota`、`quota_used`、`rate_limit_5h/1d/7d`、`usage_5h/1d/7d` 等固定成本窗口。
-- 不支持 CRS 任意窗口数组、请求数窗口、资源包 consent、externalUid 自动换 Key，也不支持单 Key 多平台绑定。
+- CRS 当前实际只使用 5h 和 7d 限制，sub2api 现有固定窗口字段已满足；主要差距是资源包 consent、externalUid 自动换 Key，以及单 Key 多平台绑定。
 
 **迁移方案**
 
 - Key 迁移：
   - 建立 `legacy_crs_key_id -> api_key_id` 映射。
-  - 导入 `key_hash`、status、expires、quota/cost totals、tags、externalUid、permissions、model blacklist、client restrictions。
-  - `cr_` 明文只在请求时用于 hash lookup，不落库、不写日志。
+  - 从外部业务系统导入原始 `cr_...` Key 到 `api_keys.key`，同时导入 `key_hash`、status、expires、quota/cost totals、tags、externalUid、permissions、model blacklist、client restrictions。
+  - 对外部业务系统缺失原始 Key 的少量记录，单独评估 hash-only 兼容或换 Key；日志中仍禁止输出完整 Key。
 - 多平台绑定：
   - `accountBindings` 拆成多条 binding，不再塞进单个 `api_keys.group_id`。
   - CRS 兼容 Key 可以保留一个默认 group，但真实调度必须以 binding resolver 输出为准。
-- 多窗口限额：
-  - 建议新增可表达任意窗口的 `api_key_rate_limit_rules` 和 `api_key_rate_limit_windows`，或 JSONB + Redis cache。
-  - 常见 300min/1d/7d 同步镜像到 sub2api 现有字段，便于复用 UI 和已有检查。
-  - request count 和 cost count 都要支持；窗口结构变化才重置窗口。
+- 限额迁移：
+  - 首批不新增任意多窗口结构，直接映射 CRS 当前使用的 5h 和 7d 限制到 sub2api 现有 `rate_limit_5h`、`rate_limit_7d`。
+  - 如需要保留 cutover 时的窗口已用量，则同步 `usage_5h`、`usage_7d` 和窗口开始时间；否则切换时重新开窗，但要在迁移报告中明确。
+  - CRS 理论上的任意窗口数组和请求数窗口作为二期预留，不纳入当前迁移必要工作。
 - 自动切换：
   - 导入/维护 `externalUid -> api_key_id list` 索引。
   - 当前 Key 因过期、禁用、quota、窗口、资源包限制失败时，查同 externalUid 候选 Key。
@@ -211,7 +215,7 @@ raw_model_cost -> service/global rate -> API Key 平台倍率 -> billed actual_c
 **验收标准**
 
 - 同一 `cr_...` Key 跨平台请求仍统一计入一个 API Key 的 quota/cost。
-- 任意窗口 cost/request 限制与 CRS 样本一致，尤其是窗口不应在普通配置更新时被误重置。
+- 5h/7d cost 限制与 CRS 样本一致，窗口状态迁移或重新开窗策略在 dry-run 报告中明确。
 - externalUid 自动切换只切到有目标平台权限和 binding 的 Key，不会绕过客户端限制或模型黑名单。
 - `pack_consent=false` 时不会从套餐透明切到资源包。
 
@@ -328,11 +332,11 @@ raw_model_cost -> service/global rate -> API Key 平台倍率 -> billed actual_c
 - OpenAI refresh 失败、限流、未授权、状态重置等事件发送 webhook。
 - `No available accounts` 每日一次提醒，避免重复告警。
 - API 错误文案面向套餐/资源包，Prompt too long 映射为 413。
-- 多窗口费用按倍率后成本更新。
+- 5h/7d 窗口费用按倍率后成本更新。
 
 **sub2api 现状与差距**
 
-- sub2api 有账号限流、过载、错误日志和部分客户端错误处理能力，但需要按 CRS 的业务文案、状态码、通知事件和多窗口费用口径做兼容校验。
+- sub2api 有账号限流、过载、错误日志和部分客户端错误处理能力，但需要按 CRS 的业务文案、状态码、通知事件和 5h/7d 窗口费用口径做兼容校验。
 
 **迁移方案**
 
@@ -344,7 +348,7 @@ raw_model_cost -> service/global rate -> API Key 平台倍率 -> billed actual_c
   - no available accounts -> 503/业务兼容错误码 + 每日去重通知。
   - Key quota/rate/package/resource pack -> CRS 中文文案 + 原状态码语义。
 - Webhook event schema 保持稳定：事件类型、账号 legacy id、新 account id、platform、原因、恢复时间、request_id、脱敏错误摘要。
-- 多窗口费用更新统一使用 `actual_cost`，并在请求失败/取消时明确是否扣费；保持 CRS 样本一致。
+- 5h/7d 窗口费用更新统一使用 `actual_cost`，并在请求失败/取消时明确是否扣费；保持 CRS 样本一致。
 - 错误日志写 sub2api error log/ops log，并关联 `request_id`、api_key_id、group_id、account_id、legacy id。
 
 **验收标准**
@@ -362,7 +366,7 @@ raw_model_cost -> service/global rate -> API Key 平台倍率 -> billed actual_c
 - API Key 趋势接口支持 `startDate`、`endDate`、`metric`、`tag`，返回完整 `apiKeyStats`。
 - 用户侧用量统计聚合所有 Key 的 daily/model 数据，补充 cache create/read tokens。
 - 账号用量历史、账号趋势和请求明细支持 DeepSeek，并补充 session、用户输入、项目类型、assistant 内容等扩展字段。
-- 前端 API Key 创建/编辑/批量编辑支持多窗口限制、服务倍率、标签、`pack_consent`、DeepSeek 绑定和 `externalUid`。
+- 前端 API Key 创建/编辑/批量编辑支持 5h/7d 限制、服务倍率、标签、`pack_consent`、DeepSeek 绑定和 `externalUid`。
 
 **sub2api 现状与差距**
 
@@ -377,7 +381,7 @@ raw_model_cost -> service/global rate -> API Key 平台倍率 -> billed actual_c
   - 用户侧按 user 聚合所有 Key，不只看单 Key。
 - UI 表单：
   - API Key 创建/编辑显示多平台 bindings，而不是单 group。
-  - 支持 `serviceRates`/binding multiplier、`rateLimits` 多窗口、tags、`pack_consent`、`externalUid`、`translateReasoning`。
+  - 支持 `serviceRates`/binding multiplier、5h/7d `rateLimits`、tags、`pack_consent`、`externalUid`、`translateReasoning`。
   - DeepSeek 在账号页和 Dashboard 独立显示，但底层可通过 alias 过滤。
 - 请求明细 UI：展示 `request_id`、legacy key id、platform、group、account、model、session、userInput 摘要、projectType、processType、assistantContent 摘要、成本 breakdown。
 - 排序分页：后端完成分页聚合，避免前端拉全量 usage log。
@@ -439,12 +443,12 @@ raw_model_cost -> service/global rate -> API Key 平台倍率 -> billed actual_c
 
 | 数据类型 | 迁移方式 | 是否完整迁移历史 | 备注 |
 | --- | --- | --- | --- |
-| API Key 基础信息 | 导入到 sub2api API Key + legacy hash 表 | 是 | 不导入 `cr_` 明文，只导入 hash 和 metadata |
+| API Key 基础信息 | 从外部业务系统导入原始 `cr_...` Key 到 sub2api API Key，并写 legacy hash/ID | 是 | sub2api 当前保存明文 Key；hash 用于 CRS 对账和兜底 |
 | API Key 多平台权限/绑定 | 导入 binding 表/JSONB | 是 | Claude/OpenAI/Gemini/DeepSeek 分平台映射 |
 | API Key serviceRates | 导入 binding multiplier | 是 | 作为 CRS 最终倍率计算输入 |
 | API Key tags/pack_consent | 导入 metadata/tags | 是 | 用于资源包切换和 UI 筛选 |
 | externalUid 索引 | 重建索引 | 是 | 用于自动切换候选 Key |
-| rateLimits | 导入多窗口规则 | 是 | 运行时窗口状态按 CRS cutover 快照导入或从切换时重开，需确认 |
+| rateLimits | 映射 5h/7d 限额到现有字段 | 是 | 不新增多窗口结构；窗口状态按 cutover 策略导入或重开 |
 | 余额/额度/累计成本 | 导入 quota/usage counters 或兼容表 | 是 | 迁移后做 CRS/sub2api 对账 |
 | 请求历史明细 | CRS Redis 只读归档 | 否 | sub2api 只承接切换后新明细 |
 | AI 平台账号 | 导入 sub2api accounts | 是 | credentials 加密，legacy id 写 extra |
@@ -462,16 +466,16 @@ raw_model_cost -> service/global rate -> API Key 平台倍率 -> billed actual_c
 
 ### Phase 1：迁移盘点和 dry-run
 
-- 从 CRS Redis 导出 API Key、permissions、serviceRates、accountBindings、rateLimits、externalUid、tags、cost totals。
+- 从 CRS Redis 导出 API Key metadata、permissions、serviceRates、accountBindings、rateLimits、externalUid、tags、cost totals；从外部业务系统导出原始 `cr_...` Key。
 - 导出 Claude/OpenAI/Gemini/DeepSeek 账号和状态，生成 legacy id 映射。
 - 检查 sub2api 中目标 group/account/channel/pricing 是否齐全。
 - 生成 dry-run 报告：缺 group、缺价格、重复账号、无效绑定、权限冲突、无法映射字段。
 
 ### Phase 2：核心兼容能力
 
-- legacy hash auth + 多平台 binding resolver。
+- 原始 `cr_...` Key 导入、legacy hash 对账/兜底 + 多平台 binding resolver。
 - CRS 兼容计费倍率和 quota/rate limit 消耗。
-- 多窗口 request/cost 限制和 externalUid 自动切换。
+- 5h/7d cost 限制复用和 externalUid 自动切换。
 - Partner API 兼容层。
 - DeepSeek route/account/usage/pricing 兼容。
 
@@ -501,10 +505,10 @@ raw_model_cost -> service/global rate -> API Key 平台倍率 -> billed actual_c
 
 | 场景 | 验收点 |
 | --- | --- |
-| legacy auth | `cr_` Key 只通过 hash lookup，数据库和日志不出现完整 Key |
+| API Key 导入/认证 | 从外部业务系统导入的 `cr_` Key 可直接认证；legacy hash 可对账/兜底；日志不出现完整 Key |
 | 跨平台访问 | 同一 Key 调 Claude/OpenAI/Gemini/DeepSeek，写同一 `api_key_id` 和不同 group/platform |
 | 平台倍率 | 不同平台倍率生效，且不与 sub2api group/user multiplier 双重相乘 |
-| quota/rate limit | quota 和多窗口限制按 `actual_cost` 消耗，request count 和 cost 都可限 |
+| quota/rate limit | quota 和 5h/7d 限制按 `actual_cost` 消耗，窗口状态迁移/重开策略明确 |
 | externalUid 切换 | 主 Key 失败后只切到同 uid 且满足目标平台校验的候选 Key |
 | pack_consent | 未授权时不切资源包，授权后按 CRS 顺序切换 |
 | Partner API | 签名、字段、批量更新、usage 汇总与 CRS 兼容 |
@@ -519,7 +523,7 @@ raw_model_cost -> service/global rate -> API Key 平台倍率 -> billed actual_c
 ## 9. 待确认问题
 
 - `translateReasoning` 是否必须首批迁移；若不是，建议首批只迁移字段并默认关闭。
-- CRS `rateLimits` 的运行时窗口状态是否要按 Redis 当前窗口精确迁移，还是 cutover 时重新开窗。
+- CRS 5h/7d `rateLimits` 的运行时窗口状态是否要按 Redis 当前窗口精确迁移，还是 cutover 时重新开窗。
 - 外部业务系统优先使用 Partner API、Postgres view 还是 Webhook；不同选择会影响工作量和稳定性边界。
 - DeepSeek Anthropic-compatible 路由是否必须首批完全兼容；若业务只使用 OpenAI-compatible，可先灰度 OpenAI-compatible。
 - Partner API 的错误响应 JSON 是否需要字节级兼容 CRS，还是字段级兼容即可。
