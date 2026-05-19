@@ -2096,6 +2096,7 @@ class ApiKeyService {
         costBreakdown: costInfo?.costs || undefined,
         realCostBreakdown: costInfo?.costs || undefined,
         isLongContext: isLongContextRequest,
+        uniUserId: finalizedRequestMeta?.uniUserId || null,
         ...(process.env.ENABLE_USAGE_DETAIL === 'true' ? extra : {})
       }
 
@@ -2365,6 +2366,7 @@ class ApiKeyService {
           ephemeral1h: costInfo.ephemeral1hCost || 0
         },
         isLongContext: costInfo.isLongContextRequest || false,
+        uniUserId: finalizedRequestMeta?.uniUserId || null,
         ...(process.env.ENABLE_USAGE_DETAIL === 'true' ? extra : {})
       }
 

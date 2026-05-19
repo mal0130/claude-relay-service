@@ -42,6 +42,7 @@ function commonAes128Decrypt(data) {
 
     return decrypted.toString('utf8')
   } catch (_error) {
+    logger.warn(`commonAes128Decrypt failed: ${_error.message}`)
     return false
   }
 }
@@ -904,13 +905,16 @@ const authenticateApiKey = async (req, res, next) => {
     let validation = await validateApiKeyWithAllChecks(apiKey, req, res)
 
     // ── 企业版切换逻辑（与个人版完全隔离）──────────────────────────────────
-    // x-pack-mode: enterprise 时走企业版索引，不触碰个人版任何逻辑
-    const packMode = (req.headers['x-pack-mode'] || '').trim().toLowerCase()
-    const rawXUserId = (req.headers['x-user-id'] || '').trim()
+    // uni_agent_subscription_type: enterprise 时走企业版索引，不触碰个人版任何逻辑
+    const packMode = (req.headers['uni_agent_subscription_type'] || '').trim().toLowerCase()
+    const rawXUserId = (req.headers['uni_agent_subscription_user_id'] || '').trim()
     const xUserId = extractEnterpriseUserId(rawXUserId)
+    if (xUserId) {
+      req.uniUserId = xUserId
+    }
 
     if (packMode === 'enterprise') {
-      // x-pack-mode=enterprise 但缺少 x-user-id，直接报错
+      // uni_agent_subscription_type=enterprise 但缺少 uni_agent_subscription_user_id，直接报错
       if (!rawXUserId) {
         return res.status(400).json({
           error: {
