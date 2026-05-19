@@ -848,7 +848,11 @@ class OpenAIResponsesRelayService {
       if (!res.headersSent) {
         res.status(502).json({ error: { message: 'Upstream stream error' } })
       } else if (!res.destroyed) {
-        res.end()
+        res.write('\n\n')
+        res.write(
+          `data: ${JSON.stringify({ type: 'error', error: { message: 'Upstream connection reset', code: error.code || 'ECONNRESET' } })}\n\n`
+        )
+        res.destroy()
       }
     })
 

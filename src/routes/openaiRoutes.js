@@ -1071,8 +1071,12 @@ const handleResponses = async (req, res) => {
       logger.error('Upstream stream error:', err)
       if (!res.headersSent) {
         res.status(502).json({ error: { message: 'Upstream stream error' } })
-      } else {
-        res.end()
+      } else if (!res.destroyed) {
+        res.write('\n\n')
+        res.write(
+          `data: ${JSON.stringify({ type: 'error', error: { message: 'Upstream connection reset', code: err.code || 'ECONNRESET' } })}\n\n`
+        )
+        res.destroy()
       }
     })
 
