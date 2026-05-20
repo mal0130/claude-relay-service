@@ -83,7 +83,8 @@ function isAiFixRequest(req) {
   if (!Array.isArray(messages) || messages.length === 0) {
     return false
   }
-  const aiFixPattern = /请修复.+控制台中的错误，修复后继续分析.+控制台日志，直到控制台没有错误。/
+  const aiFixPattern =
+    /请修复.+控制台中的错误，修复后继续分析.+控制台日志，直到控制台没有错误。|请修复.+控制台中的错误。/
   return messages.some((m) => {
     if (m.role !== 'user') return false
     let text = ''
