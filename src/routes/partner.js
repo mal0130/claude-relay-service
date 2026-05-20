@@ -1196,10 +1196,6 @@ router.post('/enterprise/key/batch-create', authenticatePartner, async (req, res
           throw new Error('externalUid is required')
         }
 
-        if (normalizedMemberUids.length === 0) {
-          throw new Error('memberUids is required')
-        }
-
         if (
           totalCostLimit !== undefined &&
           totalCostLimit !== null &&
