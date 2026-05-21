@@ -2336,7 +2336,7 @@ const requestLogger = (req, res, next) => {
   if (req.originalUrl !== '/health') {
     const _reqMeta = { ip: clientIP }
     if (req.method !== 'GET' && req.body && Object.keys(req.body).length > 0) {
-      const { tools: _tools, ...rest } = req.body
+      const rest = req.body
       const _arr = rest.input || rest.messages
       const _MEDIA_TYPES = new Set(['image', 'image_url', 'file', 'document', 'input_image'])
       const _MEDIA_KEYS = new Set(['image_url', 'image_data', 'base64'])
@@ -2385,9 +2385,6 @@ const requestLogger = (req, res, next) => {
         }
       } else {
         _reqMeta.req = _stripMedia(rest)
-      }
-      if (_tools !== undefined) {
-        _reqMeta.req._toolsOmitted = Array.isArray(_tools) ? _tools.length : true
       }
     }
     if (isDebugRoute) {
