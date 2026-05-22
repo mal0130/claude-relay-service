@@ -829,6 +829,126 @@ router.post('/api-key/usage-details', authenticatePartner, async (req, res) => {
   }
 })
 
+// 🔍 查询 API Key 详情（支持批量）
+router.post('/api-key/detail', authenticatePartner, async (req, res) => {
+  try {
+    const { key_ids } = req.body
+
+    if (!key_ids || !Array.isArray(key_ids)) {
+      return res.status(400).json({
+        code: 1001,
+        msg: 'key_ids is required and must be an array',
+        data: null
+      })
+    }
+
+    if (key_ids.length > 100) {
+      return res.status(400).json({
+        code: 1001,
+        msg: 'key_ids length cannot exceed 100',
+        data: null
+      })
+    }
+
+    logger.info(`🔍 Partner detail query: count=${key_ids.length}`)
+
+    const results = {}
+    for (const id of key_ids) {
+      const apiKey = await findApiKey(id, null)
+      if (!apiKey) {
+        continue
+      }
+
+      let permissions = []
+      try {
+        permissions = apiKey.permissions ? JSON.parse(apiKey.permissions) : []
+        if (!Array.isArray(permissions)) {
+          permissions = []
+        }
+      } catch (_e) {
+        permissions = []
+      }
+
+      let rateLimits = []
+      try {
+        rateLimits = apiKey.rateLimits ? JSON.parse(apiKey.rateLimits) : []
+      } catch (_e) {
+        rateLimits = []
+      }
+
+      let tags = []
+      try {
+        tags = apiKey.tags ? JSON.parse(apiKey.tags) : []
+      } catch (_e) {
+        tags = []
+      }
+
+      let serviceRates = {}
+      try {
+        serviceRates = apiKey.serviceRates ? JSON.parse(apiKey.serviceRates) : {}
+      } catch (_e) {
+        serviceRates = {}
+      }
+
+      let accountBindings = {}
+      try {
+        accountBindings = apiKey.accountBindings ? JSON.parse(apiKey.accountBindings) : {}
+      } catch (_e) {
+        accountBindings = {}
+      }
+
+      let memberUids = []
+      try {
+        memberUids = apiKey.memberUids ? JSON.parse(apiKey.memberUids) : []
+      } catch (_e) {
+        memberUids = []
+      }
+
+      results[apiKey.id] = {
+        keyId: apiKey.id,
+        keyName: apiKey.name,
+        description: apiKey.description || '',
+        isActive: apiKey.isActive === 'true',
+        expiresAt: apiKey.expiresAt || null,
+        expirationMode: apiKey.expirationMode || 'fixed',
+        isActivated: apiKey.isActivated === 'true',
+        activationDays: parseInt(apiKey.activationDays || 0),
+        activationUnit: apiKey.activationUnit || 'days',
+        activatedAt: apiKey.activatedAt || null,
+        createdAt: apiKey.createdAt || null,
+        lastUsedAt: apiKey.lastUsedAt || null,
+        permissions,
+        rateLimits,
+        totalCostLimit: parseFloat(apiKey.totalCostLimit || 0),
+        dailyCostLimit: parseFloat(apiKey.dailyCostLimit || 0),
+        serviceRates,
+        tags,
+        claudeAccountId: apiKey.claudeAccountId || null,
+        claudeConsoleAccountId: apiKey.claudeConsoleAccountId || null,
+        openaiAccountId: apiKey.openaiAccountId || null,
+        geminiAccountId: apiKey.geminiAccountId || null,
+        accountBindings,
+        externalUid: apiKey.externalUid || null,
+        packMode: apiKey.packMode || 'personal',
+        memberUids
+      }
+    }
+
+    return res.json({
+      code: 0,
+      msg: 'success',
+      data: results
+    })
+  } catch (error) {
+    logger.error('❌ Partner detail query error:', error)
+    return res.status(500).json({
+      code: 1003,
+      msg: error.message || 'Internal server error',
+      data: null
+    })
+  }
+})
+
 // 🔑 创建 API Key
 router.post('/api-key/create', authenticatePartner, async (req, res) => {
   try {
