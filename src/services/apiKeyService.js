@@ -707,6 +707,8 @@ class ApiKeyService {
           tags,
           serviceRates,
           externalUid: keyData.externalUid || '',
+          packMode: keyData.packMode || 'personal',
+          memberUids: parseMemberUids(keyData.memberUids),
           enableOpenAIResponsesCodexAdaptation,
           enableOpenAIResponsesPayloadRules,
           openaiResponsesPayloadRules
