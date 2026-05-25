@@ -1108,6 +1108,9 @@ const authenticateApiKey = async (req, res, next) => {
             if (!kd || Object.keys(kd).length === 0 || !isPackageName(kd.name)) {
               continue
             }
+            if ((kd.packMode || 'personal') === 'enterprise') {
+              continue
+            }
             if (kd.isActive !== 'true') {
               continue
             }
@@ -1246,6 +1249,12 @@ const authenticateApiKey = async (req, res, next) => {
               // 检查基本状态
               if (keyData.isActive !== 'true') {
                 logger.api(`❌ Key ${keyData.id} is not active: ${keyData.isActive}`)
+                continue
+              }
+
+              // 个人版模式下跳过企业 key
+              if ((keyData.packMode || 'personal') === 'enterprise') {
+                logger.api(`❌ Key ${keyData.id} is enterprise key, skip in personal mode`)
                 continue
               }
 
