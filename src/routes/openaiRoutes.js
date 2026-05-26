@@ -5,7 +5,6 @@ const logger = require('../utils/logger')
 const config = require('../../config/config')
 const { authenticateApiKey } = require('../middleware/auth')
 
-const isUsageDetailEnabled = () => process.env.ENABLE_USAGE_DETAIL === 'true'
 const unifiedOpenAIScheduler = require('../services/scheduler/unifiedOpenAIScheduler')
 const openaiAccountService = require('../services/account/openaiAccountService')
 const openaiResponsesAccountService = require('../services/account/openaiResponsesAccountService')
@@ -920,16 +919,8 @@ const handleResponses = async (req, res) => {
     upstream.data.on('data', (chunk) => {
       try {
         // 转发数据给客户端
-        const chunkStr = chunk.toString()
-        const isDone = chunkStr.includes('[DONE]')
-        if (isUsageDetailEnabled()) {
-          logger.info(`[stream] res.destroyed=${res.destroyed}, chunk=${chunk.length}bytes${isDone ? ' [DONE]' : ''}`)
-        }
         if (!res.destroyed) {
           res.write(chunk)
-          if (isUsageDetailEnabled()) {
-            logger.info(`[stream] wrote chunk ok${isDone ? ' [DONE]' : ''}`)
-          }
         }
 
         // 使用增量解析器处理数据
@@ -1033,7 +1024,7 @@ const handleResponses = async (req, res) => {
       }
 
       logger.info(
-        `✅ 流式完成 elapsed=${Date.now() - startTime}ms model=${actualModel || requestedModel} input=${usageData?.input_tokens ?? 0} output=${usageData?.output_tokens ?? 0}`,
+        `✅ 流式完成 elapsed=${Date.now() - startTime}ms accountId=${accountId} accountName=${account?.name} model=${actualModel || requestedModel} input=${usageData?.input_tokens ?? 0} output=${usageData?.output_tokens ?? 0}`,
         config.logging.truncate
           ? {}
           : {
@@ -1071,8 +1062,12 @@ const handleResponses = async (req, res) => {
       logger.error('Upstream stream error:', err)
       if (!res.headersSent) {
         res.status(502).json({ error: { message: 'Upstream stream error' } })
-      } else {
-        res.end()
+      } else if (!res.destroyed) {
+        res.write('\n\n')
+        res.write(
+          `data: ${JSON.stringify({ type: 'error', error: { message: 'Upstream connection reset', code: err.code || 'ECONNRESET' } })}\n\n`
+        )
+        res.destroy()
       }
     })
 

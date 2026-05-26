@@ -118,28 +118,27 @@ const isResourcePackName = (name) =>
   RESOURCE_PACK_PATTERNS.some((pattern) => pattern.test(name || ''))
 
 // 校验请求是否为 AI修复 场景
-// 规则：第一条 user 消息匹配 AI修复 pattern（历史会话每次都带上，多轮对话自然满足）
+// 规则：任意一条 user 消息匹配 AI修复 pattern 即满足（历史会话每次都带上，多轮对话自然满足）
 function isAiFixRequest(req) {
   const messages = req.body?.messages || req.body?.input
   if (!Array.isArray(messages) || messages.length === 0) {
     return false
   }
-  const firstUserMsg = messages.find((m) => m.role === 'user')
-  if (!firstUserMsg) {
-    return false
-  }
-  let text = ''
-  if (typeof firstUserMsg.content === 'string') {
-    text = firstUserMsg.content
-  } else if (Array.isArray(firstUserMsg.content)) {
-    text = firstUserMsg.content
-      .filter((part) => part.type === 'text' && part.text)
-      .map((part) => part.text)
-      .join('\n')
-  }
-
-  const aiFixPattern = /请修复.+控制台中的错误，修复后继续分析.+控制台日志，直到控制台没有错误。/
-  return aiFixPattern.test(text)
+  const aiFixPattern =
+    /请修复.+控制台中的错误，修复后继续分析.+控制台日志，直到控制台没有错误。|请修复.+控制台中的错误。/
+  return messages.some((m) => {
+    if (m.role !== 'user') return false
+    let text = ''
+    if (typeof m.content === 'string') {
+      text = m.content
+    } else if (Array.isArray(m.content)) {
+      text = m.content
+        .filter((part) => (part.type === 'text' || part.type === 'input_text') && part.text)
+        .map((part) => part.text)
+        .join('\n')
+    }
+    return aiFixPattern.test(text)
+  })
 }
 
 async function getWindowRatedCostFallback(keyId, windowStartTime) {
@@ -2556,7 +2555,7 @@ const requestLogger = (req, res, next) => {
   if (req.originalUrl !== '/health') {
     const _reqMeta = { ip: clientIP }
     if (req.method !== 'GET' && req.body && Object.keys(req.body).length > 0) {
-      const { tools: _tools, ...rest } = req.body
+      const rest = req.body
       const _arr = rest.input || rest.messages
       const _MEDIA_TYPES = new Set(['image', 'image_url', 'file', 'document', 'input_image'])
       const _MEDIA_KEYS = new Set(['image_url', 'image_data', 'base64'])
@@ -2605,9 +2604,6 @@ const requestLogger = (req, res, next) => {
         }
       } else {
         _reqMeta.req = _stripMedia(rest)
-      }
-      if (_tools !== undefined) {
-        _reqMeta.req._toolsOmitted = Array.isArray(_tools) ? _tools.length : true
       }
     }
     if (isDebugRoute) {
