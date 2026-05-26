@@ -677,6 +677,12 @@ class DeepSeekRelayService {
       protocol = 'openai',
       assistantContent
     } = options
+    const resolvedRawSessionId =
+      req.headers['session_id'] ||
+      req.headers['x-session-id'] ||
+      body?.session_id ||
+      body?.conversation_id ||
+      null
     const isAnthropicProtocol = protocol === 'anthropic'
     const normalizedUsage = isAnthropicProtocol
       ? normalizeDeepSeekAnthropicUsage(usage)
@@ -688,7 +694,7 @@ class DeepSeekRelayService {
       headers: req.headers,
       requestIp: req,
       sessionId: sessionHash || null,
-      rawSessionId: null,
+      rawSessionId: resolvedRawSessionId,
       assistantContent: assistantContent || (inputBlock ? [inputBlock] : undefined)
     })
 
