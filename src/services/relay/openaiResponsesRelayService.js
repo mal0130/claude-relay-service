@@ -776,28 +776,35 @@ class OpenAIResponsesRelayService {
       }
 
       // 如果在流式响应中检测到限流
-      if (rateLimitDetected) {
-        // 使用统一调度器处理限流（与非流式响应保持一致）
-        const sessionId =
-          req.headers['session_id'] ||
-          req.headers['x-session-id'] ||
-          req.body?.session_id ||
-          req.body?.conversation_id ||
-          req.body?.prompt_cache_key ||
-          null
-        const sessionHash = sessionId
-          ? crypto.createHash('sha256').update(sessionId).digest('hex')
-          : null
+      try {
+        if (rateLimitDetected) {
+          // 使用统一调度器处理限流（与非流式响应保持一致）
+          const sessionId =
+            req.headers['session_id'] ||
+            req.headers['x-session-id'] ||
+            req.body?.session_id ||
+            req.body?.conversation_id ||
+            req.body?.prompt_cache_key ||
+            null
+          const sessionHash = sessionId
+            ? crypto.createHash('sha256').update(sessionId).digest('hex')
+            : null
 
-        await unifiedOpenAIScheduler.markAccountRateLimited(
-          account.id,
-          'openai-responses',
-          sessionHash,
-          rateLimitResetsInSeconds
-        )
+          await unifiedOpenAIScheduler.markAccountRateLimited(
+            account.id,
+            'openai-responses',
+            sessionHash,
+            rateLimitResetsInSeconds
+          )
 
-        logger.warn(
-          `🚫 Processing rate limit for OpenAI-Responses account ${account.id} from stream`
+          logger.warn(
+            `🚫 Processing rate limit for OpenAI-Responses account ${account.id} from stream`
+          )
+        }
+      } catch (rlError) {
+        logger.error(
+          `❌ Failed to update rate limit state for OpenAI-Responses account ${account.id}:`,
+          rlError
         )
       }
 
@@ -829,7 +836,10 @@ class OpenAIResponsesRelayService {
 
     response.data.on('error', (error) => {
       streamEnded = true
-      logger.error('Stream error:', error)
+      logger.error(
+        `❌ 上游流中断 elapsed=${Date.now() - startTime}ms accountId=${account.id} accountName=${account.name} model=${actualModel || requestedModel} code=${error.code || 'unknown'}`,
+        error
+      )
 
       // 清理监听器
       req.removeListener('close', handleClientDisconnect)
@@ -849,6 +859,9 @@ class OpenAIResponsesRelayService {
     // 处理客户端断开连接
     const cleanup = () => {
       streamEnded = true
+      logger.info(
+        `🔌 客户端断开 elapsed=${Date.now() - startTime}ms accountId=${account.id} accountName=${account.name} model=${actualModel || requestedModel}`
+      )
       try {
         response.data?.unpipe?.(res)
         response.data?.destroy?.()
@@ -859,6 +872,13 @@ class OpenAIResponsesRelayService {
 
     req.on('close', cleanup)
     req.on('aborted', cleanup)
+    response.data.on('close', () => {
+      if (!streamEnded) {
+        logger.warn(
+          `⚠️ 上游流意外关闭(无end/error) elapsed=${Date.now() - startTime}ms accountId=${account.id} accountName=${account.name} model=${actualModel || requestedModel}`
+        )
+      }
+    })
   }
 
   // 处理非流式响应

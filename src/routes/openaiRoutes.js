@@ -439,7 +439,7 @@ const handleResponses = async (req, res) => {
     }
 
     // 使用调度器选择账户
-    ; ({ accessToken, accountId, accountType, proxy, account } = await getOpenAIAuthToken(
+    ;({ accessToken, accountId, accountType, proxy, account } = await getOpenAIAuthToken(
       apiKeyData,
       sessionId,
       schedulerModel
@@ -663,8 +663,8 @@ const handleResponses = async (req, res) => {
       if (errorData) {
         const messageCandidate =
           errorData.error &&
-            typeof errorData.error.message === 'string' &&
-            errorData.error.message.trim()
+          typeof errorData.error.message === 'string' &&
+          errorData.error.message.trim()
             ? errorData.error.message.trim()
             : typeof errorData.message === 'string' && errorData.message.trim()
               ? errorData.message.trim()
@@ -851,6 +851,7 @@ const handleResponses = async (req, res) => {
     const streamedReasoningText = []
     const completedOutputItems = []
     let completedResponse = null
+    let streamEnded = false
 
     // 处理解析出的事件
     const processSSEEvent = (eventData) => {
@@ -936,6 +937,7 @@ const handleResponses = async (req, res) => {
     })
 
     upstream.data.on('end', async () => {
+      streamEnded = true
       // 处理剩余的 buffer
       const remaining = sseParser.getRemaining()
       if (remaining.trim()) {
@@ -1028,38 +1030,53 @@ const handleResponses = async (req, res) => {
         config.logging.truncate
           ? {}
           : {
-            response: completedResponse
-              ? { ...completedResponse, output: completedOutputItems }
-              : { output: completedOutputItems }
-          }
+              response: completedResponse
+                ? { ...completedResponse, output: completedOutputItems }
+                : { output: completedOutputItems }
+            }
       )
 
       // 如果在流式响应中检测到限流
-      if (rateLimitDetected) {
-        logger.warn(`🚫 Processing rate limit for OpenAI account ${accountId} from stream`)
-        await unifiedOpenAIScheduler.markAccountRateLimited(
-          accountId,
-          'openai',
-          sessionHash,
-          rateLimitResetsInSeconds
-        )
-      } else if (upstream.status === 200) {
-        // 流式请求成功，检查并移除限流状态
-        const isRateLimited = await unifiedOpenAIScheduler.isAccountRateLimited(accountId)
-        if (isRateLimited) {
-          logger.info(
-            `✅ Removing rate limit for OpenAI account ${accountId} after successful stream`
+      try {
+        if (rateLimitDetected) {
+          logger.warn(`🚫 Processing rate limit for OpenAI account ${accountId} from stream`)
+          await unifiedOpenAIScheduler.markAccountRateLimited(
+            accountId,
+            'openai',
+            sessionHash,
+            rateLimitResetsInSeconds
           )
-          await unifiedOpenAIScheduler.removeAccountRateLimit(accountId, 'openai')
+        } else if (upstream.status === 200) {
+          // 流式请求成功，检查并移除限流状态
+          const isRateLimited = await unifiedOpenAIScheduler.isAccountRateLimited(accountId)
+          if (isRateLimited) {
+            logger.info(
+              `✅ Removing rate limit for OpenAI account ${accountId} after successful stream`
+            )
+            await unifiedOpenAIScheduler.removeAccountRateLimit(accountId, 'openai')
+          }
         }
+      } catch (rlError) {
+        logger.error(
+          `❌ Failed to update rate limit state for OpenAI account ${accountId}:`,
+          rlError
+        )
       }
 
+      req.removeListener('close', cleanup)
+      req.removeListener('aborted', cleanup)
       res.end()
       logger.info(`[stream] res.end() called, res.destroyed=${res.destroyed}`)
     })
 
     upstream.data.on('error', (err) => {
-      logger.error('Upstream stream error:', err)
+      streamEnded = true
+      req.removeListener('close', cleanup)
+      req.removeListener('aborted', cleanup)
+      logger.error(
+        `❌ 上游流中断 elapsed=${Date.now() - startTime}ms accountId=${accountId} accountName=${account?.name} model=${actualModel || upstreamRequestedModel} code=${err.code || 'unknown'}`,
+        err
+      )
       if (!res.headersSent) {
         res.status(502).json({ error: { message: 'Upstream stream error' } })
       } else if (!res.destroyed) {
@@ -1073,6 +1090,10 @@ const handleResponses = async (req, res) => {
 
     // 客户端断开时清理上游流
     const cleanup = () => {
+      streamEnded = true
+      logger.info(
+        `🔌 客户端断开 elapsed=${Date.now() - startTime}ms accountId=${accountId} accountName=${account?.name} model=${actualModel || upstreamRequestedModel}`
+      )
       try {
         upstream.data?.unpipe?.(res)
         upstream.data?.destroy?.()
@@ -1082,6 +1103,13 @@ const handleResponses = async (req, res) => {
     }
     req.on('close', cleanup)
     req.on('aborted', cleanup)
+    upstream.data.on('close', () => {
+      if (!streamEnded) {
+        logger.warn(
+          `⚠️ 上游流意外关闭(无end/error) elapsed=${Date.now() - startTime}ms accountId=${accountId} accountName=${account?.name} model=${actualModel || upstreamRequestedModel}`
+        )
+      }
+    })
   } catch (error) {
     logger.error('Proxy to ChatGPT codex/responses failed:', error)
     // 优先使用主动设置的 statusCode，然后是上游响应的状态码，最后默认 500
