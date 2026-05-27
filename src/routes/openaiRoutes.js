@@ -20,7 +20,9 @@ const { getSafeMessage } = require('../utils/errorSanitizer')
 const { buildUsageMetadata, buildInputMessagesBlock } = require('../utils/userInputExtractor')
 const {
   createRequestDetailMeta,
-  extractOpenAICacheReadTokens
+  extractOpenAICacheReadTokens,
+  buildCompletionUsageSummary,
+  formatCompletionUsageLog
 } = require('../utils/requestDetailHelper')
 const requestBodyRuleService = require('../services/requestBodyRuleService')
 
@@ -765,12 +767,16 @@ const handleResponses = async (req, res) => {
         logger.debug(`📊 Non-stream response - Model: ${actualModel}, Usage:`, usageData)
 
         // 记录使用统计
+        let completionUsageSummary = buildCompletionUsageSummary()
         if (usageData) {
-          const totalInputTokens = usageData.input_tokens || usageData.prompt_tokens || 0
-          const outputTokens = usageData.output_tokens || usageData.completion_tokens || 0
-          const cacheReadTokens = extractOpenAICacheReadTokens(usageData)
-          // 计算实际输入token（总输入减去缓存部分）
-          const actualInputTokens = Math.max(0, totalInputTokens - cacheReadTokens)
+          completionUsageSummary = buildCompletionUsageSummary({
+            totalInputTokens: usageData.input_tokens || usageData.prompt_tokens || 0,
+            outputTokens: usageData.output_tokens || usageData.completion_tokens || 0,
+            cacheReadTokens: extractOpenAICacheReadTokens(usageData),
+            cacheCreateTokens: 0,
+            totalTokens: usageData.total_tokens
+          })
+          const { actualInputTokens, outputTokens, cacheReadTokens } = completionUsageSummary
 
           const _inputBlock = buildInputMessagesBlock(req.body)
           const _assistantBlocks = buildCodexAssistantContent(responseData)
@@ -810,10 +816,6 @@ const handleResponses = async (req, res) => {
             })
           )
 
-          logger.info(
-            `📊 Recorded OpenAI non-stream usage - Input: ${totalInputTokens}(actual:${actualInputTokens}+cached:${cacheReadTokens}), Output: ${outputTokens}, Total: ${usageData.total_tokens || totalInputTokens + outputTokens}, Model: ${actualModel}`
-          )
-
           await applyRateLimitTracking(
             req,
             {
@@ -831,7 +833,15 @@ const handleResponses = async (req, res) => {
 
         // 返回响应
         logger.info(
-          `✅ 非流式完成 elapsed=${Date.now() - startTime}ms model=${actualModel} input=${usageData?.input_tokens ?? 0} output=${usageData?.output_tokens ?? 0}`,
+          formatCompletionUsageLog({
+            completionType: '非流式完成',
+            platform: 'openai',
+            elapsedMs: Date.now() - startTime,
+            usageSummary: completionUsageSummary,
+            model: actualModel,
+            actualModel,
+            requestedModel: upstreamRequestedModel
+          }),
           config.logging.truncate ? {} : { response: responseData }
         )
         res.json(responseData)
@@ -938,6 +948,7 @@ const handleResponses = async (req, res) => {
 
     upstream.data.on('end', async () => {
       streamEnded = true
+      let completionUsageSummary = buildCompletionUsageSummary()
       // 处理剩余的 buffer
       const remaining = sseParser.getRemaining()
       if (remaining.trim()) {
@@ -952,11 +963,14 @@ const handleResponses = async (req, res) => {
       // 记录使用统计
       if (!usageReported && usageData) {
         try {
-          const totalInputTokens = usageData.input_tokens || 0
-          const outputTokens = usageData.output_tokens || 0
-          const cacheReadTokens = extractOpenAICacheReadTokens(usageData)
-          // 计算实际输入token（总输入减去缓存部分）
-          const actualInputTokens = Math.max(0, totalInputTokens - cacheReadTokens)
+          completionUsageSummary = buildCompletionUsageSummary({
+            totalInputTokens: usageData.input_tokens || usageData.prompt_tokens || 0,
+            outputTokens: usageData.output_tokens || usageData.completion_tokens || 0,
+            cacheReadTokens: extractOpenAICacheReadTokens(usageData),
+            cacheCreateTokens: 0,
+            totalTokens: usageData.total_tokens
+          })
+          const { actualInputTokens, outputTokens, cacheReadTokens } = completionUsageSummary
 
           // 使用响应中的真实 model，如果没有则使用请求中的 model，最后回退到默认值
           const modelToRecord = actualModel || upstreamRequestedModel || 'gpt-4'
@@ -1001,10 +1015,6 @@ const handleResponses = async (req, res) => {
               statusCode: res.statusCode
             })
           )
-
-          logger.info(
-            `📊 Recorded OpenAI usage - Input: ${totalInputTokens}(actual:${actualInputTokens}+cached:${cacheReadTokens}), Output: ${outputTokens}, Total: ${usageData.total_tokens || totalInputTokens + outputTokens}, Model: ${modelToRecord} (actual: ${actualModel}, requested: ${upstreamRequestedModel})`
-          )
           usageReported = true
 
           await applyRateLimitTracking(
@@ -1026,7 +1036,17 @@ const handleResponses = async (req, res) => {
       }
 
       logger.info(
-        `✅ 流式完成 elapsed=${Date.now() - startTime}ms accountId=${accountId} accountName=${account?.name} model=${actualModel || requestedModel} input=${usageData?.input_tokens ?? 0} output=${usageData?.output_tokens ?? 0}`,
+        formatCompletionUsageLog({
+          completionType: '流式完成',
+          platform: 'openai',
+          elapsedMs: Date.now() - startTime,
+          accountId,
+          accountName: account?.name,
+          usageSummary: completionUsageSummary,
+          model: actualModel || upstreamRequestedModel || requestedModel,
+          actualModel,
+          requestedModel: upstreamRequestedModel
+        }),
         config.logging.truncate
           ? {}
           : {

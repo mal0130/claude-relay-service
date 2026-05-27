@@ -699,6 +699,68 @@ function calculateCacheHitRate(cacheReadTokensOrDetail = 0, cacheCreateTokens = 
   return Number(((read / denominator) * 100).toFixed(2))
 }
 
+function buildCompletionUsageSummary({
+  totalInputTokens = 0,
+  outputTokens = 0,
+  cacheReadTokens = 0,
+  cacheCreateTokens = 0,
+  totalTokens = null
+} = {}) {
+  const normalizedTotalInputTokens = Math.max(0, Number(totalInputTokens) || 0)
+  const normalizedOutputTokens = Math.max(0, Number(outputTokens) || 0)
+  const normalizedCacheReadTokens = Math.max(0, Number(cacheReadTokens) || 0)
+  const normalizedCacheCreateTokens = Math.max(0, Number(cacheCreateTokens) || 0)
+  const actualInputTokens = Math.max(0, normalizedTotalInputTokens - normalizedCacheReadTokens)
+  const resolvedTotalTokens =
+    totalTokens === null || totalTokens === undefined || totalTokens === ''
+      ? normalizedTotalInputTokens + normalizedOutputTokens + normalizedCacheCreateTokens
+      : Math.max(0, Number(totalTokens) || 0)
+
+  return {
+    totalInputTokens: normalizedTotalInputTokens,
+    actualInputTokens,
+    cacheReadTokens: normalizedCacheReadTokens,
+    cacheCreateTokens: normalizedCacheCreateTokens,
+    outputTokens: normalizedOutputTokens,
+    totalTokens: resolvedTotalTokens
+  }
+}
+
+function formatCompletionUsageLog({
+  completionType,
+  platform,
+  elapsedMs,
+  accountId = null,
+  accountName = null,
+  usageSummary = {},
+  model,
+  actualModel = null,
+  requestedModel = null
+}) {
+  const segments = [`✅ ${completionType}`, `platform=${platform}`, `elapsed=${elapsedMs}ms`]
+
+  if (accountId) {
+    segments.push(`accountId=${accountId}`)
+  }
+  if (accountName) {
+    segments.push(`accountName=${accountName}`)
+  }
+
+  const resolvedModel = model || actualModel || requestedModel || 'unknown'
+  const resolvedActualModel = actualModel || resolvedModel
+  const resolvedRequestedModel = requestedModel || resolvedActualModel
+  const summary = buildCompletionUsageSummary(usageSummary)
+
+  return (
+    `${segments.join(' ')} ` +
+    `Input: ${summary.totalInputTokens}(actual:${summary.actualInputTokens}+cached:${summary.cacheReadTokens}), ` +
+    `CacheCreate: ${summary.cacheCreateTokens}, ` +
+    `Output: ${summary.outputTokens}, ` +
+    `Total: ${summary.totalTokens}, ` +
+    `Model: ${resolvedModel} (actual: ${resolvedActualModel}, requested: ${resolvedRequestedModel})`
+  )
+}
+
 module.exports = {
   sanitizeRequestBodySnapshot,
   extractRequestReasoningInfo,
@@ -708,5 +770,7 @@ module.exports = {
   extractOpenAICacheReadTokens,
   isOpenAIRelatedEndpoint,
   getRequestDetailCacheMetrics,
-  calculateCacheHitRate
+  calculateCacheHitRate,
+  buildCompletionUsageSummary,
+  formatCompletionUsageLog
 }
