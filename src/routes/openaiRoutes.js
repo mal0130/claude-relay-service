@@ -714,6 +714,11 @@ const handleResponses = async (req, res) => {
         )
         await unifiedOpenAIScheduler.removeAccountRateLimit(accountId, 'openai')
       }
+    } else {
+      logger.error(
+        `❌ 上游返回错误 status=${upstream.status} accountId=${accountId} model=${upstreamRequestedModel}`,
+        isStream ? {} : upstream.data
+      )
     }
 
     res.status(upstream.status)
@@ -860,6 +865,7 @@ const handleResponses = async (req, res) => {
     const streamedOutputText = []
     const streamedReasoningText = []
     const completedOutputItems = []
+    const streamErrors = []
     let completedResponse = null
     let streamEnded = false
 
@@ -922,6 +928,18 @@ const handleResponses = async (req, res) => {
           rateLimitResetsInSeconds = eventData.error.resets_in_seconds
           logger.warn(
             `🚫 Rate limit detected in stream, resets in ${rateLimitResetsInSeconds} seconds`
+          )
+        }
+      }
+
+      // 收集所有错误事件，用于日志兜底
+      if (eventData.error || eventData.type === 'error') {
+        streamErrors.push(eventData)
+
+        // 检查是否有服务过载错误（仅记录日志）
+        if (eventData.error?.code === 'server_is_overloaded') {
+          logger.warn(
+            `⚠️ Server overload detected in stream for OpenAI account ${accountId}: ${eventData.error?.message}`
           )
         }
       }
@@ -1049,11 +1067,15 @@ const handleResponses = async (req, res) => {
         }),
         config.logging.truncate
           ? {}
-          : {
-              response: completedResponse
-                ? { ...completedResponse, output: completedOutputItems }
-                : { output: completedOutputItems }
-            }
+          : completedResponse || completedOutputItems.length
+            ? {
+                response: completedResponse
+                  ? { ...completedResponse, output: completedOutputItems }
+                  : { output: completedOutputItems }
+              }
+            : streamErrors.length
+              ? { streamErrors }
+              : {}
       )
 
       // 如果在流式响应中检测到限流
