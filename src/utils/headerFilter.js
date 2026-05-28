@@ -38,6 +38,8 @@ function filterForOpenAI(headers) {
     'sec-websocket-key',
     'sec-websocket-version',
     'sec-websocket-extensions',
+    'uni_agent_subscription_user_id',
+    'uni_agent_subscription_type',
     ...cdnHeaders // 添加 CDN headers
   ]
 

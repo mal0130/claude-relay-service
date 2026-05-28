@@ -20,7 +20,9 @@ const { getSafeMessage } = require('../utils/errorSanitizer')
 const { buildUsageMetadata, buildInputMessagesBlock } = require('../utils/userInputExtractor')
 const {
   createRequestDetailMeta,
-  extractOpenAICacheReadTokens
+  extractOpenAICacheReadTokens,
+  buildCompletionUsageSummary,
+  formatCompletionUsageLog
 } = require('../utils/requestDetailHelper')
 const requestBodyRuleService = require('../services/requestBodyRuleService')
 
@@ -439,7 +441,7 @@ const handleResponses = async (req, res) => {
     }
 
     // 使用调度器选择账户
-    ; ({ accessToken, accountId, accountType, proxy, account } = await getOpenAIAuthToken(
+    ;({ accessToken, accountId, accountType, proxy, account } = await getOpenAIAuthToken(
       apiKeyData,
       sessionId,
       schedulerModel
@@ -663,8 +665,8 @@ const handleResponses = async (req, res) => {
       if (errorData) {
         const messageCandidate =
           errorData.error &&
-            typeof errorData.error.message === 'string' &&
-            errorData.error.message.trim()
+          typeof errorData.error.message === 'string' &&
+          errorData.error.message.trim()
             ? errorData.error.message.trim()
             : typeof errorData.message === 'string' && errorData.message.trim()
               ? errorData.message.trim()
@@ -712,6 +714,11 @@ const handleResponses = async (req, res) => {
         )
         await unifiedOpenAIScheduler.removeAccountRateLimit(accountId, 'openai')
       }
+    } else {
+      logger.error(
+        `❌ 上游返回错误 status=${upstream.status} accountId=${accountId} model=${upstreamRequestedModel}`,
+        isStream ? {} : upstream.data
+      )
     }
 
     res.status(upstream.status)
@@ -765,12 +772,16 @@ const handleResponses = async (req, res) => {
         logger.debug(`📊 Non-stream response - Model: ${actualModel}, Usage:`, usageData)
 
         // 记录使用统计
+        let completionUsageSummary = buildCompletionUsageSummary()
         if (usageData) {
-          const totalInputTokens = usageData.input_tokens || usageData.prompt_tokens || 0
-          const outputTokens = usageData.output_tokens || usageData.completion_tokens || 0
-          const cacheReadTokens = extractOpenAICacheReadTokens(usageData)
-          // 计算实际输入token（总输入减去缓存部分）
-          const actualInputTokens = Math.max(0, totalInputTokens - cacheReadTokens)
+          completionUsageSummary = buildCompletionUsageSummary({
+            totalInputTokens: usageData.input_tokens || usageData.prompt_tokens || 0,
+            outputTokens: usageData.output_tokens || usageData.completion_tokens || 0,
+            cacheReadTokens: extractOpenAICacheReadTokens(usageData),
+            cacheCreateTokens: 0,
+            totalTokens: usageData.total_tokens
+          })
+          const { actualInputTokens, outputTokens, cacheReadTokens } = completionUsageSummary
 
           const _inputBlock = buildInputMessagesBlock(req.body)
           const _assistantBlocks = buildCodexAssistantContent(responseData)
@@ -810,10 +821,6 @@ const handleResponses = async (req, res) => {
             })
           )
 
-          logger.info(
-            `📊 Recorded OpenAI non-stream usage - Input: ${totalInputTokens}(actual:${actualInputTokens}+cached:${cacheReadTokens}), Output: ${outputTokens}, Total: ${usageData.total_tokens || totalInputTokens + outputTokens}, Model: ${actualModel}`
-          )
-
           await applyRateLimitTracking(
             req,
             {
@@ -831,7 +838,15 @@ const handleResponses = async (req, res) => {
 
         // 返回响应
         logger.info(
-          `✅ 非流式完成 elapsed=${Date.now() - startTime}ms model=${actualModel} input=${usageData?.input_tokens ?? 0} output=${usageData?.output_tokens ?? 0}`,
+          formatCompletionUsageLog({
+            completionType: '非流式完成',
+            platform: 'openai',
+            elapsedMs: Date.now() - startTime,
+            usageSummary: completionUsageSummary,
+            model: actualModel,
+            actualModel,
+            requestedModel: upstreamRequestedModel
+          }),
           config.logging.truncate ? {} : { response: responseData }
         )
         res.json(responseData)
@@ -850,7 +865,9 @@ const handleResponses = async (req, res) => {
     const streamedOutputText = []
     const streamedReasoningText = []
     const completedOutputItems = []
+    const streamErrors = []
     let completedResponse = null
+    let streamEnded = false
 
     // 处理解析出的事件
     const processSSEEvent = (eventData) => {
@@ -914,6 +931,18 @@ const handleResponses = async (req, res) => {
           )
         }
       }
+
+      // 收集所有错误事件，用于日志兜底
+      if (eventData.error || eventData.type === 'error') {
+        streamErrors.push(eventData)
+
+        // 检查是否有服务过载错误（仅记录日志）
+        if (eventData.error?.code === 'server_is_overloaded') {
+          logger.warn(
+            `⚠️ Server overload detected in stream for OpenAI account ${accountId}: ${eventData.error?.message}`
+          )
+        }
+      }
     }
 
     upstream.data.on('data', (chunk) => {
@@ -936,6 +965,8 @@ const handleResponses = async (req, res) => {
     })
 
     upstream.data.on('end', async () => {
+      streamEnded = true
+      let completionUsageSummary = buildCompletionUsageSummary()
       // 处理剩余的 buffer
       const remaining = sseParser.getRemaining()
       if (remaining.trim()) {
@@ -950,11 +981,14 @@ const handleResponses = async (req, res) => {
       // 记录使用统计
       if (!usageReported && usageData) {
         try {
-          const totalInputTokens = usageData.input_tokens || 0
-          const outputTokens = usageData.output_tokens || 0
-          const cacheReadTokens = extractOpenAICacheReadTokens(usageData)
-          // 计算实际输入token（总输入减去缓存部分）
-          const actualInputTokens = Math.max(0, totalInputTokens - cacheReadTokens)
+          completionUsageSummary = buildCompletionUsageSummary({
+            totalInputTokens: usageData.input_tokens || usageData.prompt_tokens || 0,
+            outputTokens: usageData.output_tokens || usageData.completion_tokens || 0,
+            cacheReadTokens: extractOpenAICacheReadTokens(usageData),
+            cacheCreateTokens: 0,
+            totalTokens: usageData.total_tokens
+          })
+          const { actualInputTokens, outputTokens, cacheReadTokens } = completionUsageSummary
 
           // 使用响应中的真实 model，如果没有则使用请求中的 model，最后回退到默认值
           const modelToRecord = actualModel || upstreamRequestedModel || 'gpt-4'
@@ -999,10 +1033,6 @@ const handleResponses = async (req, res) => {
               statusCode: res.statusCode
             })
           )
-
-          logger.info(
-            `📊 Recorded OpenAI usage - Input: ${totalInputTokens}(actual:${actualInputTokens}+cached:${cacheReadTokens}), Output: ${outputTokens}, Total: ${usageData.total_tokens || totalInputTokens + outputTokens}, Model: ${modelToRecord} (actual: ${actualModel}, requested: ${upstreamRequestedModel})`
-          )
           usageReported = true
 
           await applyRateLimitTracking(
@@ -1024,42 +1054,71 @@ const handleResponses = async (req, res) => {
       }
 
       logger.info(
-        `✅ 流式完成 elapsed=${Date.now() - startTime}ms accountId=${accountId} accountName=${account?.name} model=${actualModel || requestedModel} input=${usageData?.input_tokens ?? 0} output=${usageData?.output_tokens ?? 0}`,
+        formatCompletionUsageLog({
+          completionType: '流式完成',
+          platform: 'openai',
+          elapsedMs: Date.now() - startTime,
+          accountId,
+          accountName: account?.name,
+          usageSummary: completionUsageSummary,
+          model: actualModel || upstreamRequestedModel || requestedModel,
+          actualModel,
+          requestedModel: upstreamRequestedModel
+        }),
         config.logging.truncate
           ? {}
-          : {
-            response: completedResponse
-              ? { ...completedResponse, output: completedOutputItems }
-              : { output: completedOutputItems }
-          }
+          : completedResponse || completedOutputItems.length
+            ? {
+                response: completedResponse
+                  ? { ...completedResponse, output: completedOutputItems }
+                  : { output: completedOutputItems }
+              }
+            : streamErrors.length
+              ? { streamErrors }
+              : {}
       )
 
       // 如果在流式响应中检测到限流
-      if (rateLimitDetected) {
-        logger.warn(`🚫 Processing rate limit for OpenAI account ${accountId} from stream`)
-        await unifiedOpenAIScheduler.markAccountRateLimited(
-          accountId,
-          'openai',
-          sessionHash,
-          rateLimitResetsInSeconds
-        )
-      } else if (upstream.status === 200) {
-        // 流式请求成功，检查并移除限流状态
-        const isRateLimited = await unifiedOpenAIScheduler.isAccountRateLimited(accountId)
-        if (isRateLimited) {
-          logger.info(
-            `✅ Removing rate limit for OpenAI account ${accountId} after successful stream`
+      try {
+        if (rateLimitDetected) {
+          logger.warn(`🚫 Processing rate limit for OpenAI account ${accountId} from stream`)
+          await unifiedOpenAIScheduler.markAccountRateLimited(
+            accountId,
+            'openai',
+            sessionHash,
+            rateLimitResetsInSeconds
           )
-          await unifiedOpenAIScheduler.removeAccountRateLimit(accountId, 'openai')
+        } else if (upstream.status === 200) {
+          // 流式请求成功，检查并移除限流状态
+          const isRateLimited = await unifiedOpenAIScheduler.isAccountRateLimited(accountId)
+          if (isRateLimited) {
+            logger.info(
+              `✅ Removing rate limit for OpenAI account ${accountId} after successful stream`
+            )
+            await unifiedOpenAIScheduler.removeAccountRateLimit(accountId, 'openai')
+          }
         }
+      } catch (rlError) {
+        logger.error(
+          `❌ Failed to update rate limit state for OpenAI account ${accountId}:`,
+          rlError
+        )
       }
 
+      req.removeListener('close', cleanup)
+      req.removeListener('aborted', cleanup)
       res.end()
       logger.info(`[stream] res.end() called, res.destroyed=${res.destroyed}`)
     })
 
     upstream.data.on('error', (err) => {
-      logger.error('Upstream stream error:', err)
+      streamEnded = true
+      req.removeListener('close', cleanup)
+      req.removeListener('aborted', cleanup)
+      logger.error(
+        `❌ 上游流中断 elapsed=${Date.now() - startTime}ms accountId=${accountId} accountName=${account?.name} model=${actualModel || upstreamRequestedModel} code=${err.code || 'unknown'}`,
+        err
+      )
       if (!res.headersSent) {
         res.status(502).json({ error: { message: 'Upstream stream error' } })
       } else if (!res.destroyed) {
@@ -1073,6 +1132,10 @@ const handleResponses = async (req, res) => {
 
     // 客户端断开时清理上游流
     const cleanup = () => {
+      streamEnded = true
+      logger.info(
+        `🔌 客户端断开 elapsed=${Date.now() - startTime}ms accountId=${accountId} accountName=${account?.name} model=${actualModel || upstreamRequestedModel}`
+      )
       try {
         upstream.data?.unpipe?.(res)
         upstream.data?.destroy?.()
@@ -1082,6 +1145,13 @@ const handleResponses = async (req, res) => {
     }
     req.on('close', cleanup)
     req.on('aborted', cleanup)
+    upstream.data.on('close', () => {
+      if (!streamEnded) {
+        logger.warn(
+          `⚠️ 上游流意外关闭(无end/error) elapsed=${Date.now() - startTime}ms accountId=${accountId} accountName=${account?.name} model=${actualModel || upstreamRequestedModel}`
+        )
+      }
+    })
   } catch (error) {
     logger.error('Proxy to ChatGPT codex/responses failed:', error)
     // 优先使用主动设置的 statusCode，然后是上游响应的状态码，最后默认 500

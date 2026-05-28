@@ -890,8 +890,7 @@ const authenticateApiKey = async (req, res, next) => {
         return res.status(402).json({
           error: {
             type: 'insufficient_quota',
-            message:
-              '您没有企业版使用权限。企业版需由企业管理员（即贵公司在 DCloud 完成企业实名认证的账号负责人）购买并授权：<br />1) 在 [<a href="https://dev.dcloud.net.cn">DCloud 开发者中心</a>] 购买企业版；<br />2) 将您加入企业成员；<br />3) 为您分配使用权限。[<a href="https://doc.dcloud.net.cn/uni-app-x/ai/enterprise-subscription.html">查看企业版说明</a>]。<br />如您是个人用户，请切换到个人版继续使用。',
+            message: '您没有企业版使用权限。企业版需由企业管理员（即贵公司在 DCloud 完成企业实名认证的账号负责人）购买并授权：1) 在 [<a href="https://dev.dcloud.net.cn">DCloud 开发者中心</a>] 购买企业版；2) 将您加入企业成员；3) 为您分配使用权限。[<a href="https://doc.dcloud.net.cn/uni-app-x/ai/enterprise-subscription.html">查看企业版说明</a>]',
             code: 'enterprise_quota_exhausted'
           }
         })
@@ -955,7 +954,7 @@ const authenticateApiKey = async (req, res, next) => {
         return res.status(400).json({
           error: {
             type: 'invalid_request',
-            message: '参数错误，请检查 uni-agent 版本是否为最新版！',
+            message: '请将 uni-agent 插件更新至1.7.1及以上版本后重试。',
             code: 'missing_user_id'
           }
         })
@@ -965,7 +964,7 @@ const authenticateApiKey = async (req, res, next) => {
         return res.status(400).json({
           error: {
             type: 'invalid_request',
-            message: '参数错误，请检查 uni-agent 版本是否为最新版！',
+            message: '请将 uni-agent 插件更新至1.7.1及以上版本后重试。',
             code: 'invalid_user_id'
           }
         })
@@ -981,8 +980,7 @@ const authenticateApiKey = async (req, res, next) => {
         return res.status(402).json({
           error: {
             type: 'insufficient_quota',
-            message:
-              '您没有企业版使用权限。企业版需由企业管理员（即贵公司在 DCloud 完成企业实名认证的账号负责人）购买并授权：<br />1) 在 [<a href="https://dev.dcloud.net.cn">DCloud 开发者中心</a>] 购买企业版；<br />2) 将您加入企业成员；<br />3) 为您分配使用权限。[<a href="https://doc.dcloud.net.cn/uni-app-x/ai/enterprise-subscription.html">查看企业版说明</a>]。<br />如您是个人用户，请切换到个人版继续使用。',
+            message: '您尚未被分配企业版使用权限，请联系企业管理员在 [<a href="https://dev.dcloud.net.cn/pages/enterprise/my-members">成员管理</a>] 中为您授权。',
             code: 'enterprise_key_not_found'
           }
         })
@@ -1060,8 +1058,7 @@ const authenticateApiKey = async (req, res, next) => {
         return res.status(402).json({
           error: {
             type: 'insufficient_quota',
-            message:
-              '企业版额度已用完，请联系企业管理员前往 [<a href="https://dev.dcloud.net.cn">DCloud 开发者中心</a>] 补充资源包或升级套餐。',
+            message: '企业版额度已用完，请联系企业管理员前往 [<a href="https://dev.dcloud.net.cn">DCloud 开发者中心</a>] 补充资源包或升级套餐。',
             code: 'enterprise_quota_exhausted'
           }
         })
@@ -1086,8 +1083,8 @@ const authenticateApiKey = async (req, res, next) => {
         keyData: validation.keyData,
         error: {
           type: 'insufficient_quota',
-          message: `个人版额度已用完，请前往 [<a href="https://dev.dcloud.net.cn">DCloud 开发者中心</a>] 购买套餐或资源包。`,
-          code: 'personal_key_not_found'
+          message: `企业版额度已用完，请联系企业管理员前往 [<a href="https://dev.dcloud.net.cn">DCloud 开发者中心</a>] 补充资源包或升级套餐。`,
+          code: 'quota_exhausted'
         },
         statusCode: 402
       }

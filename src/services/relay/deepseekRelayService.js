@@ -6,7 +6,11 @@ const config = require('../../../config/config')
 const { filterForClaude, filterForOpenAI } = require('../../utils/headerFilter')
 const { IncrementalSSEParser } = require('../../utils/sseParser')
 const { updateRateLimitCounters } = require('../../utils/rateLimitHelper')
-const { createRequestDetailMeta } = require('../../utils/requestDetailHelper')
+const {
+  createRequestDetailMeta,
+  buildCompletionUsageSummary,
+  formatCompletionUsageLog
+} = require('../../utils/requestDetailHelper')
 const { buildUsageMetadata, buildInputMessagesBlock } = require('../../utils/userInputExtractor')
 const apiKeyService = require('../apiKeyService')
 const deepseekAccountService = require('../account/deepseekAccountService')
@@ -300,14 +304,16 @@ class DeepSeekRelayService {
 
     const usage = responseData?.usage
     const model = this._normalizeRequestModel(responseData?.model || requestedModel)
+    let completionUsageSummary = this._buildUsageSummary()
 
     if (usage) {
-      await this._recordUsage(req, {
+      completionUsageSummary = await this._recordUsage(req, {
         usage,
         body,
         model,
         accountId,
         sessionHash,
+        requestedModel,
         stream: false,
         statusCode: upstreamResponse.status
       })
@@ -316,7 +322,14 @@ class DeepSeekRelayService {
     }
 
     logger.info(
-      `✅ DeepSeek non-stream completed elapsed=${Date.now() - startTime}ms model=${model}`
+      formatCompletionUsageLog({
+        completionType: '非流式完成',
+        platform: 'deepseek',
+        elapsedMs: Date.now() - startTime,
+        usageSummary: completionUsageSummary,
+        model,
+        requestedModel
+      })
     )
     return res.status(upstreamResponse.status).json(responseData)
   }
@@ -337,14 +350,16 @@ class DeepSeekRelayService {
 
     const usage = responseData?.usage
     const model = this._normalizeRequestModel(responseData?.model || requestedModel)
+    let completionUsageSummary = this._buildUsageSummary()
 
     if (usage) {
-      await this._recordUsage(req, {
+      completionUsageSummary = await this._recordUsage(req, {
         usage,
         body,
         model,
         accountId,
         sessionHash,
+        requestedModel,
         stream: false,
         statusCode: upstreamResponse.status,
         protocol: 'anthropic',
@@ -355,7 +370,14 @@ class DeepSeekRelayService {
     }
 
     logger.info(
-      `✅ DeepSeek Anthropic non-stream completed elapsed=${Date.now() - startTime}ms model=${model}`
+      formatCompletionUsageLog({
+        completionType: '非流式完成',
+        platform: 'deepseek',
+        elapsedMs: Date.now() - startTime,
+        usageSummary: completionUsageSummary,
+        model,
+        requestedModel
+      })
     )
     return res.status(upstreamResponse.status).json(responseData)
   }
@@ -380,7 +402,7 @@ class DeepSeekRelayService {
     const parser = new IncrementalSSEParser()
     let capturedUsage = null
     let actualModel = requestedModel
-    let usageRecorded = false
+    let completionUsageSummary = this._buildUsageSummary()
 
     upstreamResponse.data.on('data', (chunk) => {
       if (!res.destroyed) {
@@ -412,16 +434,16 @@ class DeepSeekRelayService {
         }
 
         if (capturedUsage) {
-          await this._recordUsage(req, {
+          completionUsageSummary = await this._recordUsage(req, {
             usage: capturedUsage,
             body,
             model: this._normalizeRequestModel(actualModel || requestedModel),
             accountId,
             sessionHash,
+            requestedModel,
             stream: true,
             statusCode: res.statusCode
           })
-          usageRecorded = true
         } else {
           logger.warn(`⚠️ DeepSeek stream response missing usage, model=${actualModel}`)
         }
@@ -434,7 +456,14 @@ class DeepSeekRelayService {
       }
 
       logger.info(
-        `✅ DeepSeek stream completed elapsed=${Date.now() - startTime}ms model=${actualModel} usageRecorded=${usageRecorded}`
+        formatCompletionUsageLog({
+          completionType: '流式完成',
+          platform: 'deepseek',
+          elapsedMs: Date.now() - startTime,
+          usageSummary: completionUsageSummary,
+          model: this._normalizeRequestModel(actualModel || requestedModel),
+          requestedModel
+        })
       )
       res.end()
     })
@@ -480,9 +509,9 @@ class DeepSeekRelayService {
     const parser = new IncrementalSSEParser()
     let capturedUsage = null
     let actualModel = requestedModel
-    let usageRecorded = false
     const streamedAssistantText = []
     const streamedThinkingText = []
+    let completionUsageSummary = this._buildUsageSummary()
 
     upstreamResponse.data.on('data', (chunk) => {
       if (!res.destroyed) {
@@ -527,12 +556,13 @@ class DeepSeekRelayService {
         }
 
         if (capturedUsage) {
-          await this._recordUsage(req, {
+          completionUsageSummary = await this._recordUsage(req, {
             usage: capturedUsage,
             body,
             model: this._normalizeRequestModel(actualModel || requestedModel),
             accountId,
             sessionHash,
+            requestedModel,
             stream: true,
             statusCode: res.statusCode,
             protocol: 'anthropic',
@@ -541,7 +571,6 @@ class DeepSeekRelayService {
               streamedThinkingText
             )
           })
-          usageRecorded = true
         } else {
           logger.warn(`⚠️ DeepSeek Anthropic stream response missing usage, model=${actualModel}`)
         }
@@ -554,7 +583,14 @@ class DeepSeekRelayService {
       }
 
       logger.info(
-        `✅ DeepSeek Anthropic stream completed elapsed=${Date.now() - startTime}ms model=${actualModel} usageRecorded=${usageRecorded}`
+        formatCompletionUsageLog({
+          completionType: '流式完成',
+          platform: 'deepseek',
+          elapsedMs: Date.now() - startTime,
+          usageSummary: completionUsageSummary,
+          model: this._normalizeRequestModel(actualModel || requestedModel),
+          requestedModel
+        })
       )
       res.end()
     })
@@ -665,6 +701,17 @@ class DeepSeekRelayService {
     return blocks.length > 0 ? blocks : undefined
   }
 
+  _buildUsageSummary(normalizedUsage = {}) {
+    return buildCompletionUsageSummary({
+      totalInputTokens:
+        Number(normalizedUsage.input_tokens || 0) +
+        Number(normalizedUsage.cache_read_input_tokens || 0),
+      outputTokens: normalizedUsage.output_tokens || 0,
+      cacheReadTokens: normalizedUsage.cache_read_input_tokens || 0,
+      cacheCreateTokens: normalizedUsage.cache_creation_input_tokens || 0
+    })
+  }
+
   async _recordUsage(req, options) {
     const {
       usage,
@@ -687,6 +734,7 @@ class DeepSeekRelayService {
     const normalizedUsage = isAnthropicProtocol
       ? normalizeDeepSeekAnthropicUsage(usage)
       : normalizeDeepSeekUsage(usage)
+    const usageSummary = this._buildUsageSummary(normalizedUsage)
     const inputBlock = isAnthropicProtocol ? null : buildInputMessagesBlock(body)
     const usageExtra = buildUsageMetadata({
       body,
@@ -728,9 +776,7 @@ class DeepSeekRelayService {
       costs
     )
 
-    logger.info(
-      `📊 Recorded DeepSeek usage - Input: ${normalizedUsage.input_tokens}, Cached: ${normalizedUsage.cache_read_input_tokens}, Output: ${normalizedUsage.output_tokens}, Model: ${model}`
-    )
+    return usageSummary
   }
 
   async _handleUpstreamStatus(status, responseBody, accountId, sessionHash) {

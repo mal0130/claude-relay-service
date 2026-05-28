@@ -14,7 +14,9 @@ const webhookService = require('../webhookService')
 const { buildUsageMetadata, buildInputMessagesBlock } = require('../../utils/userInputExtractor')
 const {
   createRequestDetailMeta,
-  extractOpenAICacheReadTokens
+  extractOpenAICacheReadTokens,
+  buildCompletionUsageSummary,
+  formatCompletionUsageLog
 } = require('../../utils/requestDetailHelper')
 
 // lastUsedAt 更新节流（每账户 60 秒内最多更新一次，使用 LRU 防止内存泄漏）
@@ -80,11 +82,11 @@ class OpenAIResponsesRelayService {
       null
     logger.info(
       `🔍 relay sessionId sources: header_session_id=${req.headers['session_id']}, ` +
-      `header_x-session-id=${req.headers['x-session-id']}, ` +
-      `body_session_id=${req.body?.session_id}, ` +
-      `body_conversation_id=${req.body?.conversation_id}, ` +
-      `body_prompt_cache_key=${req.body?.prompt_cache_key}, ` +
-      `body_previous_response_id=${req.body?.previous_response_id}`
+        `header_x-session-id=${req.headers['x-session-id']}, ` +
+        `body_session_id=${req.body?.session_id}, ` +
+        `body_conversation_id=${req.body?.conversation_id}, ` +
+        `body_prompt_cache_key=${req.body?.prompt_cache_key}, ` +
+        `body_previous_response_id=${req.body?.previous_response_id}`
     )
     const sessionHash = sessionId
       ? crypto.createHash('sha256').update(sessionId).digest('hex')
@@ -103,10 +105,10 @@ class OpenAIResponsesRelayService {
           response: responseBody,
           error: rawError
             ? {
-              message: rawError.message,
-              code: rawError.code,
-              data: rawError.response?.data
-            }
+                message: rawError.message,
+                code: rawError.code,
+                data: rawError.response?.data
+              }
             : undefined
         })
         .catch((e) => logger.warn('Failed to send webhook notification:', e))
@@ -241,7 +243,7 @@ class OpenAIResponsesRelayService {
               429,
               resetsInSeconds || upstreamErrorHelper.parseRetryAfter(response.headers)
             )
-            .catch(() => { })
+            .catch(() => {})
         }
 
         // 返回错误响应（使用处理后的数据，避免循环引用）
@@ -312,10 +314,10 @@ class OpenAIResponsesRelayService {
             if (!oaiAutoProtectionDisabled) {
               await upstreamErrorHelper
                 .markTempUnavailable(account.id, 'openai-responses', 401)
-                .catch(() => { })
+                .catch(() => {})
             }
             if (sessionHash) {
-              await unifiedOpenAIScheduler._deleteSessionMapping(sessionHash).catch(() => { })
+              await unifiedOpenAIScheduler._deleteSessionMapping(sessionHash).catch(() => {})
             }
           } catch (markError) {
             logger.error(
@@ -363,7 +365,7 @@ class OpenAIResponsesRelayService {
               )
             }
             if (sessionHash) {
-              await unifiedOpenAIScheduler._deleteSessionMapping(sessionHash).catch(() => { })
+              await unifiedOpenAIScheduler._deleteSessionMapping(sessionHash).catch(() => {})
             }
           } catch (markError) {
             logger.warn(
@@ -446,7 +448,7 @@ class OpenAIResponsesRelayService {
           if (!oaiAutoProtectionDisabled) {
             await upstreamErrorHelper
               .markTempUnavailable(account.id, 'openai-responses', 503)
-              .catch(() => { })
+              .catch(() => {})
           }
         }
       }
@@ -494,10 +496,10 @@ class OpenAIResponsesRelayService {
             if (!oaiAutoProtectionDisabled) {
               await upstreamErrorHelper
                 .markTempUnavailable(account.id, 'openai-responses', 401)
-                .catch(() => { })
+                .catch(() => {})
             }
             if (sessionHash) {
-              await unifiedOpenAIScheduler._deleteSessionMapping(sessionHash).catch(() => { })
+              await unifiedOpenAIScheduler._deleteSessionMapping(sessionHash).catch(() => {})
             }
           } catch (markError) {
             logger.error(
@@ -677,6 +679,7 @@ class OpenAIResponsesRelayService {
 
     response.data.on('end', async () => {
       streamEnded = true
+      let completionUsageSummary = buildCompletionUsageSummary()
 
       // 处理剩余的 buffer
       if (buffer.trim()) {
@@ -686,18 +689,20 @@ class OpenAIResponsesRelayService {
       // 记录使用统计
       if (usageData) {
         try {
-          // OpenAI-Responses 使用 input_tokens/output_tokens，标准 OpenAI 使用 prompt_tokens/completion_tokens
-          const totalInputTokens = usageData.input_tokens || usageData.prompt_tokens || 0
-          const outputTokens = usageData.output_tokens || usageData.completion_tokens || 0
-
-          // 提取缓存相关的 tokens（如果存在）
-          const cacheReadTokens = extractOpenAICacheReadTokens(usageData)
-          const cacheCreateTokens = extractCacheCreationTokens(usageData)
-          // 计算实际输入token（总输入减去缓存部分）
-          const actualInputTokens = Math.max(0, totalInputTokens - cacheReadTokens)
-
-          const totalTokens =
-            usageData.total_tokens || totalInputTokens + outputTokens + cacheCreateTokens
+          completionUsageSummary = buildCompletionUsageSummary({
+            totalInputTokens: usageData.input_tokens || usageData.prompt_tokens || 0,
+            outputTokens: usageData.output_tokens || usageData.completion_tokens || 0,
+            cacheReadTokens: extractOpenAICacheReadTokens(usageData),
+            cacheCreateTokens: extractCacheCreationTokens(usageData),
+            totalTokens: usageData.total_tokens
+          })
+          const {
+            actualInputTokens,
+            outputTokens,
+            cacheCreateTokens,
+            cacheReadTokens,
+            totalTokens
+          } = completionUsageSummary
           const modelToRecord = actualModel || requestedModel || 'gpt-4'
 
           const serviceTier = req._serviceTier || null
@@ -747,10 +752,6 @@ class OpenAIResponsesRelayService {
             })
           )
 
-          logger.info(
-            `📊 Recorded usage - Input: ${totalInputTokens}(actual:${actualInputTokens}+cached:${cacheReadTokens}), CacheCreate: ${cacheCreateTokens}, Output: ${outputTokens}, Total: ${totalTokens}, Model: ${modelToRecord}`
-          )
-
           // 更新账户的 token 使用统计
           await openaiResponsesAccountService.updateAccountUsage(account.id, totalTokens)
 
@@ -776,28 +777,35 @@ class OpenAIResponsesRelayService {
       }
 
       // 如果在流式响应中检测到限流
-      if (rateLimitDetected) {
-        // 使用统一调度器处理限流（与非流式响应保持一致）
-        const sessionId =
-          req.headers['session_id'] ||
-          req.headers['x-session-id'] ||
-          req.body?.session_id ||
-          req.body?.conversation_id ||
-          req.body?.prompt_cache_key ||
-          null
-        const sessionHash = sessionId
-          ? crypto.createHash('sha256').update(sessionId).digest('hex')
-          : null
+      try {
+        if (rateLimitDetected) {
+          // 使用统一调度器处理限流（与非流式响应保持一致）
+          const sessionId =
+            req.headers['session_id'] ||
+            req.headers['x-session-id'] ||
+            req.body?.session_id ||
+            req.body?.conversation_id ||
+            req.body?.prompt_cache_key ||
+            null
+          const sessionHash = sessionId
+            ? crypto.createHash('sha256').update(sessionId).digest('hex')
+            : null
 
-        await unifiedOpenAIScheduler.markAccountRateLimited(
-          account.id,
-          'openai-responses',
-          sessionHash,
-          rateLimitResetsInSeconds
-        )
+          await unifiedOpenAIScheduler.markAccountRateLimited(
+            account.id,
+            'openai-responses',
+            sessionHash,
+            rateLimitResetsInSeconds
+          )
 
-        logger.warn(
-          `🚫 Processing rate limit for OpenAI-Responses account ${account.id} from stream`
+          logger.warn(
+            `🚫 Processing rate limit for OpenAI-Responses account ${account.id} from stream`
+          )
+        }
+      } catch (rlError) {
+        logger.error(
+          `❌ Failed to update rate limit state for OpenAI-Responses account ${account.id}:`,
+          rlError
         )
       }
 
@@ -816,20 +824,33 @@ class OpenAIResponsesRelayService {
         actualModel: actualModel || 'unknown'
       })
       logger.info(
-        `✅ 流式完成 elapsed=${Date.now() - startTime}ms accountId=${account.id} accountName=${account.name} model=${actualModel || requestedModel} input=${usageData?.input_tokens ?? 0} output=${usageData?.output_tokens ?? 0}`,
+        formatCompletionUsageLog({
+          completionType: '流式完成',
+          platform: 'openai-responses',
+          elapsedMs: Date.now() - startTime,
+          accountId: account.id,
+          accountName: account.name,
+          usageSummary: completionUsageSummary,
+          model: actualModel || requestedModel,
+          actualModel,
+          requestedModel
+        }),
         config.logging.truncate
           ? {}
           : {
-            response: completedResponse
-              ? { ...completedResponse, output: completedOutputItems }
-              : { output: completedOutputItems }
-          }
+              response: completedResponse
+                ? { ...completedResponse, output: completedOutputItems }
+                : { output: completedOutputItems }
+            }
       )
     })
 
     response.data.on('error', (error) => {
       streamEnded = true
-      logger.error('Stream error:', error)
+      logger.error(
+        `❌ 上游流中断 elapsed=${Date.now() - startTime}ms accountId=${account.id} accountName=${account.name} model=${actualModel || requestedModel} code=${error.code || 'unknown'}`,
+        error
+      )
 
       // 清理监听器
       req.removeListener('close', handleClientDisconnect)
@@ -849,6 +870,9 @@ class OpenAIResponsesRelayService {
     // 处理客户端断开连接
     const cleanup = () => {
       streamEnded = true
+      logger.info(
+        `🔌 客户端断开 elapsed=${Date.now() - startTime}ms accountId=${account.id} accountName=${account.name} model=${actualModel || requestedModel}`
+      )
       try {
         response.data?.unpipe?.(res)
         response.data?.destroy?.()
@@ -859,6 +883,13 @@ class OpenAIResponsesRelayService {
 
     req.on('close', cleanup)
     req.on('aborted', cleanup)
+    response.data.on('close', () => {
+      if (!streamEnded) {
+        logger.warn(
+          `⚠️ 上游流意外关闭(无end/error) elapsed=${Date.now() - startTime}ms accountId=${account.id} accountName=${account.name} model=${actualModel || requestedModel}`
+        )
+      }
+    })
   }
 
   // 处理非流式响应
@@ -878,22 +909,20 @@ class OpenAIResponsesRelayService {
     const usageData = responseData?.usage || responseData?.response?.usage
     const actualModel =
       responseData?.model || responseData?.response?.model || requestedModel || 'gpt-4'
+    let completionUsageSummary = buildCompletionUsageSummary()
 
     // 记录使用统计
     if (usageData) {
       try {
-        // OpenAI-Responses 使用 input_tokens/output_tokens，标准 OpenAI 使用 prompt_tokens/completion_tokens
-        const totalInputTokens = usageData.input_tokens || usageData.prompt_tokens || 0
-        const outputTokens = usageData.output_tokens || usageData.completion_tokens || 0
-
-        // 提取缓存相关的 tokens（如果存在）
-        const cacheReadTokens = extractOpenAICacheReadTokens(usageData)
-        const cacheCreateTokens = extractCacheCreationTokens(usageData)
-        // 计算实际输入token（总输入减去缓存部分）
-        const actualInputTokens = Math.max(0, totalInputTokens - cacheReadTokens)
-
-        const totalTokens =
-          usageData.total_tokens || totalInputTokens + outputTokens + cacheCreateTokens
+        completionUsageSummary = buildCompletionUsageSummary({
+          totalInputTokens: usageData.input_tokens || usageData.prompt_tokens || 0,
+          outputTokens: usageData.output_tokens || usageData.completion_tokens || 0,
+          cacheReadTokens: extractOpenAICacheReadTokens(usageData),
+          cacheCreateTokens: extractCacheCreationTokens(usageData),
+          totalTokens: usageData.total_tokens
+        })
+        const { actualInputTokens, outputTokens, cacheCreateTokens, cacheReadTokens, totalTokens } =
+          completionUsageSummary
 
         const serviceTier = req._serviceTier || null
         const _usageSessionId =
@@ -940,10 +969,6 @@ class OpenAIResponsesRelayService {
           })
         )
 
-        logger.info(
-          `📊 Recorded non-stream usage - Input: ${totalInputTokens}(actual:${actualInputTokens}+cached:${cacheReadTokens}), CacheCreate: ${cacheCreateTokens}, Output: ${outputTokens}, Total: ${totalTokens}, Model: ${actualModel}`
-        )
-
         // 更新账户的 token 使用统计
         await openaiResponsesAccountService.updateAccountUsage(account.id, totalTokens)
 
@@ -970,7 +995,17 @@ class OpenAIResponsesRelayService {
 
     // 返回响应
     logger.info(
-      `✅ 非流式完成 elapsed=${Date.now() - startTime}ms model=${actualModel} input=${usageData?.input_tokens ?? 0} output=${usageData?.output_tokens ?? 0}`,
+      formatCompletionUsageLog({
+        completionType: '非流式完成',
+        platform: 'openai-responses',
+        elapsedMs: Date.now() - startTime,
+        accountId: account.id,
+        accountName: account.name,
+        usageSummary: completionUsageSummary,
+        model: actualModel,
+        actualModel,
+        requestedModel
+      }),
       config.logging.truncate ? {} : { response: responseData }
     )
     res.status(response.status).json(responseData)
