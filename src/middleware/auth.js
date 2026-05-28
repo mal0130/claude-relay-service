@@ -884,7 +884,7 @@ const authenticateApiKey = async (req, res, next) => {
         return res.status(402).json({
           error: {
             type: 'insufficient_quota',
-            message: '您尚未被分配企业版使用权限，请联系企业管理员为您开通。[<a href="https://doc.dcloud.net.cn/uni-app-x/ai/enterprise-subscription.html">了解企业版</a>]',
+            message: '您没有企业版使用权限。企业版需由企业管理员（即贵公司在 DCloud 完成企业实名认证的账号负责人）购买并授权：1) 在 [<a href="https://dev.dcloud.net.cn">DCloud 开发者中心</a>] 购买企业版；2) 将您加入企业成员；3) 为您分配使用权限。[<a href="https://doc.dcloud.net.cn/uni-app-x/ai/enterprise-subscription.html">查看企业版说明</a>]',
             code: 'enterprise_quota_exhausted'
           }
         })
