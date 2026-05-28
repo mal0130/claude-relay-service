@@ -127,7 +127,9 @@ function isAiFixRequest(req) {
   const aiFixPattern =
     /请修复.+控制台中的错误，修复后继续分析.+控制台日志，直到控制台没有错误。|请修复.+控制台中的错误。/
   return messages.some((m) => {
-    if (m.role !== 'user') return false
+    if (m.role !== 'user') {
+      return false
+    }
     let text = ''
     if (typeof m.content === 'string') {
       text = m.content
@@ -400,6 +402,11 @@ function isTokenCountRequest(req) {
  * @returns {Promise<Object>} { valid: boolean, error?: string, statusCode?: number }
  */
 async function checkApiKeyLimits(keyData, req) {
+  const isEnterpriseKey = (keyData.packMode || 'personal') === 'enterprise'
+  const quotaExhaustedMessage = isEnterpriseKey
+    ? `企业版额度已用完，请联系企业管理员前往 [<a href="https://dev.dcloud.net.cn">DCloud 开发者中心</a>] 补充资源包或升级套餐。`
+    : `您订购的资源包额度已耗尽。您可以 [<a href="${subscriptionUrl}">补充资源包</a>] 继续使用，或 [<a href="${subscriptionUrl}">订阅套餐</a>] 享受更划算的长效权益，如已购买，可发送"继续"以继续使用。`
+
   // pack-free-3 限制：仅对主进程生效，非主进程全部放行
   if (isAiFixPack(keyData.name)) {
     // 主进程非 AI修复 请求强制失败，触发切换
@@ -505,7 +512,7 @@ async function checkApiKeyLimits(keyData, req) {
       valid: false,
       error: {
         type: 'insufficient_quota',
-        message: `您订购的资源包额度已耗尽。您可以 [<a href="${subscriptionUrl}">补充资源包</a>] 继续使用，或 [<a href="${subscriptionUrl}">订阅套餐</a>] 享受更划算的长效权益，如已购买，可发送“继续”以继续使用。`,
+        message: quotaExhaustedMessage,
         code: 'daily_cost_limit_exceeded'
       },
       statusCode: 402
@@ -520,7 +527,7 @@ async function checkApiKeyLimits(keyData, req) {
       valid: false,
       error: {
         type: 'insufficient_quota',
-        message: `您订购的资源包额度已耗尽。您可以 [<a href="${subscriptionUrl}">补充资源包</a>] 继续使用，或 [<a href="${subscriptionUrl}">订阅套餐</a>] 享受更划算的长效权益，如已购买，可发送“继续”以继续使用。`,
+        message: quotaExhaustedMessage,
         code: 'total_cost_limit_exceeded'
       },
       statusCode: 402
@@ -551,7 +558,7 @@ async function checkApiKeyLimits(keyData, req) {
           valid: false,
           error: {
             type: 'insufficient_quota',
-            message: `您账户中 uni-agent 可用额度已用尽，请前往<a href="${subscriptionUrl}">开发者中心</a>购买资源包，如已购买，可发送"继续"以继续使用。`,
+            message: quotaExhaustedMessage,
             code: 'weekly_opus_cost_limit_exceeded'
           },
           statusCode: 402
@@ -876,7 +883,6 @@ const authenticateApiKey = async (req, res, next) => {
       req.headers['x-api-key'] = apiKey
     }
 
-    logger.info(`apiKey: ${apiKey}, type: ${typeof (apiKey)}`)
     if (!apiKey || apiKey === 'Bearer') {
       logger.security(`Missing API key attempt from ${req.ip || 'unknown'}`)
       const earlyPackMode = (req.headers['uni_agent_subscription_type'] || '').trim().toLowerCase()
@@ -884,7 +890,8 @@ const authenticateApiKey = async (req, res, next) => {
         return res.status(402).json({
           error: {
             type: 'insufficient_quota',
-            message: '没有可用的企业版额度，请联系企业管理员。',
+            message:
+              '您没有企业版使用权限。企业版需由企业管理员（即贵公司在 DCloud 完成企业实名认证的账号负责人）购买并授权：<br />1) 在 [<a href="https://dev.dcloud.net.cn">DCloud 开发者中心</a>] 购买企业版；<br />2) 将您加入企业成员；<br />3) 为您分配使用权限。[<a href="https://doc.dcloud.net.cn/uni-app-x/ai/enterprise-subscription.html">查看企业版说明</a>]。<br />如您是个人用户，请切换到个人版继续使用。',
             code: 'enterprise_quota_exhausted'
           }
         })
@@ -974,7 +981,8 @@ const authenticateApiKey = async (req, res, next) => {
         return res.status(402).json({
           error: {
             type: 'insufficient_quota',
-            message: '没有可用的企业版额度，请联系企业管理员。',
+            message:
+              '您没有企业版使用权限。企业版需由企业管理员（即贵公司在 DCloud 完成企业实名认证的账号负责人）购买并授权：<br />1) 在 [<a href="https://dev.dcloud.net.cn">DCloud 开发者中心</a>] 购买企业版；<br />2) 将您加入企业成员；<br />3) 为您分配使用权限。[<a href="https://doc.dcloud.net.cn/uni-app-x/ai/enterprise-subscription.html">查看企业版说明</a>]。<br />如您是个人用户，请切换到个人版继续使用。',
             code: 'enterprise_key_not_found'
           }
         })
@@ -984,11 +992,17 @@ const authenticateApiKey = async (req, res, next) => {
       const enterpriseCandidates = []
       for (const keyId of enterpriseKeyIds) {
         const kd = await redis.getApiKey(keyId)
-        if (!kd || Object.keys(kd).length === 0) continue
-        if ((kd.packMode || 'personal') !== 'enterprise') continue
+        if (!kd || Object.keys(kd).length === 0) {
+          continue
+        }
+        if ((kd.packMode || 'personal') !== 'enterprise') {
+          continue
+        }
         // 双重校验：memberUids 必须包含 x-user-id
         const memberUids = parseJsonArrayWithDefault(kd.memberUids)
-        if (!memberUids.includes(xUserId)) continue
+        if (!memberUids.includes(xUserId)) {
+          continue
+        }
         enterpriseCandidates.push(kd)
       }
 
@@ -1009,8 +1023,12 @@ const authenticateApiKey = async (req, res, next) => {
       let enterprisePackageWindowLimitStatusCode = null
 
       for (const kd of enterpriseKeysToTry) {
-        if (kd.isActive !== 'true') continue
-        if (kd.expiresAt && new Date(kd.expiresAt) < new Date()) continue
+        if (kd.isActive !== 'true') {
+          continue
+        }
+        if (kd.expiresAt && new Date(kd.expiresAt) < new Date()) {
+          continue
+        }
         const limitCheck = await checkApiKeyLimits(kd, req)
         if (!limitCheck.valid) {
           logger.api(
@@ -1042,7 +1060,8 @@ const authenticateApiKey = async (req, res, next) => {
         return res.status(402).json({
           error: {
             type: 'insufficient_quota',
-            message: '企业版额度已耗尽，请联系管理员补充。',
+            message:
+              '企业版额度已用完，请联系企业管理员前往 [<a href="https://dev.dcloud.net.cn">DCloud 开发者中心</a>] 补充资源包或升级套餐。',
             code: 'enterprise_quota_exhausted'
           }
         })
@@ -1060,15 +1079,15 @@ const authenticateApiKey = async (req, res, next) => {
       validation.keyData?.packMode === 'enterprise'
     ) {
       logger.api(
-        `🔄 Enterprise key ${validation.keyData.id} (${validation.keyData.name}) used in personal mode, marking invalid`
+        `🔄 Enterprise key ${validation.keyData.id} (${validation.keyData.name}) used in personal mode, marking invalid to trigger personal key switch`
       )
       validation = {
         valid: false,
         keyData: validation.keyData,
         error: {
           type: 'insufficient_quota',
-          message: `企业版额度已耗尽，请联系管理员补充。`,
-          code: 'quota_exhausted'
+          message: `个人版额度已用完，请前往 [<a href="https://dev.dcloud.net.cn">DCloud 开发者中心</a>] 购买套餐或资源包。`,
+          code: 'personal_key_not_found'
         },
         statusCode: 402
       }
@@ -1976,7 +1995,10 @@ const authenticateApiKey = async (req, res, next) => {
         return res.status(402).json({
           error: {
             type: 'insufficient_quota',
-            message: `您账户中 uni-agent 可用额度已用尽，请前往<a href="${subscriptionUrl}">开发者中心</a>购买资源包，如已购买，可发送“继续”以继续使用。`,
+            message:
+              (validation.keyData.packMode || 'personal') === 'enterprise'
+                ? `企业版额度已用完，请联系企业管理员前往 [<a href=”https://dev.dcloud.net.cn”>DCloud 开发者中心</a>] 补充资源包或升级套餐。`
+                : `您账户中 uni-agent 可用额度已用尽，请前往<a href=”${subscriptionUrl}”>开发者中心</a>购买资源包，如已购买，可发送”继续”以继续使用。`,
             code: 'daily_cost_limit_exceeded'
           },
           currentCost: dailyCost,
@@ -2007,7 +2029,10 @@ const authenticateApiKey = async (req, res, next) => {
         return res.status(402).json({
           error: {
             type: 'insufficient_quota',
-            message: `您账户中 uni-agent 可用额度已用尽，请前往<a href="${subscriptionUrl}">开发者中心</a>购买资源包，如已购买，可发送“继续”以继续使用。`,
+            message:
+              (validation.keyData.packMode || 'personal') === 'enterprise'
+                ? `企业版额度已用完，请联系企业管理员前往 [<a href=”https://dev.dcloud.net.cn”>DCloud 开发者中心</a>] 补充资源包或升级套餐。`
+                : `您账户中 uni-agent 可用额度已用尽，请前往<a href=”${subscriptionUrl}”>开发者中心</a>购买资源包，如已购买，可发送”继续”以继续使用。`,
             code: 'total_cost_limit_exceeded'
           },
           currentCost: totalCost,
