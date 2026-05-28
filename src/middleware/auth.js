@@ -884,7 +884,7 @@ const authenticateApiKey = async (req, res, next) => {
         return res.status(402).json({
           error: {
             type: 'insufficient_quota',
-            message: '没有可用的企业版额度，请联系企业管理员。',
+            message: '您尚未被分配企业版使用权限，请联系企业管理员为您开通。[<a href="https://doc.dcloud.net.cn/uni-app-x/ai/enterprise-subscription.html">了解企业版</a>]',
             code: 'enterprise_quota_exhausted'
           }
         })
@@ -948,7 +948,7 @@ const authenticateApiKey = async (req, res, next) => {
         return res.status(400).json({
           error: {
             type: 'invalid_request',
-            message: '参数错误，请检查 uni-agent 版本是否为最新版！',
+            message: '请将 uni-agent 插件更新至1.7.1及以上版本后重试。',
             code: 'missing_user_id'
           }
         })
@@ -958,7 +958,7 @@ const authenticateApiKey = async (req, res, next) => {
         return res.status(400).json({
           error: {
             type: 'invalid_request',
-            message: '参数错误，请检查 uni-agent 版本是否为最新版！',
+            message: '请将 uni-agent 插件更新至1.7.1及以上版本后重试。',
             code: 'invalid_user_id'
           }
         })
@@ -974,7 +974,7 @@ const authenticateApiKey = async (req, res, next) => {
         return res.status(402).json({
           error: {
             type: 'insufficient_quota',
-            message: '没有可用的企业版额度，请联系企业管理员。',
+            message: '您尚未被分配企业版使用权限，请联系企业管理员在 [<a href="https://dev.dcloud.net.cn/pages/enterprise/my-members">成员管理</a>] 中为您授权。',
             code: 'enterprise_key_not_found'
           }
         })
@@ -1042,7 +1042,7 @@ const authenticateApiKey = async (req, res, next) => {
         return res.status(402).json({
           error: {
             type: 'insufficient_quota',
-            message: '企业版额度已耗尽，请联系管理员补充。',
+            message: '企业版额度已用完，请联系企业管理员前往 [<a href="https://dev.dcloud.net.cn">DCloud 开发者中心</a>] 补充资源包或升级套餐。',
             code: 'enterprise_quota_exhausted'
           }
         })
@@ -1067,7 +1067,7 @@ const authenticateApiKey = async (req, res, next) => {
         keyData: validation.keyData,
         error: {
           type: 'insufficient_quota',
-          message: `企业版额度已耗尽，请联系管理员补充。`,
+          message: `企业版额度已用完，请联系企业管理员前往 [<a href="https://dev.dcloud.net.cn">DCloud 开发者中心</a>] 补充资源包或升级套餐。`,
           code: 'quota_exhausted'
         },
         statusCode: 402
