@@ -16,7 +16,8 @@ jest.mock(
 jest.mock(
   '../config/config',
   () => ({
-    requestTimeout: 1000
+    requestTimeout: 1000,
+    logging: { truncate: false }
   }),
   { virtual: true }
 )
@@ -42,7 +43,8 @@ jest.mock('../src/services/account/openaiAccountService', () => ({
   decrypt: jest.fn(),
   isTokenExpired: jest.fn(() => false),
   refreshAccountToken: jest.fn(),
-  updateCodexUsageSnapshot: jest.fn()
+  updateCodexUsageSnapshot: jest.fn(),
+  checkAndApplyUsageLimitStop: jest.fn()
 }))
 
 jest.mock('../src/services/account/openaiResponsesAccountService', () => ({
@@ -91,10 +93,15 @@ jest.mock('../src/utils/errorSanitizer', () => ({
   getSafeMessage: jest.fn((error) => error?.message || 'error')
 }))
 
-jest.mock('../src/utils/requestDetailHelper', () => ({
-  createRequestDetailMeta: jest.fn(() => null),
-  extractOpenAICacheReadTokens: jest.fn(() => 0)
-}))
+jest.mock('../src/utils/requestDetailHelper', () => {
+  const actual = jest.requireActual('../src/utils/requestDetailHelper')
+  return {
+    createRequestDetailMeta: jest.fn(() => null),
+    extractOpenAICacheReadTokens: jest.fn(() => 0),
+    buildCompletionUsageSummary: actual.buildCompletionUsageSummary,
+    formatCompletionUsageLog: actual.formatCompletionUsageLog
+  }
+})
 
 const unifiedOpenAIScheduler = require('../src/services/scheduler/unifiedOpenAIScheduler')
 const axios = require('axios')
@@ -180,6 +187,8 @@ describe('openai responses payload toggles', () => {
 
     openaiResponsesRelayService.handleRequest.mockResolvedValue({ ok: true })
     openaiAccountService.decrypt.mockReturnValue('decrypted-token')
+    unifiedOpenAIScheduler.isAccountRateLimited.mockResolvedValue(false)
+    openaiAccountService.getAccount.mockResolvedValue(null)
   })
 
   test('forces Codex adaptation on for standard responses even when the toggle is off', async () => {
@@ -465,7 +474,8 @@ describe('openai responses payload toggles', () => {
       }
     })
 
-    await openaiRoutes.handleResponses(req, createRes())
+    const _res = createRes()
+    await openaiRoutes.handleResponses(req, _res)
 
     expect(req._serviceTier).toBe('priority')
     expect(apiKeyService.recordUsage).toHaveBeenCalled()
@@ -559,5 +569,96 @@ describe('openai responses payload toggles', () => {
     expect(req.body.model).toBe('o1-mini')
     expect(req.body.prompt_cache_key).toBe('compact-key')
     expect(req.body.instructions).toBe(openaiRoutes.CODEX_CLI_INSTRUCTIONS)
+  })
+})
+
+describe('openai stream overload interception', () => {
+  const { EventEmitter } = require('events')
+  const { IncrementalSSEParser } = require('../src/utils/sseParser')
+
+  beforeEach(() => {
+    jest.clearAllMocks()
+    // Restore real SSE parser for stream tests
+    IncrementalSSEParser.mockImplementation(
+      () => new (jest.requireActual('../src/utils/sseParser').IncrementalSSEParser)()
+    )
+    unifiedOpenAIScheduler.selectAccountForApiKey.mockResolvedValue({
+      accountId: 'openai-1',
+      accountType: 'openai'
+    })
+    openaiAccountService.getAccount.mockResolvedValue({
+      id: 'openai-1',
+      name: 'OpenAI Account',
+      accessToken: 'encrypted-token',
+      accountId: 'chatgpt-account-1'
+    })
+    openaiAccountService.decrypt.mockReturnValue('decrypted-token')
+    unifiedOpenAIScheduler.isAccountRateLimited.mockResolvedValue(false)
+  })
+
+  function makeStreamUpstream(chunks) {
+    const emitter = new EventEmitter()
+    process.nextTick(() => {
+      for (const chunk of chunks) {
+        emitter.emit('data', Buffer.from(chunk))
+      }
+      emitter.emit('end')
+    })
+    return { status: 200, headers: {}, data: emitter }
+  }
+
+  async function runStreamRequest(bodyOverrides, chunks) {
+    axios.post.mockResolvedValue(makeStreamUpstream(chunks))
+    const written = []
+    const res = {
+      statusCode: 200,
+      headers: {},
+      destroyed: false,
+      writableEnded: false,
+      headersSent: false,
+      status: jest.fn(function (code) {
+        this.statusCode = code
+        return this
+      }),
+      json: jest.fn(function (payload) {
+        this.payload = payload
+        return this
+      }),
+      setHeader: jest.fn(function (k, v) {
+        this.headers[k] = v
+      }),
+      flushHeaders: jest.fn(),
+      write: jest.fn((chunk) => written.push(chunk.toString())),
+      end: jest.fn()
+    }
+    const req = createReq({ body: { model: 'gpt-5-2025-08-07', stream: true, ...bodyOverrides } })
+    req.on = jest.fn()
+    req.removeListener = jest.fn()
+
+    await openaiRoutes.handleResponses(req, res)
+    // Wait for stream events (process.nextTick) to fire
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    return { res, written }
+  }
+
+  test('replaces server_is_overloaded chunk with friendly message in stream', async () => {
+    const overloadChunk =
+      'data: {"type":"error","error":{"type":"service_unavailable_error","code":"server_is_overloaded","message":"Our servers are currently overloaded.","param":null},"sequence_number":3}\n\n'
+
+    const { written } = await runStreamRequest({}, [overloadChunk])
+
+    expect(written.length).toBe(1)
+    const parsed = JSON.parse(written[0].replace(/^data: /, '').trim())
+    expect(parsed.error.code).toBe('server_is_overloaded')
+    expect(parsed.error.message).toContain('算力受限')
+  })
+
+  test('passes normal stream chunks through without modification', async () => {
+    const normalChunk = 'data: {"type":"response.output_text.delta","delta":"hello"}\n\n'
+
+    const { written } = await runStreamRequest({}, [normalChunk])
+
+    expect(written.length).toBe(1)
+    expect(written[0]).toBe(normalChunk)
   })
 })
