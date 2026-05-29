@@ -441,7 +441,7 @@ const handleResponses = async (req, res) => {
     }
 
     // 使用调度器选择账户
-    ;({ accessToken, accountId, accountType, proxy, account } = await getOpenAIAuthToken(
+    ; ({ accessToken, accountId, accountType, proxy, account } = await getOpenAIAuthToken(
       apiKeyData,
       sessionId,
       schedulerModel
@@ -665,8 +665,8 @@ const handleResponses = async (req, res) => {
       if (errorData) {
         const messageCandidate =
           errorData.error &&
-          typeof errorData.error.message === 'string' &&
-          errorData.error.message.trim()
+            typeof errorData.error.message === 'string' &&
+            errorData.error.message.trim()
             ? errorData.error.message.trim()
             : typeof errorData.message === 'string' && errorData.message.trim()
               ? errorData.message.trim()
@@ -947,16 +947,31 @@ const handleResponses = async (req, res) => {
 
     upstream.data.on('data', (chunk) => {
       try {
-        // 转发数据给客户端
-        if (!res.destroyed) {
-          res.write(chunk)
-        }
-
-        // 使用增量解析器处理数据
+        // 先解析，检测过载错误
         const events = sseParser.feed(chunk.toString())
+        let overloaded = false
         for (const event of events) {
           if (event.type === 'data' && event.data) {
             processSSEEvent(event.data)
+            if (event.data?.error?.code === 'server_is_overloaded') {
+              overloaded = true
+            }
+          }
+        }
+
+        if (!res.destroyed) {
+          if (overloaded) {
+            const friendly = {
+              error: {
+                message:
+                  '因官方模型算力受限，请求失败，可重新发起对话，或切换其他渠道使用。',
+                type: 'server_error',
+                code: 'server_is_overloaded'
+              }
+            }
+            res.write(`data: ${JSON.stringify(friendly)}\n\n`)
+          } else {
+            res.write(chunk)
           }
         }
       } catch (error) {
@@ -1069,10 +1084,10 @@ const handleResponses = async (req, res) => {
           ? {}
           : completedResponse || completedOutputItems.length
             ? {
-                response: completedResponse
-                  ? { ...completedResponse, output: completedOutputItems }
-                  : { output: completedOutputItems }
-              }
+              response: completedResponse
+                ? { ...completedResponse, output: completedOutputItems }
+                : { output: completedOutputItems }
+            }
             : streamErrors.length
               ? { streamErrors }
               : {}
