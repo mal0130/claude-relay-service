@@ -10,7 +10,7 @@ jest.mock('../src/services/account/claudeConsoleAccountService', () => ({
   _createProxyAgent: jest.fn()
 }))
 
-jest.mock('../config/config', () => ({}), {
+jest.mock('../config/config', () => ({ system: { timezone: 'Asia/Shanghai' } }), {
   virtual: true
 })
 jest.mock('../src/models/redis', () => ({}))

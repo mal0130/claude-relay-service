@@ -23,7 +23,11 @@ const {
   applyReasoningTranslation,
   shouldTranslateForKey
 } = require('../utils/reasoningTranslationTransformer')
-const { createRequestDetailMeta } = require('../utils/requestDetailHelper')
+const {
+  createRequestDetailMeta,
+  buildCompletionUsageSummary,
+  formatCompletionUsageLog
+} = require('../utils/requestDetailHelper')
 const config = require('../../config/config')
 
 // 🔧 辅助函数：检查 API Key 权限
@@ -430,6 +434,24 @@ async function handleChatCompletion(req, res, apiKeyData) {
                 accountType
               )
             })
+          const completionUsageSummary = buildCompletionUsageSummary({
+            totalInputTokens: usage.input_tokens || 0,
+            outputTokens: usage.output_tokens || 0,
+            cacheReadTokens,
+            cacheCreateTokens
+          })
+          logger.info(
+            formatCompletionUsageLog({
+              completionType: '流式完成',
+              platform: 'openai-claude',
+              elapsedMs: Date.now() - startTime,
+              accountId,
+              usageSummary: completionUsageSummary,
+              model,
+              actualModel: model,
+              requestedModel: claudeRequest.model
+            })
+          )
         }
       }
 
@@ -648,6 +670,33 @@ async function handleChatCompletion(req, res, apiKeyData) {
       }
 
       // 返回 OpenAI 格式响应
+      if (claudeData.usage) {
+        const { usage } = claudeData
+        const cacheCreateTokens =
+          (usage.cache_creation && typeof usage.cache_creation === 'object'
+            ? (usage.cache_creation.ephemeral_5m_input_tokens || 0) +
+              (usage.cache_creation.ephemeral_1h_input_tokens || 0)
+            : usage.cache_creation_input_tokens || 0) || 0
+        const cacheReadTokens = usage.cache_read_input_tokens || 0
+        const completionUsageSummary = buildCompletionUsageSummary({
+          totalInputTokens: usage.input_tokens || 0,
+          outputTokens: usage.output_tokens || 0,
+          cacheReadTokens,
+          cacheCreateTokens
+        })
+        logger.info(
+          formatCompletionUsageLog({
+            completionType: '非流式完成',
+            platform: 'openai-claude',
+            elapsedMs: Date.now() - startTime,
+            accountId,
+            usageSummary: completionUsageSummary,
+            model: claudeRequest.model,
+            actualModel: claudeRequest.model,
+            requestedModel: req.body.model
+          })
+        )
+      }
       res.json(openaiResponse)
     }
 
