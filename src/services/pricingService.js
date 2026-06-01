@@ -8,7 +8,7 @@ const logger = require('../utils/logger')
 const DEEPSEEK_PRICING_SOURCE =
   process.env.DEEPSEEK_PRICING_URL || 'https://api-docs.deepseek.com/quick_start/pricing'
 const DEEPSEEK_PRICING_SOURCE_ZH = 'https://api-docs.deepseek.com/zh-cn/quick_start/pricing'
-const DEEPSEEK_PRO_DISCOUNT_ENDS_AT = '2026-05-31T15:59:00.000Z'
+const DEEPSEEK_PRO_DISCOUNT_ENDS_AT = null
 const DEEPSEEK_CONTEXT_TOKENS = 1048576
 const DEEPSEEK_MAX_OUTPUT_TOKENS = 393216
 const DEEPSEEK_FALLBACK_USD_PER_MTOK = {
@@ -130,8 +130,11 @@ class PricingService {
       supports_tool_choice: true
     }
 
-    if (discountEndsAt) {
+    if (discountActive || discountEndsAt) {
       entry.pricing_discount_active = !!discountActive
+    }
+
+    if (discountEndsAt) {
       entry.pricing_discount_ends_at = discountEndsAt
     }
 
@@ -158,13 +161,14 @@ class PricingService {
     const now = options.now || new Date()
     const discountEndsAt =
       options.discountEndsAt === undefined ? DEEPSEEK_PRO_DISCOUNT_ENDS_AT : options.discountEndsAt
-    const discountActive =
-      options.discountActive !== undefined
-        ? options.discountActive
-        : new Date(now).getTime() < new Date(discountEndsAt).getTime()
-
     const flashPrices = options.flash || DEEPSEEK_FALLBACK_USD_PER_MTOK.flash
     const proPrices = options.pro || DEEPSEEK_FALLBACK_USD_PER_MTOK.pro
+    const hasDiscountedProPrice =
+      Number(proPrices.listCacheRead) > Number(proPrices.cacheRead) ||
+      Number(proPrices.listInput) > Number(proPrices.input) ||
+      Number(proPrices.listOutput) > Number(proPrices.output)
+    const discountActive =
+      options.discountActive !== undefined ? options.discountActive : hasDiscountedProPrice
     const activeProPrices = discountActive
       ? proPrices
       : {
@@ -269,26 +273,21 @@ class PricingService {
     return null
   }
 
-  _selectDeepSeekPriceFromCell(cellHtml, discountActive) {
+  _selectDeepSeekPriceFromCell(cellHtml, useCurrentPrice = true) {
     const prices = extractUsdPrices(cellHtml)
     if (prices.length === 0) {
       return { active: null, list: null }
     }
 
     const delMatch = String(cellHtml || '').match(/<del[^>]*>\s*\$?\s*([0-9]+(?:\.[0-9]+)?)/i)
-    const list = delMatch ? Number(delMatch[1]) : prices[0]
+    const list = delMatch ? Number(delMatch[1]) : null
     return {
-      active: discountActive ? prices[0] : list,
+      active: useCurrentPrice || list === null ? prices[0] : list,
       list
     }
   }
 
   parseDeepSeekPricingHtml(html, now = new Date()) {
-    const discountEndsAt = this._extractDeepSeekDiscountEndsAt(html)
-    const discountActive = discountEndsAt
-      ? new Date(now).getTime() < new Date(discountEndsAt).getTime()
-      : false
-
     const cacheHit = this._extractDeepSeekPriceRow(html, '1M INPUT TOKENS (CACHE HIT)')
     const cacheMiss = this._extractDeepSeekPriceRow(html, '1M INPUT TOKENS (CACHE MISS)')
     const output = this._extractDeepSeekPriceRow(html, '1M OUTPUT TOKENS')
@@ -302,6 +301,9 @@ class PricingService {
       input: this._selectDeepSeekPriceFromCell(cacheMiss.flashCell, false).active,
       output: this._selectDeepSeekPriceFromCell(output.flashCell, false).active
     }
+    const discountActive = [cacheHit.proCell, cacheMiss.proCell, output.proCell].some((cell) =>
+      /<del[^>]*>/i.test(String(cell || ''))
+    )
     const proCacheRead = this._selectDeepSeekPriceFromCell(cacheHit.proCell, discountActive)
     const proInput = this._selectDeepSeekPriceFromCell(cacheMiss.proCell, discountActive)
     const proOutput = this._selectDeepSeekPriceFromCell(output.proCell, discountActive)
@@ -331,7 +333,7 @@ class PricingService {
       flash,
       pro,
       discountActive,
-      discountEndsAt,
+      discountEndsAt: null,
       now,
       source: DEEPSEEK_PRICING_SOURCE
     })
