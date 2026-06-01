@@ -457,6 +457,82 @@ async function testQueryUsageDetailsMissingParam() {
 }
 
 /**
+ * 测试 7.2: 查询 API Key 详情
+ */
+async function testQueryApiKeyDetail() {
+  await test('测试 7.2: 查询 API Key 详情', async () => {
+    if (!createdApiKeyId) {
+      console.log('  跳过：需要先创建 API Key')
+      return
+    }
+
+    const params = { key_ids: [createdApiKeyId] }
+    const signature = generateSignature(params)
+
+    const response = await axios.post(
+      `${API_BASE_URL}/partner/api-key/detail`,
+      { ...params, sign: signature },
+      { headers: { 'Content-Type': 'application/json' } }
+    )
+
+    assert(response.status === 200, 'HTTP 状态码应为 200')
+    assert(response.data.code === 0, '响应 code 应为 0')
+    assert(response.data.msg === 'success', '响应 msg 应为 success')
+    assert(typeof response.data.data === 'object', 'data 应为对象')
+    assert(response.data.data[createdApiKeyId], '应包含对应 keyId 的详情')
+
+    const keyData = response.data.data[createdApiKeyId]
+    assert(keyData.keyId === createdApiKeyId, 'keyId 应匹配')
+    assert(keyData.keyName === createdApiKeyName, 'keyName 应匹配')
+    assert(Array.isArray(keyData.permissions), 'permissions 应为数组')
+    assert(Array.isArray(keyData.rateLimits), 'rateLimits 应为数组')
+    assert(Array.isArray(keyData.tags), 'tags 应为数组')
+    assert(typeof keyData.serviceRates === 'object', 'serviceRates 应为对象')
+    assert(keyData.packMode === 'personal', 'packMode 应为 personal')
+  })
+}
+
+/**
+ * 测试 7.3: 更新 API Key 过期时间
+ */
+async function testUpdateApiKeyExpiration() {
+  await test('测试 7.3: 更新 API Key 过期时间', async () => {
+    if (!createdApiKeyId) {
+      console.log('  跳过：需要先创建 API Key')
+      return
+    }
+
+    const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString()
+    const params = { expiresAt }
+    const signature = generateSignature(params)
+
+    const response = await axios.post(
+      `${API_BASE_URL}/partner/api-key/${createdApiKeyId}/expiration`,
+      { ...params, sign: signature },
+      { headers: { 'Content-Type': 'application/json' } }
+    )
+
+    assert(response.status === 200, 'HTTP 状态码应为 200')
+    assert(response.data.code === 0, '响应 code 应为 0')
+    assert(response.data.msg === 'success', '响应 msg 应为 success')
+    assert(response.data.data.keyId === createdApiKeyId, 'keyId 应匹配')
+    assert(response.data.data.keyName === createdApiKeyName, 'keyName 应匹配')
+
+    const detailParams = { key_ids: [createdApiKeyId] }
+    const detailSignature = generateSignature(detailParams)
+    const detailResponse = await axios.post(
+      `${API_BASE_URL}/partner/api-key/detail`,
+      { ...detailParams, sign: detailSignature },
+      { headers: { 'Content-Type': 'application/json' } }
+    )
+
+    const detail = detailResponse.data.data[createdApiKeyId]
+    assert(detail.expiresAt === expiresAt, 'expiresAt 应更新为指定值')
+    assert(detail.isActivated === true, '更新过期时间后应标记为已激活')
+  })
+}
+
+/**
  * 测试 7.5: 更新 API Key - DeepSeek 倍率与账号绑定
  */
 async function testUpdateApiKeyDeepSeekConfig() {
@@ -769,6 +845,8 @@ async function main() {
     await testQueryUsageDetails()
     await testQueryUsageDetailsByKeyId()
     await testQueryUsageDetailsMissingParam()
+    await testQueryApiKeyDetail()
+    await testUpdateApiKeyExpiration()
     await testUpdateApiKeyDeepSeekConfig()
     await testUpdateApiKeyInvalidDeepSeekAccount()
     await testBatchUpdateConfigDeepSeekConfig()

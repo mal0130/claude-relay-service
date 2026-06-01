@@ -217,10 +217,10 @@ for uid in 移除:
 
 | Header | 说明 |
 |--------|------|
-| `x-user-id` | 当前使用者的 uid（必须在该 Key 的 `memberUids` 中） |
-| `x-pack-mode` | 固定传 `enterprise` |
+| `uni_agent_subscription_user_id` | 当前使用者的 uid（必须在该 Key 的 `memberUids` 中） |
+| `uni_agent_subscription_type` | 固定传 `enterprise` |
 
-- `x-pack-mode: enterprise` 时，系统查 `enterprise_pack_member:{x-user-id}` 索引，只在企业 Key 之间切换
+- `uni_agent_subscription_type: enterprise` 时，系统查 `enterprise_pack_member:{uni_agent_subscription_user_id}` 索引，只在企业 Key 之间切换
 - 企业 Key 切换**不需要** `pack_consent` 标签，`memberUids` 本身即授权凭据
 - 企业 Key 与个人 Key 完全隔离，不会互相切换
 

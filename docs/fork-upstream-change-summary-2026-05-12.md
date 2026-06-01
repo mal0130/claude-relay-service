@@ -61,6 +61,7 @@
 - 合作伙伴接口支持 `rateLimits` 多窗口限制、`pack_consent` 标签、`user_id`/`externalUid` 多 Key 切换索引。
 - `config/config.example.js` 增加 `partnerApi.secret` 和默认 Claude 账号配置；`src/app.js` 挂载 `/partner` 路由。
 - 新增 Partner API 文档和测试：`docs/partner-api.md`、`tests/partnerApi.simple.test.js`。
+- 2026-05-12 之后进一步扩展出企业版 Partner API：新增企业 Key 批量创建、成员全量覆盖接口，以及 `memberUids`、`packMode=enterprise`、`enterprise_pack_member:{uid}` 反向索引等能力，详见 `docs/partner-api-enterprise.md` 与 `docs/enterprise-pack-design.md`。
 
 ### 3. API Key 套餐、限额和自动切换
 
@@ -69,6 +70,8 @@
 - 多窗口限制使用 `rate_limit:window_start:{keyId}`、`rate_limit:requests:{keyId}`、`rate_limit:cost:{keyId}` 等 Redis key；创建 Key 时立即启动窗口，更新限制时仅在窗口结构变化时重置窗口。
 - 新增 `externalUid` 索引：`src/models/redis.js` 中的 `uid_keys:{externalUid}`，用于同一用户多个 Key 之间自动切换。
 - 自动切换逻辑按资源类型排序：AI 修复包、套餐、其他 Key、资源包；资源包切换需要 `pack_consent`，资源包之间可直接切换。
+- 2026-05-12 之后新增企业版切换模式：通过 `uni_agent_subscription_type=enterprise` + `uni_agent_subscription_user_id` 从 `enterprise_pack_member:{uid}` 索引中筛选候选 Key，企业 Key 与个人 Key 切换链路完全隔离，且企业模式下不再依赖 `pack_consent`。
+- 2026-05-12 之后继续补充企业资源包、个人请求过滤企业 Key、`packMode` 返回值和切换提示语优化等规则调整。
 - 过期、禁用、费用超限、窗口超限等错误提示改成面向套餐/资源包的中文提示，并保留 402/403/429 等状态含义。
 - 前端 API Key 创建、编辑、批量编辑支持多窗口限制、服务倍率、标签、`pack_consent`、DeepSeek 绑定和 `externalUid`：`web/admin-spa/src/components/apikeys/*.vue`、`web/admin-spa/src/views/ApiKeysView.vue`。
 
@@ -90,6 +93,8 @@
 - OpenAI Responses、Claude、Gemini、Azure OpenAI、Droid、CCR 等转发服务补充 usage extra、请求元信息和断开清理逻辑。
 - Redis usage record 默认保留数从 200 调整为 50，减少单 Key 明细占用。
 - 增加流式 chunk 日志开关和更详细的上游响应日志，同时通过脱敏/截断策略避免输出图片 base64。
+- 2026-05-12 之后又补充了 `tools` 字段存储、`user_id` 入 Redis、DeepSeek 场景下 `rawSessionId` 修正、请求完成后再记录 token 用量，以及 `x-request-id` 优先透传等细节修正。
+- OpenAI `server_is_overloaded` 场景和错误日志采集也在后续提交中继续补强，说明这一块在原始汇总之后仍在迭代。
 
 ### 6. 思考链翻译
 
@@ -134,7 +139,9 @@
 ### 11. 文档和测试
 
 - 新增/扩展文档：`docs/partner-api.md`、`docs/multi-platform-api-key-billing-plan.md`、`docs/multi-key-switching.md`、`docs/openai-usage-auto-stop.md`、`docs/openai-mock-account-testing.md`、`docs/ldap/configuration.md`。
+- 2026-05-12 之后继续新增企业版相关文档：`docs/enterprise-pack-design.md`、`docs/partner-api-enterprise.md`，以及 CRS → sub2api 迁移相关文档。
 - 新增测试覆盖 Partner API、OpenAI 使用量保护、OpenAI 路由使用量快照、统一 OpenAI 调度器保护、DeepSeek/缓存定价等。
+- 2026-05-12 之后继续补充测试用例，并围绕企业版切换、日志采集和返回字段修正持续迭代。
 - 现有测试同步更新成本计算、OpenAI Responses payload toggle、账户余额等场景。
 
 ## 新增接口清单
@@ -166,6 +173,8 @@
 | `POST` | `/partner/api-key/:keyId/update`     | 更新 API Key 配置                                      |
 | `POST` | `/partner/api-key/:keyId/expiration` | 更新过期时间/手动激活                                  |
 | `POST` | `/partner/api-key/update-config`     | 批量更新多个 API Key 配置                              |
+| `POST` | `/partner/enterprise/key/batch-create` | 批量创建企业版 API Key                                 |
+| `POST` | `/partner/enterprise/key/members/set`  | 全量覆盖企业版成员列表并同步维护成员反向索引           |
 
 ## 新增或扩展的数据字段
 
@@ -177,6 +186,8 @@
 | API Key          | `externalUid`                     | 外部用户 ID，用于同一用户多个 Key 自动切换          |
 | API Key          | `translateReasoning`              | 是否启用思考链翻译                                  |
 | API Key          | `tags`                            | 标签筛选、`pack_consent` 切换资源包授权             |
+| API Key          | `packMode` / `memberUids`         | 企业版标识与成员列表，支持共享 Key                  |
+| Enterprise Index | `enterprise_pack_member:{uid}`    | 成员 uid → 企业 Key 列表的 Redis Set 反向索引       |
 | OpenAI Account   | `codexPrimaryUsedPercent`         | Codex 5 小时窗口使用百分比                          |
 | OpenAI Account   | `codexSecondaryUsedPercent`       | Codex 周窗口使用百分比                              |
 | OpenAI Account   | `codexPrimaryResetAfterSeconds`   | 5 小时窗口 reset 剩余秒数                           |
@@ -199,11 +210,35 @@
 | `config/config.example.js`        | `partnerApi.defaultClaudeAccountId`       | Partner API 创建 Key 时默认 Claude 账号 |
 | `.env.example`                    | `LDAP_BIND_DN_PATTERN`                    | LDAP 直接绑定 DN 模板                   |
 | `package.json`                    | `npm run mock:openai-account`             | 运行 OpenAI mock 账号脚本               |
+| HTTP 请求头                       | `uni_agent_subscription_type` / `uni_agent_subscription_user_id` | 企业版与个人版切换模式及实际使用者标识  |
 | `scripts/manage.sh`               | `start/restart/update --instances N\|max` | PM2 多实例/cluster 管理                 |
 | `scripts/manage.sh`               | `--log-output` / `--no-log-output`        | 控制直启时是否写入 `logs/service.log`   |
 | `scripts/manage.sh`               | `rotate-log`                              | 无需重启轮转 `service.log`              |
 | `scripts/sync-upstream.sh`        | 新脚本                                    | 自动检查和同步 upstream                 |
 | `scripts/update-model-pricing.js` | `--mirror --output-dir`                   | 生成价格镜像文件和 hash                 |
+
+## 2026-05-12 之后的增量更新
+
+> 以下内容不属于本文生成当时的 `git diff upstream/main...HEAD` 统计结果，而是对 2026-05-12 之后继续演进的功能补充说明，用于帮助读者快速理解“当前仓库”相对本文快照又发生了哪些变化。
+
+### 企业版共享 Key / 企业资源包
+
+- 新增企业版共享 Key 方案：一个 `externalUid` 归属者可对应多个 `memberUids` 成员共同使用同一 Key，共享整包配额。
+- 鉴权链路新增企业模式：请求可通过 `uni_agent_subscription_type=enterprise` 与 `uni_agent_subscription_user_id` 进入企业版切换逻辑，只在 `enterprise_pack_member:{uid}` 索引对应的企业 Key 集合中切换。
+- Partner API 新增企业版接口：`/partner/enterprise/key/batch-create` 与 `/partner/enterprise/key/members/set`，用于批量创建企业 Key 和全量维护成员列表。
+- 切换规则继续细化：个人请求会过滤企业 Key，企业模式不依赖 `pack_consent`，并补充了 `packMode` 返回值和相关提示语优化。
+- 在企业版基础上继续扩展企业资源包，用于支持企业侧的套餐/资源包组合场景。
+
+### 日志、追踪与错误处理补充
+
+- 请求追踪继续细化：后续提交补充了 `x-request-id` 透传优先级调整、`user_id` 入 Redis、DeepSeek 请求 `rawSessionId` 修正等改动。
+- 日志采集继续增强：补充 `tools` 存储、请求完成后再记录 token 用量、使用账号信息补充，以及更多错误日志采集。
+- OpenAI 上游保护继续补强：额外拦截 `server_is_overloaded` 等错误场景，减少将原始上游异常直接暴露给客户端。
+
+### 文档状态说明
+
+- 本文仍然适合作为 2026-05-12 的 fork 差异快照。
+- 如需了解当前最新的企业版能力，应结合 `docs/enterprise-pack-design.md`、`docs/partner-api-enterprise.md` 与 2026-05-12 之后的提交记录一起阅读。
 
 ## 完整文件差异清单
 

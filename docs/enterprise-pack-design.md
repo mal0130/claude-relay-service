@@ -47,19 +47,19 @@ apikey:{keyId}
 
 | 参数 | 值 | 说明 |
 |------|----|------|
-| `x-user-id` | uid 字符串 | 当前实际使用者 |
-| `x-pack-mode` | `enterprise` / `personal` | 使用企业版还是个人版 |
+| `uni_agent_subscription_user_id` | uid 字符串 | 当前实际使用者 |
+| `uni_agent_subscription_type` | `enterprise` / `personal` | 使用企业版还是个人版 |
 
 ### 切换入口判断
 
 ```
-x-pack-mode = 'enterprise'
-  → 查 enterprise_pack_member:{x-user-id}
+uni_agent_subscription_type = 'enterprise'
+  → 查 enterprise_pack_member:{uni_agent_subscription_user_id}
   → 候选 key 全为企业 key
   → 无需 pack_consent，有 memberUid 即可切换
   → 优先级：企业订阅 > 其他 > 企业资源包
 
-x-pack-mode = 'personal'（或不传）
+uni_agent_subscription_type = 'personal'（或不传）
   → 查 uid_keys:{externalUid}（现有逻辑不变）
   → pack_consent 规则照旧
   → 优先级：套餐 > 其他 > 资源包（需 pack_consent）
@@ -68,7 +68,7 @@ x-pack-mode = 'personal'（或不传）
 ### 企业版切换规则
 
 - 只在 `enterprise_pack_member:{user_id}` 索引中查找候选 key
-- 候选 key 的 `memberUids` 必须包含 `x-user-id`（索引保证，双重校验）
+- 候选 key 的 `memberUids` 必须包含 `uni_agent_subscription_user_id`（索引保证，双重校验）
 - **不需要 `pack_consent` 标签**，`memberUids` 本身即授权凭据
 - 企业 key 不会出现在个人版候选列表，个人 key 不会出现在企业版候选列表
 
@@ -79,7 +79,7 @@ x-pack-mode = 'personal'（或不传）
 企业 key 的配额**整包共享**，所有成员共同消耗：
 
 - `tokenLimit`、`dailyCostLimit`、`totalCostLimit` 等限制作用于整个 key
-- usage 统计记录在 key 维度，可附加 `x-user-id` 用于后续按成员分析
+- usage 统计记录在 key 维度，可附加 `uni_agent_subscription_user_id` 用于后续按成员分析
 
 ### 按成员限额（v2 可选）
 
@@ -134,6 +134,6 @@ POST /partner/enterprise/key/members/set      设置成员（全量覆盖）
 | `src/services/apiKeyService.js` | `createApiKey` 加 `memberUids` 字段；新增成员设置方法（全量覆盖，自动 diff 维护 `enterprise_pack_member` 索引） |
 | `src/models/redis.js` | 新增 `enterprise_pack_member` 索引的 CRUD 方法 |
 | `src/routes/partner.js` | 新增 `/partner/enterprise/` 下的全部企业版接口，与个人版接口完全隔离 |
-| `src/middleware/auth.js` | 读取 `x-pack-mode` + `x-user-id`；企业版模式走 `enterprise_pack_member` 索引，跳过 `pack_consent` 检查；个人模式走现有 `uid_keys` 逻辑不变 |
+| `src/middleware/auth.js` | 读取 `uni_agent_subscription_type` + `uni_agent_subscription_user_id`；企业版模式走 `enterprise_pack_member` 索引，跳过 `pack_consent` 检查；个人模式走现有 `uid_keys` 逻辑不变 |
 
 所有改动均为**加法**，个人版逻辑零改动，向后兼容。
