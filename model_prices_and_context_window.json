@@ -12,7 +12,7 @@
     "source_zh": "https://api-docs.deepseek.com/zh-cn/quick_start/pricing",
     "pricing_currency": "USD",
     "pricing_source": "deepseek_official_docs",
-    "pricing_updated_at": "2026-06-02T02:05:33.499Z",
+    "pricing_updated_at": "2026-06-02T06:55:50.341Z",
     "supported_endpoints": [
       "/v1/chat/completions"
     ],
@@ -40,7 +40,7 @@
     "source_zh": "https://api-docs.deepseek.com/zh-cn/quick_start/pricing",
     "pricing_currency": "USD",
     "pricing_source": "deepseek_official_docs",
-    "pricing_updated_at": "2026-06-02T02:05:33.499Z",
+    "pricing_updated_at": "2026-06-02T06:55:50.341Z",
     "supported_endpoints": [
       "/v1/chat/completions"
     ],
@@ -108,7 +108,7 @@
     "source_zh": "https://api-docs.deepseek.com/zh-cn/quick_start/pricing",
     "pricing_currency": "USD",
     "pricing_source": "deepseek_official_docs",
-    "pricing_updated_at": "2026-05-30T11:05:06.094Z",
+    "pricing_updated_at": "2026-06-02T06:55:50.341Z",
     "supported_endpoints": [
       "/v1/chat/completions"
     ],
@@ -119,11 +119,7 @@
     "supports_reasoning": true,
     "supports_response_schema": true,
     "supports_system_messages": true,
-    "supports_tool_choice": true,
-    "pricing_discount_active": true,
-    "list_cache_read_input_token_cost": 1.45e-8,
-    "list_input_cost_per_token": 0.00000174,
-    "list_output_cost_per_token": 0.00000348
+    "supports_tool_choice": true
   },
   "claude-3-7-sonnet-20250219": {
     "cache_creation_input_token_cost": 0.00000375,
