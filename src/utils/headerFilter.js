@@ -34,6 +34,7 @@ function filterForOpenAI(headers) {
     'x-api-key',
     'x-cr-api-key',
     'connection',
+    'accept-encoding',
     'upgrade',
     'sec-websocket-key',
     'sec-websocket-version',
