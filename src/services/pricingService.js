@@ -28,6 +28,39 @@ const DEEPSEEK_FALLBACK_USD_PER_MTOK = {
   }
 }
 
+const MINIMAX_PRICING_SOURCE = 'https://platform.minimax.io/docs/guides/pricing-paygo'
+const MINIMAX_PRICING_SOURCE_MD = 'https://platform.minimax.io/docs/guides/pricing-paygo.md'
+const MINIMAX_PRICING_SOURCE_ZH = 'https://platform.minimaxi.com/docs/guides/pricing-paygo'
+const MINIMAX_CONTEXT_TOKENS_M3 = 1048576
+const MINIMAX_CONTEXT_TOKENS_DEFAULT = 131072
+const MINIMAX_MAX_OUTPUT_TOKENS = 131072
+// Fallback prices in USD per million tokens — synced from current official MiniMax USD pricing
+const MINIMAX_FALLBACK_USD_PER_MTOK = {
+  m3: {
+    cacheRead: 0.06,
+    cacheCreate: 0.375,
+    input: 0.3,
+    output: 1.2,
+    inputAbove512k: 1.2,
+    outputAbove512k: 4.8,
+    cacheReadAbove512k: 0.24,
+    priority: {
+      input: 0.45,
+      output: 1.8,
+      cacheRead: 0.09,
+      inputAbove512k: 1.8,
+      outputAbove512k: 7.2,
+      cacheReadAbove512k: 0.36
+    }
+  },
+  m2_7: { cacheRead: 0.06, cacheCreate: 0.375, input: 0.3, output: 1.2 },
+  m2_7_highspeed: { cacheRead: 0.06, cacheCreate: 0.375, input: 0.6, output: 2.4 },
+  m2_5: { cacheRead: 0.03, cacheCreate: 0.375, input: 0.3, output: 1.2 },
+  m2_5_highspeed: { cacheRead: 0.03, cacheCreate: 0.375, input: 0.6, output: 2.4 },
+  m2_1: { cacheRead: 0.03, cacheCreate: 0.375, input: 0.3, output: 1.2 },
+  m2_1_highspeed: { cacheRead: 0.03, cacheCreate: 0.375, input: 0.6, output: 2.4 },
+  m2: { cacheRead: 0.03, cacheCreate: 0.375, input: 0.3, output: 1.2 }
+}
 const usdPerMillionToUsdPerToken = (usdPerMillionTokens) => usdPerMillionTokens / 1_000_000
 
 const stripHtmlTags = (html) => String(html || '').replace(/<[^>]*>/g, '')
@@ -157,6 +190,72 @@ class PricingService {
     return entry
   }
 
+  _createMiniMaxPricingEntry(options) {
+    const {
+      cacheReadUsdPerMillion,
+      cacheCreateUsdPerMillion,
+      inputUsdPerMillion,
+      outputUsdPerMillion,
+      source = MINIMAX_PRICING_SOURCE,
+      now = new Date(),
+      maxInputTokens = MINIMAX_CONTEXT_TOKENS_DEFAULT,
+      supportsReasoning = true,
+      pricingSource = 'minimax_builtin_fallback',
+      pricingCurrency = 'USD',
+      inputUsdPerMillionAbove512k = null,
+      outputUsdPerMillionAbove512k = null,
+      cacheReadUsdPerMillionAbove512k = null,
+      providerSpecificEntry = null
+    } = options
+
+    const refreshedAt = new Date(now).toISOString()
+    const entry = {
+      cache_creation_input_token_cost: usdPerMillionToUsdPerToken(cacheCreateUsdPerMillion),
+      cache_read_input_token_cost: usdPerMillionToUsdPerToken(cacheReadUsdPerMillion),
+      input_cost_per_token: usdPerMillionToUsdPerToken(inputUsdPerMillion),
+      litellm_provider: 'minimax',
+      max_input_tokens: maxInputTokens,
+      max_output_tokens: MINIMAX_MAX_OUTPUT_TOKENS,
+      max_tokens: MINIMAX_MAX_OUTPUT_TOKENS,
+      mode: 'chat',
+      output_cost_per_token: usdPerMillionToUsdPerToken(outputUsdPerMillion),
+      source,
+      source_zh: MINIMAX_PRICING_SOURCE_ZH,
+      pricing_currency: pricingCurrency,
+      pricing_source: pricingSource,
+      pricing_updated_at: refreshedAt,
+      supported_endpoints: ['/v1/chat/completions', '/anthropic/v1/messages'],
+      supports_function_calling: true,
+      supports_native_streaming: true,
+      supports_parallel_function_calling: true,
+      supports_prompt_caching: true,
+      supports_reasoning: supportsReasoning,
+      supports_response_schema: true,
+      supports_system_messages: true,
+      supports_tool_choice: true
+    }
+
+    if (inputUsdPerMillionAbove512k !== null) {
+      entry.input_cost_per_token_above_512k_tokens = usdPerMillionToUsdPerToken(
+        inputUsdPerMillionAbove512k
+      )
+    }
+    if (outputUsdPerMillionAbove512k !== null) {
+      entry.output_cost_per_token_above_512k_tokens = usdPerMillionToUsdPerToken(
+        outputUsdPerMillionAbove512k
+      )
+    }
+    if (cacheReadUsdPerMillionAbove512k !== null) {
+      entry.cache_read_input_token_cost_above_512k_tokens = usdPerMillionToUsdPerToken(
+        cacheReadUsdPerMillionAbove512k
+      )
+    }
+    if (providerSpecificEntry && typeof providerSpecificEntry === 'object') {
+      entry.provider_specific_entry = providerSpecificEntry
+    }
+
+    return entry
+  }
   _buildDeepSeekPricingEntries(options = {}) {
     const now = options.now || new Date()
     const discountEndsAt =
@@ -239,6 +338,427 @@ class PricingService {
       discountEndsAt: DEEPSEEK_PRO_DISCOUNT_ENDS_AT,
       source: DEEPSEEK_PRICING_SOURCE
     })
+  }
+
+  getMiniMaxFallbackPricing(now = new Date()) {
+    const p = MINIMAX_FALLBACK_USD_PER_MTOK
+    const common = { source: MINIMAX_PRICING_SOURCE, now }
+    const m3 = this._createMiniMaxPricingEntry({
+      ...common,
+      cacheReadUsdPerMillion: p.m3.cacheRead,
+      cacheCreateUsdPerMillion: p.m3.cacheCreate,
+      inputUsdPerMillion: p.m3.input,
+      outputUsdPerMillion: p.m3.output,
+      inputUsdPerMillionAbove512k: p.m3.inputAbove512k,
+      outputUsdPerMillionAbove512k: p.m3.outputAbove512k,
+      cacheReadUsdPerMillionAbove512k: p.m3.cacheReadAbove512k,
+      maxInputTokens: MINIMAX_CONTEXT_TOKENS_M3,
+      supportsReasoning: true,
+      providerSpecificEntry: {
+        priority: {
+          input_cost_per_token: usdPerMillionToUsdPerToken(p.m3.priority.input),
+          output_cost_per_token: usdPerMillionToUsdPerToken(p.m3.priority.output),
+          cache_read_input_token_cost: usdPerMillionToUsdPerToken(p.m3.priority.cacheRead),
+          input_cost_per_token_above_512k_tokens: usdPerMillionToUsdPerToken(
+            p.m3.priority.inputAbove512k
+          ),
+          output_cost_per_token_above_512k_tokens: usdPerMillionToUsdPerToken(
+            p.m3.priority.outputAbove512k
+          ),
+          cache_read_input_token_cost_above_512k_tokens: usdPerMillionToUsdPerToken(
+            p.m3.priority.cacheReadAbove512k
+          )
+        }
+      }
+    })
+    const m2_7 = this._createMiniMaxPricingEntry({
+      ...common,
+      cacheReadUsdPerMillion: p.m2_7.cacheRead,
+      cacheCreateUsdPerMillion: p.m2_7.cacheCreate,
+      inputUsdPerMillion: p.m2_7.input,
+      outputUsdPerMillion: p.m2_7.output,
+      supportsReasoning: true
+    })
+    const m2_7Highspeed = this._createMiniMaxPricingEntry({
+      ...common,
+      cacheReadUsdPerMillion: p.m2_7_highspeed.cacheRead,
+      cacheCreateUsdPerMillion: p.m2_7_highspeed.cacheCreate,
+      inputUsdPerMillion: p.m2_7_highspeed.input,
+      outputUsdPerMillion: p.m2_7_highspeed.output,
+      supportsReasoning: true
+    })
+    const m2_5 = this._createMiniMaxPricingEntry({
+      ...common,
+      cacheReadUsdPerMillion: p.m2_5.cacheRead,
+      cacheCreateUsdPerMillion: p.m2_5.cacheCreate,
+      inputUsdPerMillion: p.m2_5.input,
+      outputUsdPerMillion: p.m2_5.output,
+      supportsReasoning: true
+    })
+    const m2_5Highspeed = this._createMiniMaxPricingEntry({
+      ...common,
+      cacheReadUsdPerMillion: p.m2_5_highspeed.cacheRead,
+      cacheCreateUsdPerMillion: p.m2_5_highspeed.cacheCreate,
+      inputUsdPerMillion: p.m2_5_highspeed.input,
+      outputUsdPerMillion: p.m2_5_highspeed.output,
+      supportsReasoning: true
+    })
+    const m2_1 = this._createMiniMaxPricingEntry({
+      ...common,
+      cacheReadUsdPerMillion: p.m2_1.cacheRead,
+      cacheCreateUsdPerMillion: p.m2_1.cacheCreate,
+      inputUsdPerMillion: p.m2_1.input,
+      outputUsdPerMillion: p.m2_1.output,
+      supportsReasoning: true
+    })
+    const m2_1Highspeed = this._createMiniMaxPricingEntry({
+      ...common,
+      cacheReadUsdPerMillion: p.m2_1_highspeed.cacheRead,
+      cacheCreateUsdPerMillion: p.m2_1_highspeed.cacheCreate,
+      inputUsdPerMillion: p.m2_1_highspeed.input,
+      outputUsdPerMillion: p.m2_1_highspeed.output,
+      supportsReasoning: true
+    })
+    const m2 = this._createMiniMaxPricingEntry({
+      ...common,
+      cacheReadUsdPerMillion: p.m2.cacheRead,
+      cacheCreateUsdPerMillion: p.m2.cacheCreate,
+      inputUsdPerMillion: p.m2.input,
+      outputUsdPerMillion: p.m2.output,
+      supportsReasoning: true
+    })
+
+    return {
+      'MiniMax-M3': m3,
+      'MiniMax-M2.7': m2_7,
+      'MiniMax-M2.7-highspeed': m2_7Highspeed,
+      'MiniMax-M2.5': m2_5,
+      'MiniMax-M2.5-highspeed': m2_5Highspeed,
+      'MiniMax-M2.1': m2_1,
+      'MiniMax-M2.1-highspeed': m2_1Highspeed,
+      'MiniMax-M2': m2
+    }
+  }
+
+  _buildMiniMaxOfficialPricingEntries(options = {}) {
+    const now = options.now || new Date()
+    const source = options.source || MINIMAX_PRICING_SOURCE_MD
+    const standard = options.standard || {}
+    const priority = options.priority || null
+    const historical = options.historical || {}
+
+    const m3 = this._createMiniMaxPricingEntry({
+      cacheReadUsdPerMillion: standard.m3.cacheRead,
+      cacheCreateUsdPerMillion: standard.m3.cacheCreate,
+      inputUsdPerMillion: standard.m3.input,
+      outputUsdPerMillion: standard.m3.output,
+      inputUsdPerMillionAbove512k: standard.m3.inputAbove512k,
+      outputUsdPerMillionAbove512k: standard.m3.outputAbove512k,
+      cacheReadUsdPerMillionAbove512k: standard.m3.cacheReadAbove512k,
+      source,
+      now,
+      maxInputTokens: MINIMAX_CONTEXT_TOKENS_M3,
+      supportsReasoning: true,
+      pricingSource: 'minimax_official_docs',
+      pricingCurrency: 'USD',
+      providerSpecificEntry: priority
+        ? {
+            priority: {
+              input_cost_per_token: usdPerMillionToUsdPerToken(priority.m3.input),
+              output_cost_per_token: usdPerMillionToUsdPerToken(priority.m3.output),
+              cache_read_input_token_cost: usdPerMillionToUsdPerToken(priority.m3.cacheRead),
+              input_cost_per_token_above_512k_tokens: usdPerMillionToUsdPerToken(
+                priority.m3.inputAbove512k
+              ),
+              output_cost_per_token_above_512k_tokens: usdPerMillionToUsdPerToken(
+                priority.m3.outputAbove512k
+              ),
+              cache_read_input_token_cost_above_512k_tokens: usdPerMillionToUsdPerToken(
+                priority.m3.cacheReadAbove512k
+              )
+            }
+          }
+        : null
+    })
+    const m2_7 = this._createMiniMaxPricingEntry({
+      cacheReadUsdPerMillion: standard.m2_7.cacheRead,
+      cacheCreateUsdPerMillion: standard.m2_7.cacheCreate,
+      inputUsdPerMillion: standard.m2_7.input,
+      outputUsdPerMillion: standard.m2_7.output,
+      source,
+      now,
+      supportsReasoning: true,
+      pricingSource: 'minimax_official_docs',
+      pricingCurrency: 'USD'
+    })
+    const m2_7Highspeed = this._createMiniMaxPricingEntry({
+      cacheReadUsdPerMillion: standard.m2_7_highspeed.cacheRead,
+      cacheCreateUsdPerMillion: standard.m2_7_highspeed.cacheCreate,
+      inputUsdPerMillion: standard.m2_7_highspeed.input,
+      outputUsdPerMillion: standard.m2_7_highspeed.output,
+      source,
+      now,
+      supportsReasoning: true,
+      pricingSource: 'minimax_official_docs',
+      pricingCurrency: 'USD'
+    })
+    const m2_5 = this._createMiniMaxPricingEntry({
+      cacheReadUsdPerMillion: historical.m2_5.cacheRead,
+      cacheCreateUsdPerMillion: historical.m2_5.cacheCreate,
+      inputUsdPerMillion: historical.m2_5.input,
+      outputUsdPerMillion: historical.m2_5.output,
+      source,
+      now,
+      supportsReasoning: true,
+      pricingSource: 'minimax_official_docs',
+      pricingCurrency: 'USD'
+    })
+    const m2_5Highspeed = this._createMiniMaxPricingEntry({
+      cacheReadUsdPerMillion: historical.m2_5_highspeed.cacheRead,
+      cacheCreateUsdPerMillion: historical.m2_5_highspeed.cacheCreate,
+      inputUsdPerMillion: historical.m2_5_highspeed.input,
+      outputUsdPerMillion: historical.m2_5_highspeed.output,
+      source,
+      now,
+      supportsReasoning: true,
+      pricingSource: 'minimax_official_docs',
+      pricingCurrency: 'USD'
+    })
+    const m2_1 = this._createMiniMaxPricingEntry({
+      cacheReadUsdPerMillion: historical.m2_1.cacheRead,
+      cacheCreateUsdPerMillion: historical.m2_1.cacheCreate,
+      inputUsdPerMillion: historical.m2_1.input,
+      outputUsdPerMillion: historical.m2_1.output,
+      source,
+      now,
+      supportsReasoning: true,
+      pricingSource: 'minimax_official_docs',
+      pricingCurrency: 'USD'
+    })
+    const m2_1Highspeed = this._createMiniMaxPricingEntry({
+      cacheReadUsdPerMillion: historical.m2_1_highspeed.cacheRead,
+      cacheCreateUsdPerMillion: historical.m2_1_highspeed.cacheCreate,
+      inputUsdPerMillion: historical.m2_1_highspeed.input,
+      outputUsdPerMillion: historical.m2_1_highspeed.output,
+      source,
+      now,
+      supportsReasoning: true,
+      pricingSource: 'minimax_official_docs',
+      pricingCurrency: 'USD'
+    })
+    const m2 = this._createMiniMaxPricingEntry({
+      cacheReadUsdPerMillion: historical.m2.cacheRead,
+      cacheCreateUsdPerMillion: historical.m2.cacheCreate,
+      inputUsdPerMillion: historical.m2.input,
+      outputUsdPerMillion: historical.m2.output,
+      source,
+      now,
+      supportsReasoning: true,
+      pricingSource: 'minimax_official_docs',
+      pricingCurrency: 'USD'
+    })
+
+    return {
+      'MiniMax-M3': m3,
+      'MiniMax-M2.7': m2_7,
+      'MiniMax-M2.7-highspeed': m2_7Highspeed,
+      'MiniMax-M2.5': m2_5,
+      'MiniMax-M2.5-highspeed': m2_5Highspeed,
+      'MiniMax-M2.1': m2_1,
+      'MiniMax-M2.1-highspeed': m2_1Highspeed,
+      'MiniMax-M2': m2
+    }
+  }
+
+  _parseMiniMaxNumericCell(value) {
+    const normalized = String(value || '')
+      .replace(/~~/g, ' ')
+      .replace(/<[^>]*>/g, ' ')
+      .replace(/[^0-9.]+/g, ' ')
+      .trim()
+    const numbers = normalized
+      .split(/\s+/)
+      .map((item) => Number(item))
+      .filter((item) => Number.isFinite(item))
+    if (numbers.length === 0) {
+      return null
+    }
+    return numbers[numbers.length - 1]
+  }
+
+  _extractMiniMaxMarkdownPriceRow(markdown, matcher, occurrence = 0) {
+    const rows = String(markdown || '')
+      .split('\n')
+      .map((line) => line.trim())
+      .filter((line) => line.startsWith('|'))
+      .filter((line) => {
+        if (matcher instanceof RegExp) {
+          return matcher.test(line)
+        }
+        return line.includes(String(matcher))
+      })
+
+    const row = rows[occurrence] || null
+    if (!row) {
+      return null
+    }
+
+    const cells = row
+      .split('|')
+      .map((cell) => cell.trim())
+      .filter(Boolean)
+
+    if (cells.length < 4) {
+      return null
+    }
+
+    return {
+      input: this._parseMiniMaxNumericCell(cells[1]),
+      output: this._parseMiniMaxNumericCell(cells[2]),
+      cacheRead: this._parseMiniMaxNumericCell(cells[3]),
+      cacheCreate: cells[4] ? this._parseMiniMaxNumericCell(cells[4]) : null
+    }
+  }
+
+  parseMiniMaxPricingMarkdown(markdown, now = new Date()) {
+    const standardM3Base = this._extractMiniMaxMarkdownPriceRow(markdown, /\*\*MiniMax-M3\*\*/, 0)
+    const standardM3Long = this._extractMiniMaxMarkdownPriceRow(markdown, /\*\*MiniMax-M3\*\*/, 1)
+    const priorityM3Base = this._extractMiniMaxMarkdownPriceRow(markdown, /\*\*MiniMax-M3\*\*/, 2)
+    const priorityM3Long = this._extractMiniMaxMarkdownPriceRow(markdown, /\*\*MiniMax-M3\*\*/, 3)
+    const m2_7 = this._extractMiniMaxMarkdownPriceRow(markdown, /\*\*MiniMax-M2\.7\*\*/)
+    const m2_7Highspeed = this._extractMiniMaxMarkdownPriceRow(
+      markdown,
+      /\*\*MiniMax-M2\.7-highspeed\*\*/
+    )
+    const m2_5 = this._extractMiniMaxMarkdownPriceRow(markdown, /\*\*MiniMax-M2\.5\*\*/)
+    const m2_5Highspeed = this._extractMiniMaxMarkdownPriceRow(
+      markdown,
+      /\*\*MiniMax-M2\.5-highspeed\*\*/
+    )
+    const m2_1 = this._extractMiniMaxMarkdownPriceRow(markdown, /\*\*MiniMax-M2\.1\*\*/)
+    const m2_1Highspeed = this._extractMiniMaxMarkdownPriceRow(
+      markdown,
+      /\*\*MiniMax-M2\.1-highspeed\*\*/
+    )
+    const m2 = this._extractMiniMaxMarkdownPriceRow(markdown, /\*\*MiniMax-M2\*\*/)
+
+    if (
+      !standardM3Base ||
+      !standardM3Long ||
+      !priorityM3Base ||
+      !priorityM3Long ||
+      !m2_7 ||
+      !m2_7Highspeed ||
+      !m2_5 ||
+      !m2_5Highspeed ||
+      !m2_1 ||
+      !m2_1Highspeed ||
+      !m2
+    ) {
+      throw new Error('MiniMax pricing table not found')
+    }
+
+    return this._buildMiniMaxOfficialPricingEntries({
+      now,
+      source: MINIMAX_PRICING_SOURCE_MD,
+      standard: {
+        m3: {
+          input: standardM3Base.input,
+          output: standardM3Base.output,
+          cacheRead: standardM3Base.cacheRead,
+          cacheCreate: standardM3Base.input * 1.25,
+          inputAbove512k: standardM3Long.input,
+          outputAbove512k: standardM3Long.output,
+          cacheReadAbove512k: standardM3Long.cacheRead
+        },
+        m2_7: m2_7,
+        m2_7_highspeed: m2_7Highspeed
+      },
+      priority: {
+        m3: {
+          input: priorityM3Base.input,
+          output: priorityM3Base.output,
+          cacheRead: priorityM3Base.cacheRead,
+          inputAbove512k: priorityM3Long.input,
+          outputAbove512k: priorityM3Long.output,
+          cacheReadAbove512k: priorityM3Long.cacheRead
+        }
+      },
+      historical: {
+        m2_5: m2_5,
+        m2_5_highspeed: m2_5Highspeed,
+        m2_1: m2_1,
+        m2_1_highspeed: m2_1Highspeed,
+        m2: m2
+      }
+    })
+  }
+
+  async fetchMiniMaxOfficialPricing(now = new Date()) {
+    const markdown = await this._downloadText(MINIMAX_PRICING_SOURCE_MD)
+    return this.parseMiniMaxPricingMarkdown(markdown, now)
+  }
+
+  _hasCompleteMiniMaxPricing(pricingData) {
+    const m3 = pricingData?.['MiniMax-M3']
+    return m3 && Number(m3.input_cost_per_token) > 0 && Number(m3.output_cost_per_token) > 0
+  }
+
+  _preserveMiniMaxPricingUpdatedAt(currentPricingData = {}, nextPricingData = {}) {
+    const preserved = { ...nextPricingData }
+    const comparableFields = [
+      'cache_creation_input_token_cost',
+      'cache_read_input_token_cost',
+      'input_cost_per_token',
+      'output_cost_per_token'
+    ]
+
+    for (const [modelName, nextEntry] of Object.entries(nextPricingData)) {
+      if (!String(modelName).toLowerCase().startsWith('minimax-')) {
+        continue
+      }
+      const currentEntry = currentPricingData?.[modelName]
+      if (
+        currentEntry?.pricing_updated_at &&
+        comparableFields.every((f) => currentEntry[f] === nextEntry[f])
+      ) {
+        preserved[modelName] = { ...nextEntry, pricing_updated_at: currentEntry.pricing_updated_at }
+      }
+    }
+
+    return preserved
+  }
+
+  async enrichPricingDataWithMiniMax(pricingData, options = {}) {
+    const enriched = { ...(pricingData || {}) }
+    let minimaxPricing = null
+
+    if (options.allowRemote === true) {
+      try {
+        minimaxPricing = await this.fetchMiniMaxOfficialPricing(options.now || new Date())
+        logger.success('Updated MiniMax pricing from official docs')
+      } catch (error) {
+        logger.warn(`⚠️  Failed to update MiniMax pricing from official docs: ${error.message}`)
+      }
+    }
+
+    if (
+      !minimaxPricing &&
+      options.forceBuiltIn !== true &&
+      this._hasCompleteMiniMaxPricing(enriched)
+    ) {
+      logger.info('Keeping existing MiniMax pricing entries')
+      return enriched
+    }
+
+    if (!minimaxPricing) {
+      minimaxPricing = this.getMiniMaxFallbackPricing(options.now || new Date())
+      logger.warn('⚠️  Using built-in MiniMax pricing fallback')
+    }
+
+    minimaxPricing = this._preserveMiniMaxPricingUpdatedAt(enriched, minimaxPricing)
+
+    return { ...enriched, ...minimaxPricing }
   }
 
   _extractDeepSeekDiscountEndsAt(html) {
@@ -680,7 +1200,10 @@ class PricingService {
             const buffer = Buffer.concat(chunks)
             const rawContent = buffer.toString('utf8')
             const jsonData = JSON.parse(rawContent)
-            const enrichedData = await this.enrichPricingDataWithDeepSeek(jsonData, {
+            let enrichedData = await this.enrichPricingDataWithDeepSeek(jsonData, {
+              allowRemote: false
+            })
+            enrichedData = await this.enrichPricingDataWithMiniMax(enrichedData, {
               allowRemote: false
             })
             const formattedJson = JSON.stringify(enrichedData, null, 2)
@@ -721,9 +1244,13 @@ class PricingService {
     try {
       if (fs.existsSync(this.pricingFile)) {
         const data = fs.readFileSync(this.pricingFile, 'utf8')
-        this.pricingData = await this.enrichPricingDataWithDeepSeek(JSON.parse(data), {
+        let parsed = await this.enrichPricingDataWithDeepSeek(JSON.parse(data), {
           allowRemote: false
         })
+        parsed = await this.enrichPricingDataWithMiniMax(parsed, {
+          allowRemote: false
+        })
+        this.pricingData = parsed
 
         const stats = fs.statSync(this.pricingFile)
         this.lastUpdated = stats.mtime
@@ -749,7 +1276,11 @@ class PricingService {
 
         // 读取fallback文件
         const fallbackData = fs.readFileSync(this.fallbackFile, 'utf8')
-        const jsonData = await this.enrichPricingDataWithDeepSeek(JSON.parse(fallbackData), {
+        let jsonData = await this.enrichPricingDataWithDeepSeek(JSON.parse(fallbackData), {
+          allowRemote: false,
+          forceBuiltIn: true
+        })
+        jsonData = await this.enrichPricingDataWithMiniMax(jsonData, {
           allowRemote: false,
           forceBuiltIn: true
         })
@@ -809,6 +1340,12 @@ class PricingService {
     if (deepseekFallback) {
       logger.info(`💰 Using built-in DeepSeek pricing fallback for ${modelName}`)
       return deepseekFallback
+    }
+
+    const minimaxFallback = this.getMiniMaxFallbackPricing()[modelName]
+    if (minimaxFallback) {
+      logger.info(`💰 Using built-in MiniMax pricing fallback for ${modelName}`)
+      return minimaxFallback
     }
 
     // 对于Bedrock区域前缀模型（如 us.anthropic.claude-sonnet-4-20250514-v1:0），
@@ -1170,6 +1707,22 @@ class PricingService {
     return `$${cost.toFixed(2)}`
   }
 
+  getMiniMaxPricingStatus() {
+    const minimaxModels = this.pricingData
+      ? Object.keys(this.pricingData).filter((m) => /^MiniMax-/i.test(m))
+      : []
+    const m3Pricing =
+      this.pricingData?.['MiniMax-M3'] || this.getMiniMaxFallbackPricing()['MiniMax-M3']
+
+    return {
+      modelCount: minimaxModels.length,
+      source: m3Pricing.source || MINIMAX_PRICING_SOURCE,
+      zhSource: m3Pricing.source_zh || MINIMAX_PRICING_SOURCE_ZH,
+      currency: m3Pricing.pricing_currency || 'USD',
+      updatedAt: m3Pricing.pricing_updated_at || null
+    }
+  }
+
   getDeepSeekPricingStatus() {
     const deepseekModels = this.pricingData
       ? Object.keys(this.pricingData).filter((modelName) => modelName.includes('deepseek'))
@@ -1199,7 +1752,8 @@ class PricingService {
         : null,
       sources: {
         primary: pricingSource.pricingUrl,
-        deepseek: this.getDeepSeekPricingStatus()
+        deepseek: this.getDeepSeekPricingStatus(),
+        minimax: this.getMiniMaxPricingStatus()
       }
     }
   }
@@ -1297,7 +1851,10 @@ class PricingService {
       const data = fs.readFileSync(this.pricingFile, 'utf8')
 
       // 尝试解析JSON
-      const jsonData = await this.enrichPricingDataWithDeepSeek(JSON.parse(data), {
+      let jsonData = await this.enrichPricingDataWithDeepSeek(JSON.parse(data), {
+        allowRemote: false
+      })
+      jsonData = await this.enrichPricingDataWithMiniMax(jsonData, {
         allowRemote: false
       })
 

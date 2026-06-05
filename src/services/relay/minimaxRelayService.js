@@ -101,7 +101,8 @@ class MiniMaxRelayService {
         headers: {
           ...filterForOpenAI(req.headers || {}),
           Authorization: `Bearer ${account.apiKey}`,
-          'Content-Type': 'application/json'
+          'Content-Type': 'application/json',
+          'accept-encoding': 'identity'
         },
         timeout: this.defaultTimeout,
         validateStatus: () => true,
@@ -219,7 +220,8 @@ class MiniMaxRelayService {
           'x-api-key': account.apiKey,
           'anthropic-version':
             this._getHeaderValue(req.headers, 'anthropic-version') || '2023-06-01',
-          'Content-Type': 'application/json'
+          'Content-Type': 'application/json',
+          'accept-encoding': 'identity'
         },
         timeout: this.defaultTimeout,
         validateStatus: () => true,
@@ -392,12 +394,14 @@ class MiniMaxRelayService {
       return res.status(upstreamResponse.status).json(parsed)
     }
 
-    res.writeHead(upstreamResponse.status, {
-      'Content-Type': upstreamResponse.headers['content-type'] || 'text/event-stream',
-      'Cache-Control': 'no-cache',
-      Connection: 'keep-alive',
-      'X-Accel-Buffering': 'no'
-    })
+    res.status(upstreamResponse.status)
+    res.setHeader('Content-Type', 'text/event-stream')
+    res.setHeader('Cache-Control', 'no-cache, no-transform')
+    res.setHeader('Connection', 'keep-alive')
+    res.setHeader('X-Accel-Buffering', 'no')
+    if (typeof res.flushHeaders === 'function') {
+      res.flushHeaders()
+    }
 
     const parser = new IncrementalSSEParser()
     let capturedUsage = null
@@ -499,12 +503,14 @@ class MiniMaxRelayService {
       return res.status(upstreamResponse.status).json(parsed)
     }
 
-    res.writeHead(upstreamResponse.status, {
-      'Content-Type': upstreamResponse.headers['content-type'] || 'text/event-stream',
-      'Cache-Control': 'no-cache',
-      Connection: 'keep-alive',
-      'X-Accel-Buffering': 'no'
-    })
+    res.status(upstreamResponse.status)
+    res.setHeader('Content-Type', 'text/event-stream')
+    res.setHeader('Cache-Control', 'no-cache, no-transform')
+    res.setHeader('Connection', 'keep-alive')
+    res.setHeader('X-Accel-Buffering', 'no')
+    if (typeof res.flushHeaders === 'function') {
+      res.flushHeaders()
+    }
 
     const parser = new IncrementalSSEParser()
     let capturedUsage = null
@@ -810,7 +816,7 @@ class MiniMaxRelayService {
     }
   }
 
-  async _handleRequestError(req, res, error, accountId, sessionHash) {
+  async _handleRequestError(_req, res, error, accountId, sessionHash) {
     if (axios.isCancel(error) || error.code === 'ERR_CANCELED') {
       logger.info('🔌 MiniMax request canceled')
       if (!res.headersSent) {

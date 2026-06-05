@@ -363,6 +363,42 @@ describe('PricingService - Long Context Pricing', () => {
       </table>
       <p>The deepseek-v4-pro model API pricing will be officially adjusted to 1/4 of the original price after the 75% discount promotion ends on 2026/05/31 15:59 UTC.</p>
     `
+    const minimaxPricingMarkdown = `
+# Pay as You Go
+
+## LLM
+
+<Tabs>
+  <Tab title="Standard">
+    | Model                                                                                                                                                                                                              | Input                        | Output                       | Prompt caching Read          |
+    | :----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | :--------------------------- | :--------------------------- | :--------------------------- |
+    | **MiniMax-M3**<br />≤ 512k input tokens <span className="inline-flex items-center rounded-full bg-red-50 px-2 py-0.5 text-xs font-semibold text-red-700 dark:bg-red-900/30 dark:text-red-300">7-day 50% off</span> | ~~\$0.60~~ \$0.30 / M tokens | ~~\$2.40~~ \$1.20 / M tokens | ~~\$0.12~~ \$0.06 / M tokens |
+    | **MiniMax-M3**<br />> 512k input tokens\*                                                                                                                                                                          | \$1.20 / M tokens            | \$4.80 / M tokens            | \$0.24 / M tokens            |
+  </Tab>
+
+  <Tab title="Priority*">
+    | Model                                                                                                                                                                                                              | Input                        | Output                       | Prompt caching Read          |
+    | :----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | :--------------------------- | :--------------------------- | :--------------------------- |
+    | **MiniMax-M3**<br />≤ 512k input tokens <span className="inline-flex items-center rounded-full bg-red-50 px-2 py-0.5 text-xs font-semibold text-red-700 dark:bg-red-900/30 dark:text-red-300">7-day 50% off</span> | ~~\$0.90~~ \$0.45 / M tokens | ~~\$3.60~~ \$1.80 / M tokens | ~~\$0.18~~ \$0.09 / M tokens |
+    | **MiniMax-M3**<br />> 512k input tokens                                                                                                                                                                            | \$1.80 / M tokens            | \$7.20 / M tokens            | \$0.36 / M tokens            |
+  </Tab>
+</Tabs>
+
+| Model                      | Input            | Output           | Prompt caching Read | Prompt caching Write |
+| :------------------------- | :--------------- | :--------------- | :------------------ | :------------------- |
+| **MiniMax-M2.7**           | \$0.3 / M tokens | \$1.2 / M tokens | \$0.06 / M tokens   | \$0.375 / M tokens   |
+| **MiniMax-M2.7-highspeed** | \$0.6 / M tokens | \$2.4 / M tokens | \$0.06 / M tokens   | \$0.375 / M tokens   |
+
+<Accordion title="Legacy Models">
+  | Model                      | Input            | Output           | Prompt caching Read | Prompt caching Write |
+  | :------------------------- | :--------------- | :--------------- | :------------------ | :------------------- |
+  | **MiniMax-M2.5**           | \$0.3 / M tokens | \$1.2 / M tokens | \$0.03 / M tokens   | \$0.375 / M tokens   |
+  | **MiniMax-M2.5-highspeed** | \$0.6 / M tokens | \$2.4 / M tokens | \$0.03 / M tokens   | \$0.375 / M tokens   |
+  | **MiniMax-M2.1**           | \$0.3 / M tokens | \$1.2 / M tokens | \$0.03 / M tokens   | \$0.375 / M tokens   |
+  | **MiniMax-M2.1-highspeed** | \$0.6 / M tokens | \$2.4 / M tokens | \$0.03 / M tokens   | \$0.375 / M tokens   |
+  | **MiniMax-M2**             | \$0.3 / M tokens | \$1.2 / M tokens | \$0.03 / M tokens   | \$0.375 / M tokens   |
+</Accordion>
+    `
 
     it('应使用 DeepSeek 官方当前有效价', () => {
       const entries = pricingService.parseDeepSeekPricingHtml(
@@ -415,6 +451,52 @@ describe('PricingService - Long Context Pricing', () => {
       expect(result.outputCost).toBeCloseTo(5 * (0.28 / 1e6), 14)
       expect(result.cacheReadCost).toBeCloseTo(4 * (0.0028 / 1e6), 14)
       expect(result.totalCost).toBeCloseTo(0.0000022512, 14)
+    })
+
+    it('应解析 MiniMax 官方 markdown 价格', () => {
+      const entries = pricingService.parseMiniMaxPricingMarkdown(
+        minimaxPricingMarkdown,
+        new Date('2026-06-05T00:00:00.000Z')
+      )
+
+      expect(entries['MiniMax-M3'].pricing_currency).toBe('USD')
+      expect(entries['MiniMax-M3'].pricing_source).toBe('minimax_official_docs')
+      expect(entries['MiniMax-M3'].source).toBe('https://platform.minimax.io/docs/guides/pricing-paygo.md')
+      expect(entries['MiniMax-M3'].source_zh).toBe('https://platform.minimaxi.com/docs/guides/pricing-paygo')
+      expect(entries['MiniMax-M3'].input_cost_per_token).toBeCloseTo(0.3 / 1e6, 14)
+      expect(entries['MiniMax-M3'].output_cost_per_token).toBeCloseTo(1.2 / 1e6, 14)
+      expect(entries['MiniMax-M3'].cache_read_input_token_cost).toBeCloseTo(0.06 / 1e6, 14)
+      expect(entries['MiniMax-M3'].input_cost_per_token_above_512k_tokens).toBeCloseTo(
+        1.2 / 1e6,
+        14
+      )
+      expect(entries['MiniMax-M3'].output_cost_per_token_above_512k_tokens).toBeCloseTo(
+        4.8 / 1e6,
+        14
+      )
+      expect(
+        entries['MiniMax-M3'].provider_specific_entry.priority.input_cost_per_token
+      ).toBeCloseTo(0.45 / 1e6, 14)
+      expect(entries['MiniMax-M2.7'].cache_creation_input_token_cost).toBeCloseTo(0.375 / 1e6, 14)
+      expect(entries['MiniMax-M2.5-highspeed'].output_cost_per_token).toBeCloseTo(2.4 / 1e6, 14)
+    })
+
+    it('MiniMax fallback 使用当前官方 USD 默认价格', () => {
+      const entries = pricingService.getMiniMaxFallbackPricing(new Date('2026-06-05T00:00:00.000Z'))
+
+      expect(entries['MiniMax-M3'].pricing_currency).toBe('USD')
+      expect(entries['MiniMax-M3'].pricing_source).toBe('minimax_builtin_fallback')
+      expect(entries['MiniMax-M3'].input_cost_per_token).toBeCloseTo(0.3 / 1e6, 14)
+      expect(entries['MiniMax-M3'].output_cost_per_token).toBeCloseTo(1.2 / 1e6, 14)
+      expect(entries['MiniMax-M3'].input_cost_per_token_above_512k_tokens).toBeCloseTo(
+        1.2 / 1e6,
+        14
+      )
+      expect(
+        entries['MiniMax-M3'].provider_specific_entry.priority.output_cost_per_token
+      ).toBeCloseTo(1.8 / 1e6, 14)
+      expect(entries['MiniMax-M2.7-highspeed'].input_cost_per_token).toBeCloseTo(0.6 / 1e6, 14)
+      expect(entries['MiniMax-M2.5'].cache_read_input_token_cost).toBeCloseTo(0.03 / 1e6, 14)
     })
   })
 })
