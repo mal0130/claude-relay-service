@@ -49,6 +49,7 @@ describe('AccountBalanceService', () => {
     expect(service.normalizePlatform('azure-openai')).toBe('azure_openai')
     expect(service.normalizePlatform('gemini-api')).toBe('gemini-api')
     expect(service.getSupportedPlatforms()).toContain('deepseek')
+    expect(service.getSupportedPlatforms()).toContain('minimax')
   })
 
   it('should build local quota/balance from dailyQuota and local dailyCost', async () => {

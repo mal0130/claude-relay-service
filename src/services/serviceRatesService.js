@@ -28,7 +28,8 @@ class ServiceRatesService {
         bedrock: 1.0,
         azure: 1.0,
         ccr: 1.0,
-        deepseek: 1.0
+        deepseek: 1.0,
+        minimax: 1.0
       },
       updatedAt: null,
       updatedBy: null
@@ -180,6 +181,10 @@ class ServiceRatesService {
       return 'deepseek'
     }
 
+    if (modelLower.includes('minimax') || modelLower.includes('abab')) {
+      return 'minimax'
+    }
+
     // Gemini 系列
     if (
       modelLower.includes('gemini') ||
@@ -232,7 +237,8 @@ class ServiceRatesService {
       azure: 'azure',
       'azure-openai': 'azure',
       droid: 'droid',
-      deepseek: 'deepseek'
+      deepseek: 'deepseek',
+      minimax: 'minimax'
     }
 
     return mapping[accountType] || null

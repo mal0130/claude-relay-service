@@ -21,6 +21,7 @@ function registerAllProviders(balanceService) {
   balanceService.registerProvider('droid', new GenericBalanceProvider('droid'))
   balanceService.registerProvider('ccr', new GenericBalanceProvider('ccr'))
   balanceService.registerProvider('deepseek', new GenericBalanceProvider('deepseek'))
+  balanceService.registerProvider('minimax', new GenericBalanceProvider('minimax'))
 }
 
 module.exports = { registerAllProviders }

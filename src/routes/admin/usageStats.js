@@ -10,6 +10,7 @@ const openaiResponsesAccountService = require('../../services/account/openaiResp
 const droidAccountService = require('../../services/account/droidAccountService')
 const bedrockAccountService = require('../../services/account/bedrockAccountService')
 const deepseekAccountService = require('../../services/account/deepseekAccountService')
+const minimaxAccountService = require('../../services/account/minimaxAccountService')
 const redis = require('../../models/redis')
 const { authenticateAdmin } = require('../../middleware/auth')
 const logger = require('../../utils/logger')
@@ -115,6 +116,7 @@ const accountTypeNames = {
   'gemini-api': 'Gemini API',
   droid: 'Droid',
   deepseek: 'DeepSeek',
+  minimax: 'MiniMax',
   bedrock: 'AWS Bedrock',
   unknown: '未知渠道'
 }
@@ -129,6 +131,7 @@ const resolveAccountByPlatform = async (accountId, platform) => {
     'openai-responses': openaiResponsesAccountService,
     droid: droidAccountService,
     deepseek: deepseekAccountService,
+    minimax: minimaxAccountService,
     ccr: ccrAccountService,
     bedrock: bedrockAccountService
   }
@@ -266,7 +269,8 @@ router.get('/accounts/:accountId/usage-history', authenticateAdmin, async (req, 
       'gemini-api',
       'droid',
       'bedrock',
-      'deepseek'
+      'deepseek',
+      'minimax'
     ]
     if (!allowedPlatforms.includes(platform)) {
       return res.status(400).json({
@@ -281,7 +285,8 @@ router.get('/accounts/:accountId/usage-history', authenticateAdmin, async (req, 
       'gemini-api': 'gemini-api',
       droid: 'droid',
       bedrock: 'bedrock',
-      deepseek: 'deepseek'
+      deepseek: 'deepseek',
+      minimax: 'minimax'
     }
 
     const fallbackModelMap = {
@@ -293,7 +298,8 @@ router.get('/accounts/:accountId/usage-history', authenticateAdmin, async (req, 
       'gemini-api': 'gemini-2.0-flash',
       droid: 'unknown',
       bedrock: 'us.anthropic.claude-3-5-sonnet-20241022-v2:0',
-      deepseek: 'deepseek-chat'
+      deepseek: 'deepseek-chat',
+      minimax: 'MiniMax-M3'
     }
 
     // 获取账户信息以获取创建时间
@@ -326,6 +332,9 @@ router.get('/accounts/:accountId/usage-history', authenticateAdmin, async (req, 
           break
         case 'deepseek':
           accountData = await deepseekAccountService.getAccount(accountId)
+          break
+        case 'minimax':
+          accountData = await minimaxAccountService.getAccount(accountId)
           break
         case 'bedrock': {
           const result = await bedrockAccountService.getAccount(accountId)
@@ -1254,7 +1263,7 @@ router.get('/account-usage-trend', authenticateAdmin, async (req, res) => {
   try {
     const { granularity = 'day', group = 'claude', days = 7, startDate, endDate } = req.query
 
-    const allowedGroups = ['claude', 'openai', 'gemini', 'droid', 'bedrock', 'deepseek']
+    const allowedGroups = ['claude', 'openai', 'gemini', 'droid', 'bedrock', 'deepseek', 'minimax']
     if (!allowedGroups.includes(group)) {
       return res.status(400).json({
         success: false,
@@ -1268,7 +1277,8 @@ router.get('/account-usage-trend', authenticateAdmin, async (req, res) => {
       gemini: 'Gemini账户',
       droid: 'Droid账户',
       bedrock: 'Bedrock账户',
-      deepseek: 'DeepSeek账户'
+      deepseek: 'DeepSeek账户',
+      minimax: 'MiniMax账户'
     }
 
     // 拉取各平台账号列表
@@ -1383,6 +1393,17 @@ router.get('/account-usage-trend', authenticateAdmin, async (req, res) => {
           id,
           name: account.name || `DeepSeek账号 ${shortId}`,
           platform: 'deepseek'
+        }
+      })
+    } else if (group === 'minimax') {
+      const minimaxAccounts = await minimaxAccountService.getAllAccounts(true)
+      accounts = minimaxAccounts.map((account) => {
+        const id = String(account.id || '')
+        const shortId = id ? id.slice(0, 8) : '未知'
+        return {
+          id,
+          name: account.name || `MiniMax账号 ${shortId}`,
+          platform: 'minimax'
         }
       })
     }
@@ -2809,7 +2830,8 @@ router.get('/api-keys/:keyId/usage-records', authenticateAdmin, async (req, res)
       { type: 'gemini', getter: (id) => geminiAccountService.getAccount(id) },
       { type: 'gemini-api', getter: (id) => geminiApiAccountService.getAccount(id) },
       { type: 'droid', getter: (id) => droidAccountService.getAccount(id) },
-      { type: 'deepseek', getter: (id) => deepseekAccountService.getAccount(id) }
+      { type: 'deepseek', getter: (id) => deepseekAccountService.getAccount(id) },
+      { type: 'minimax', getter: (id) => minimaxAccountService.getAccount(id) }
     ]
 
     const accountCache = new Map()

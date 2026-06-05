@@ -11,17 +11,26 @@
  * 2. 配置环境变量：export PARTNER_API_SECRET=test-secret-key-12345
  * 3. 添加 FoxCode 账户（如果还没有）
  * 4. 可选：配置 PARTNER_TEST_DEEPSEEK_ACCOUNT_ID 测试 DeepSeek 账号绑定
- * 5. 运行测试：node tests/partnerApi.simple.test.js
+ * 5. 可选：配置 PARTNER_TEST_MINIMAX_ACCOUNT_ID 测试 MiniMax 账号绑定
+ * 6. 运行测试：node tests/partnerApi.simple.test.js
  */
 
 const crypto = require('crypto')
 const axios = require('axios')
+
+if (typeof global.describe === 'function' && typeof global.it === 'function') {
+  describe('partnerApi.simple manual script', () => {
+    it.skip('runs manually with node tests/partnerApi.simple.test.js', () => {})
+  })
+}
 
 // ==================== 配置 ====================
 const API_BASE_URL = process.env.API_BASE_URL || 'http://localhost:3000'
 const SECRET_KEY = process.env.PARTNER_API_SECRET || 'test-secret-key-12345'
 const DEEPSEEK_ACCOUNT_ID =
   process.env.PARTNER_TEST_DEEPSEEK_ACCOUNT_ID || process.env.DEEPSEEK_ACCOUNT_ID || ''
+const MINIMAX_ACCOUNT_ID =
+  process.env.PARTNER_TEST_MINIMAX_ACCOUNT_ID || process.env.MINIMAX_ACCOUNT_ID || ''
 
 // 测试统计
 let totalTests = 0
@@ -573,6 +582,179 @@ async function testUpdateApiKeyDeepSeekConfig() {
 }
 
 /**
+ * 测试 7.55: 更新 API Key - MiniMax 倍率与账号绑定
+ */
+async function testUpdateApiKeyMiniMaxConfig() {
+  await test('测试 7.55: 更新 API Key - MiniMax 倍率与账号绑定', async () => {
+    if (!createdApiKeyId) {
+      console.log('  跳过：需要先创建 API Key')
+      return
+    }
+
+    const params = {
+      minimax_rate: 1.5
+    }
+
+    if (MINIMAX_ACCOUNT_ID) {
+      params.minimax_account_id = MINIMAX_ACCOUNT_ID
+    }
+
+    const signature = generateSignature(params)
+
+    const response = await axios.post(
+      `${API_BASE_URL}/partner/api-key/${createdApiKeyId}/update`,
+      { ...params, sign: signature },
+      { headers: { 'Content-Type': 'application/json' } }
+    )
+
+    assert(response.status === 200, 'HTTP 状态码应为 200')
+    assert(response.data.code === 0, '响应 code 应为 0')
+    assert(response.data.msg === 'success', '响应 msg 应为 success')
+    assert(response.data.data.keyId === createdApiKeyId, 'keyId 应匹配')
+
+    console.log(`  MiniMax 倍率更新为: ${params.minimax_rate}`)
+    if (MINIMAX_ACCOUNT_ID) {
+      console.log(`  MiniMax 绑定更新为: ${MINIMAX_ACCOUNT_ID}`)
+    } else {
+      console.log(`  未配置 PARTNER_TEST_MINIMAX_ACCOUNT_ID，仅测试 MiniMax 倍率更新`)
+    }
+  })
+}
+
+/**
+ * 测试 7.56: 更新 API Key - MiniMax 账号不存在
+ */
+async function testUpdateApiKeyInvalidMiniMaxAccount() {
+  await test('测试 7.56: 更新 API Key - MiniMax 账号不存在', async () => {
+    if (!createdApiKeyId) {
+      console.log('  跳过：需要先创建 API Key')
+      return
+    }
+
+    const params = {
+      minimax_account_id: 'non-existent-minimax-account-id'
+    }
+    const signature = generateSignature(params)
+
+    try {
+      await axios.post(
+        `${API_BASE_URL}/partner/api-key/${createdApiKeyId}/update`,
+        { ...params, sign: signature },
+        { headers: { 'Content-Type': 'application/json' } }
+      )
+      assert(false, '应该抛出错误')
+    } catch (error) {
+      assert(error.response.status === 400, 'HTTP 状态码应为 400')
+      assert(error.response.data.code === 1001, '错误码应为 1001')
+      assert(error.response.data.msg.includes('MiniMax account'), '错误信息应包含 MiniMax account')
+    }
+  })
+}
+
+/**
+ * 测试 7.57: 更新 API Key - MiniMax 倍率格式错误
+ */
+async function testUpdateApiKeyInvalidMiniMaxRate() {
+  await test('测试 7.57: 更新 API Key - MiniMax 倍率格式错误', async () => {
+    if (!createdApiKeyId) {
+      console.log('  跳过：需要先创建 API Key')
+      return
+    }
+
+    const params = {
+      minimax_rate: 1.23
+    }
+    const signature = generateSignature(params)
+
+    try {
+      await axios.post(
+        `${API_BASE_URL}/partner/api-key/${createdApiKeyId}/update`,
+        { ...params, sign: signature },
+        { headers: { 'Content-Type': 'application/json' } }
+      )
+      assert(false, '应该抛出错误')
+    } catch (error) {
+      assert(error.response.status === 400, 'HTTP 状态码应为 400')
+      assert(error.response.data.code === 1001, '错误码应为 1001')
+      assert(error.response.data.msg.includes('minimax_rate'), '错误信息应包含 minimax_rate')
+    }
+  })
+}
+
+/**
+ * 测试 7.58: 批量更新 API Key 配置 - MiniMax 倍率与账号绑定
+ */
+async function testBatchUpdateConfigMiniMaxConfig() {
+  await test('测试 7.58: 批量更新 API Key 配置 - MiniMax 倍率与账号绑定', async () => {
+    if (!createdApiKeyId) {
+      console.log('  跳过：需要先创建 API Key')
+      return
+    }
+
+    const params = {
+      configs: [
+        {
+          key_id: createdApiKeyId,
+          minimax_rate: 1.6
+        }
+      ]
+    }
+
+    if (MINIMAX_ACCOUNT_ID) {
+      params.minimax_account_id = MINIMAX_ACCOUNT_ID
+    }
+
+    const signature = generateSignature(params)
+
+    const response = await axios.post(
+      `${API_BASE_URL}/partner/api-key/update-config`,
+      { ...params, sign: signature },
+      { headers: { 'Content-Type': 'application/json' } }
+    )
+
+    assert(response.status === 200, 'HTTP 状态码应为 200')
+    assert(response.data.code === 0, '响应 code 应为 0')
+    assert(response.data.msg === 'success', '响应 msg 应为 success')
+    assert(response.data.data.total === 1, '处理总数应为 1')
+    assert(response.data.data.success === 1, '成功数应为 1')
+    assert(response.data.data.failed === 0, '失败数应为 0')
+
+    console.log(`  批量更新 MiniMax 倍率为: ${params.configs[0].minimax_rate}`)
+    if (MINIMAX_ACCOUNT_ID) {
+      console.log(`  批量更新 MiniMax 绑定为: ${MINIMAX_ACCOUNT_ID}`)
+    } else {
+      console.log(`  未配置 PARTNER_TEST_MINIMAX_ACCOUNT_ID，仅测试批量 MiniMax 倍率更新`)
+    }
+  })
+}
+
+/**
+ * 测试 7.59: 创建 API Key - MiniMax 倍率格式错误
+ */
+async function testCreateApiKeyInvalidMiniMaxRate() {
+  await test('测试 7.59: 创建 API Key - MiniMax 倍率格式错误', async () => {
+    const params = {
+      name: `TestApp_InvalidMiniMaxRate_${Date.now()}`,
+      minimax_rate: 1.23
+    }
+    const signature = generateSignature(params)
+
+    try {
+      await axios.post(
+        `${API_BASE_URL}/partner/api-key/create`,
+        { ...params, sign: signature },
+        { headers: { 'Content-Type': 'application/json' } }
+      )
+      assert(false, '应该抛出错误')
+    } catch (error) {
+      assert(error.response.status === 400, 'HTTP 状态码应为 400')
+      assert(error.response.data.code === 1001, '错误码应为 1001')
+      assert(error.response.data.msg.includes('minimax_rate'), '错误信息应包含 minimax_rate')
+    }
+  })
+}
+
+/**
  * 测试 7.6: 更新 API Key - DeepSeek 账号不存在
  */
 async function testUpdateApiKeyInvalidDeepSeekAccount() {
@@ -848,8 +1030,13 @@ async function main() {
     await testQueryApiKeyDetail()
     await testUpdateApiKeyExpiration()
     await testUpdateApiKeyDeepSeekConfig()
+    await testUpdateApiKeyMiniMaxConfig()
+    await testUpdateApiKeyInvalidMiniMaxAccount()
+    await testUpdateApiKeyInvalidMiniMaxRate()
+    await testCreateApiKeyInvalidMiniMaxRate()
     await testUpdateApiKeyInvalidDeepSeekAccount()
     await testBatchUpdateConfigDeepSeekConfig()
+    await testBatchUpdateConfigMiniMaxConfig()
     await testEnterpriseBatchCreate()
     await testEnterpriseBatchCreatePartialFailure()
     await testEnterpriseSetMembers()

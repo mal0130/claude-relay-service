@@ -73,6 +73,22 @@ class ModelService {
         provider: 'deepseek',
         description: 'DeepSeek models',
         models: ['deepseek-v4-flash', 'deepseek-v4-pro', 'deepseek-chat', 'deepseek-reasoner']
+      },
+      minimax: {
+        provider: 'minimax',
+        description: 'MiniMax models',
+        models: [
+          'MiniMax-M3',
+          'MiniMax-M2.7',
+          'MiniMax-M2.7-highspeed',
+          'MiniMax-M2.5',
+          'MiniMax-M2.5-highspeed',
+          'MiniMax-M2.1',
+          'MiniMax-M2.1-highspeed',
+          'MiniMax-M2',
+          'abab6.5s-chat',
+          'abab8.5s-chat'
+        ]
       }
     }
   }

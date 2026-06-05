@@ -2,7 +2,7 @@ const { v4: uuidv4 } = require('uuid')
 const logger = require('../utils/logger')
 const redis = require('../models/redis')
 
-const VALID_GROUP_PLATFORMS = ['claude', 'gemini', 'openai', 'droid', 'deepseek']
+const VALID_GROUP_PLATFORMS = ['claude', 'gemini', 'openai', 'droid', 'deepseek', 'minimax']
 
 function parseAccountBindings(accountBindings) {
   if (!accountBindings) {
@@ -89,7 +89,7 @@ class AccountGroupService {
    * 创建账户分组
    * @param {Object} groupData - 分组数据
    * @param {string} groupData.name - 分组名称
-   * @param {string} groupData.platform - 平台类型 (claude/gemini/openai/droid/deepseek)
+   * @param {string} groupData.platform - 平台类型 (claude/gemini/openai/droid/deepseek/minimax)
    * @param {string} groupData.description - 分组描述
    * @returns {Object} 创建的分组
    */
@@ -104,7 +104,7 @@ class AccountGroupService {
 
       // 验证平台类型
       if (!VALID_GROUP_PLATFORMS.includes(platform)) {
-        throw new Error('平台类型必须是 claude、gemini、openai、droid 或 deepseek')
+        throw new Error('平台类型必须是 claude、gemini、openai、droid、deepseek 或 minimax')
       }
 
       const client = redis.getClientSafe()
@@ -407,7 +407,8 @@ class AccountGroupService {
           keyData.geminiAccountId === groupKey ||
           keyData.openaiAccountId === groupKey ||
           keyData.droidAccountId === groupKey ||
-          accountBindings.deepseek?.accountId === groupKey
+          accountBindings.deepseek?.accountId === groupKey ||
+          accountBindings.minimax?.accountId === groupKey
 
         if (usesGroup) {
           boundApiKeys.push({

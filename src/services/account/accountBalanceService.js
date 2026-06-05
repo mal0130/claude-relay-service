@@ -31,7 +31,8 @@ class AccountBalanceService {
       'bedrock',
       'droid',
       'ccr',
-      'deepseek'
+      'deepseek',
+      'minimax'
     ]
   }
 
@@ -220,7 +221,8 @@ class AccountBalanceService {
       bedrock: require('./bedrockAccountService'),
       droid: require('./droidAccountService'),
       ccr: require('./ccrAccountService'),
-      deepseek: require('./deepseekAccountService')
+      deepseek: require('./deepseekAccountService'),
+      minimax: require('./minimaxAccountService')
     }
 
     const service = serviceMap[platform]
@@ -255,7 +257,8 @@ class AccountBalanceService {
       bedrock: require('./bedrockAccountService'),
       droid: require('./droidAccountService'),
       ccr: require('./ccrAccountService'),
-      deepseek: require('./deepseekAccountService')
+      deepseek: require('./deepseekAccountService'),
+      minimax: require('./minimaxAccountService')
     }
 
     const service = serviceMap[platform]

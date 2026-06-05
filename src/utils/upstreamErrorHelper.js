@@ -62,7 +62,8 @@ const getRedis = () => {
 const ACCOUNT_KEY_PREFIX_BY_TYPE = {
   'claude-official': 'claude:account:',
   claude: 'claude:account:',
-  deepseek: 'deepseek:account:'
+  deepseek: 'deepseek:account:',
+  minimax: 'minimax:account:'
 }
 
 const EMPTY_TEMP_UNAVAILABLE_POLICY = {

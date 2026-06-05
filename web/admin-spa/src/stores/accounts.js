@@ -16,7 +16,8 @@ const PLATFORM_CONFIG = {
     stateKey: 'openaiResponsesAccounts'
   },
   droid: { endpoint: 'droid-accounts', stateKey: 'droidAccounts' },
-  deepseek: { endpoint: 'deepseek-accounts', stateKey: 'deepseekAccounts' }
+  deepseek: { endpoint: 'deepseek-accounts', stateKey: 'deepseekAccounts' },
+  minimax: { endpoint: 'minimax-accounts', stateKey: 'minimaxAccounts' }
 }
 
 export const useAccountsStore = defineStore('accounts', () => {
@@ -29,6 +30,7 @@ export const useAccountsStore = defineStore('accounts', () => {
   const openaiResponsesAccounts = ref([])
   const droidAccounts = ref([])
   const deepseekAccounts = ref([])
+  const minimaxAccounts = ref([])
   const loading = ref(false)
   const error = ref(null)
   const sortBy = ref('')
@@ -67,6 +69,7 @@ export const useAccountsStore = defineStore('accounts', () => {
   const fetchDroidAccounts = () => fetchAccounts(httpApis.getDroidAccountsApi, droidAccounts)
   const fetchDeepSeekAccounts = () =>
     fetchAccounts(httpApis.getDeepSeekAccountsApi, deepseekAccounts)
+  const fetchMiniMaxAccounts = () => fetchAccounts(httpApis.getMiniMaxAccountsApi, minimaxAccounts)
 
   const fetchAllAccounts = async () => {
     loading.value = true
@@ -79,7 +82,8 @@ export const useAccountsStore = defineStore('accounts', () => {
       fetchAzureOpenAIAccounts(),
       fetchOpenAIResponsesAccounts(),
       fetchDroidAccounts(),
-      fetchDeepSeekAccounts()
+      fetchDeepSeekAccounts(),
+      fetchMiniMaxAccounts()
     ])
     loading.value = false
   }
@@ -105,6 +109,8 @@ export const useAccountsStore = defineStore('accounts', () => {
     mutateAccount(httpApis.createGeminiApiAccountApi, fetchGeminiAccounts, data)
   const createDeepSeekAccount = (data) =>
     mutateAccount(httpApis.createDeepSeekAccountApi, fetchDeepSeekAccounts, data)
+  const createMiniMaxAccount = (data) =>
+    mutateAccount(httpApis.createMiniMaxAccountApi, fetchMiniMaxAccounts, data)
 
   // 更新账户
   const updateClaudeAccount = (id, data) =>
@@ -127,6 +133,8 @@ export const useAccountsStore = defineStore('accounts', () => {
     mutateAccount(httpApis.updateDroidAccountApi, fetchDroidAccounts, id, data)
   const updateDeepSeekAccount = (id, data) =>
     mutateAccount(httpApis.updateDeepSeekAccountApi, fetchDeepSeekAccounts, id, data)
+  const updateMiniMaxAccount = (id, data) =>
+    mutateAccount(httpApis.updateMiniMaxAccountApi, fetchMiniMaxAccounts, id, data)
 
   // 切换账户状态
   const toggleAccount = async (platform, id) => {
@@ -144,7 +152,8 @@ export const useAccountsStore = defineStore('accounts', () => {
         azure_openai: fetchAzureOpenAIAccounts,
         'openai-responses': fetchOpenAIResponsesAccounts,
         droid: fetchDroidAccounts,
-        deepseek: fetchDeepSeekAccounts
+        deepseek: fetchDeepSeekAccounts,
+        minimax: fetchMiniMaxAccounts
       }
       await fetchMap[platform]()
     } else error.value = res.message
@@ -168,7 +177,8 @@ export const useAccountsStore = defineStore('accounts', () => {
         azure_openai: fetchAzureOpenAIAccounts,
         'openai-responses': fetchOpenAIResponsesAccounts,
         droid: fetchDroidAccounts,
-        deepseek: fetchDeepSeekAccounts
+        deepseek: fetchDeepSeekAccounts,
+        minimax: fetchMiniMaxAccounts
       }
       await fetchMap[platform]()
     } else {
@@ -276,6 +286,7 @@ export const useAccountsStore = defineStore('accounts', () => {
     openaiResponsesAccounts.value = []
     droidAccounts.value = []
     deepseekAccounts.value = []
+    minimaxAccounts.value = []
     loading.value = false
     error.value = null
     sortBy.value = ''
@@ -292,6 +303,7 @@ export const useAccountsStore = defineStore('accounts', () => {
     openaiResponsesAccounts,
     droidAccounts,
     deepseekAccounts,
+    minimaxAccounts,
     loading,
     error,
     sortBy,
@@ -305,6 +317,7 @@ export const useAccountsStore = defineStore('accounts', () => {
     fetchOpenAIResponsesAccounts,
     fetchDroidAccounts,
     fetchDeepSeekAccounts,
+    fetchMiniMaxAccounts,
     fetchAllAccounts,
     createClaudeAccount,
     createClaudeConsoleAccount,
@@ -317,6 +330,7 @@ export const useAccountsStore = defineStore('accounts', () => {
     createOpenAIResponsesAccount,
     createGeminiApiAccount,
     createDeepSeekAccount,
+    createMiniMaxAccount,
     updateClaudeAccount,
     updateClaudeConsoleAccount,
     updateBedrockAccount,
@@ -326,6 +340,7 @@ export const useAccountsStore = defineStore('accounts', () => {
     updateOpenAIResponsesAccount,
     updateGeminiApiAccount,
     updateDeepSeekAccount,
+    updateMiniMaxAccount,
     toggleAccount,
     deleteAccount,
     refreshClaudeToken,

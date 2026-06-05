@@ -18,7 +18,8 @@ const ACCOUNT_TYPE_CONFIG = {
   gemini: { prefix: 'gemini_account:' },
   'gemini-api': { prefix: 'gemini_api_account:' },
   droid: { prefix: 'droid:account:' },
-  deepseek: { prefix: 'deepseek:account:' }
+  deepseek: { prefix: 'deepseek:account:' },
+  minimax: { prefix: 'minimax:account:' }
 }
 
 const ACCOUNT_TYPE_PRIORITY = [
@@ -30,7 +31,8 @@ const ACCOUNT_TYPE_PRIORITY = [
   'gemini',
   'gemini-api',
   'droid',
-  'deepseek'
+  'deepseek',
+  'minimax'
 ]
 
 const ACCOUNT_CATEGORY_MAP = {
@@ -42,7 +44,8 @@ const ACCOUNT_CATEGORY_MAP = {
   gemini: 'gemini',
   'gemini-api': 'gemini',
   droid: 'droid',
-  deepseek: 'deepseek'
+  deepseek: 'deepseek',
+  minimax: 'minimax'
 }
 
 /**
@@ -2567,6 +2570,8 @@ class ApiKeyService {
         pushType('droid')
       } else if (lowerModel.includes('deepseek')) {
         pushType('deepseek')
+      } else if (lowerModel.includes('minimax') || lowerModel.includes('abab')) {
+        pushType('minimax')
       }
     }
 
@@ -3127,11 +3132,12 @@ class ApiKeyService {
         bedrock: 'bedrockAccountId',
         droid: 'droidAccountId',
         deepseek: null,
+        minimax: null,
         ccr: null // CCR 账号没有对应的 API Key 字段
       }
 
       const field = fieldMap[accountType]
-      const usesAccountBindings = accountType === 'deepseek'
+      const usesAccountBindings = accountType === 'deepseek' || accountType === 'minimax'
       if (!field && !usesAccountBindings) {
         logger.info(`账号类型 ${accountType} 不需要解绑 API Key`)
         return 0
@@ -3150,6 +3156,8 @@ class ApiKeyService {
         boundKeys = allKeys.filter((key) => key.geminiAccountId === `api:${accountId}`)
       } else if (accountType === 'deepseek') {
         boundKeys = allKeys.filter((key) => key.accountBindings?.deepseek?.accountId === accountId)
+      } else if (accountType === 'minimax') {
+        boundKeys = allKeys.filter((key) => key.accountBindings?.minimax?.accountId === accountId)
       } else {
         // 其他账号类型正常匹配
         boundKeys = allKeys.filter((key) => key[field] === accountId)
@@ -3168,6 +3176,12 @@ class ApiKeyService {
           const accountBindings = parseAccountBindings(key.accountBindings)
           if (accountBindings.deepseek?.accountId === accountId) {
             accountBindings.deepseek = { mode: 'shared', accountId: '' }
+          }
+          updates.accountBindings = accountBindings
+        } else if (accountType === 'minimax') {
+          const accountBindings = parseAccountBindings(key.accountBindings)
+          if (accountBindings.minimax?.accountId === accountId) {
+            accountBindings.minimax = { mode: 'shared', accountId: '' }
           }
           updates.accountBindings = accountBindings
         } else {

@@ -198,6 +198,14 @@ export const createDeepSeekAccountApi = (data) =>
 export const updateDeepSeekAccountApi = (id, data) =>
   request({ url: `/admin/deepseek-accounts/${id}`, method: 'PUT', data })
 
+// MiniMax 账户
+export const getMiniMaxAccountsApi = () =>
+  request({ url: '/admin/minimax-accounts', method: 'GET' })
+export const createMiniMaxAccountApi = (data) =>
+  request({ url: '/admin/minimax-accounts', method: 'POST', data })
+export const updateMiniMaxAccountApi = (id, data) =>
+  request({ url: `/admin/minimax-accounts/${id}`, method: 'PUT', data })
+
 // Azure OpenAI 账户
 export const getAzureOpenAIAccountsApi = () =>
   request({ url: '/admin/azure-openai-accounts', method: 'GET' })

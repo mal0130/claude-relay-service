@@ -10,7 +10,7 @@ const requestBodyRuleService = require('../../services/requestBodyRuleService')
 const router = express.Router()
 
 // 有效的权限值列表
-const VALID_PERMISSIONS = ['claude', 'gemini', 'openai', 'droid', 'deepseek']
+const VALID_PERMISSIONS = ['claude', 'gemini', 'openai', 'droid', 'deepseek', 'minimax']
 
 function normalizeAccountBindings(accountBindings) {
   if (accountBindings === undefined || accountBindings === null || accountBindings === '') {
@@ -896,6 +896,7 @@ router.get('/accounts/binding-counts', authenticateAdmin, async (req, res) => {
       bedrockAccountId: {},
       droidAccountId: {},
       deepseekAccountId: {},
+      minimaxAccountId: {},
       ccrAccountId: {}
     }
 
@@ -949,6 +950,12 @@ router.get('/accounts/binding-counts', authenticateAdmin, async (req, res) => {
       if (deepseekAccountId) {
         bindingCounts.deepseekAccountId[deepseekAccountId] =
           (bindingCounts.deepseekAccountId[deepseekAccountId] || 0) + 1
+      }
+
+      const minimaxAccountId = accountBindings.minimax?.accountId
+      if (minimaxAccountId) {
+        bindingCounts.minimaxAccountId[minimaxAccountId] =
+          (bindingCounts.minimaxAccountId[minimaxAccountId] || 0) + 1
       }
 
       // CCR 账户

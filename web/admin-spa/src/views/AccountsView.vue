@@ -637,6 +637,19 @@
                       <span class="text-xs font-medium text-[#3964fe]">API Key</span>
                     </div>
                     <div
+                      v-else-if="account.platform === 'minimax'"
+                      class="flex items-center gap-1.5 rounded-lg border border-pink-200 bg-gradient-to-r from-pink-100 to-rose-100 px-2.5 py-1 dark:border-pink-700 dark:from-pink-900/20 dark:to-rose-900/20"
+                    >
+                      <i class="fas fa-play-circle text-xs text-pink-700 dark:text-pink-400" />
+                      <span class="text-xs font-semibold text-pink-800 dark:text-pink-300"
+                        >MiniMax</span
+                      >
+                      <span class="mx-1 h-4 w-px bg-pink-300 dark:bg-pink-600" />
+                      <span class="text-xs font-medium text-pink-700 dark:text-pink-400"
+                        >API Key</span
+                      >
+                    </div>
+                    <div
                       v-else-if="
                         account.platform === 'claude' || account.platform === 'claude-oauth'
                       "
@@ -1252,7 +1265,8 @@
                       account.platform === 'ccr' ||
                       account.platform === 'droid' ||
                       account.platform === 'gemini-api' ||
-                      account.platform === 'deepseek'
+                      account.platform === 'deepseek' ||
+                      account.platform === 'minimax'
                     "
                     class="flex items-center gap-2"
                   >
@@ -1481,7 +1495,9 @@
                               ? 'bg-gradient-to-br from-cyan-500 to-sky-600'
                               : account.platform === 'deepseek'
                                 ? 'bg-[#3964fe]/10'
-                                : 'bg-gradient-to-br from-blue-500 to-blue-600'
+                                : account.platform === 'minimax'
+                                  ? 'bg-gradient-to-br from-pink-500 to-rose-600'
+                                  : 'bg-gradient-to-br from-blue-500 to-blue-600'
                 ]"
               >
                 <svg
@@ -1509,7 +1525,9 @@
                               ? 'fas fa-code-branch'
                               : account.platform === 'droid'
                                 ? 'fas fa-robot'
-                                : 'fas fa-robot'
+                                : account.platform === 'minimax'
+                                  ? 'fas fa-play-circle'
+                                  : 'fas fa-robot'
                   ]"
                 />
               </div>
@@ -2384,6 +2402,7 @@ const TEMP_UNAVAILABLE_ACCOUNT_TYPE_ALIASES = {
   ccr: ['ccr'],
   droid: ['droid'],
   deepseek: ['deepseek'],
+  minimax: ['minimax'],
   azure_openai: ['azure-openai'],
   'azure-openai': ['azure-openai']
 }
@@ -2431,6 +2450,7 @@ const supportedUsagePlatforms = [
   'gemini',
   'droid',
   'deepseek',
+  'minimax',
   'gemini-api',
   'bedrock'
 ]
@@ -2517,6 +2537,12 @@ const platformHierarchy = [
     label: 'DeepSeek（全部）',
     icon: 'fa-fish',
     children: [{ value: 'deepseek', label: 'DeepSeek API', icon: 'fa-fish' }]
+  },
+  {
+    value: 'group-minimax',
+    label: 'MiniMax（全部）',
+    icon: 'fa-play-circle',
+    children: [{ value: 'minimax', label: 'MiniMax API', icon: 'fa-play-circle' }]
   }
 ]
 
@@ -2526,7 +2552,8 @@ const platformGroupMap = {
   'group-openai': ['openai', 'openai-responses', 'azure_openai'],
   'group-gemini': ['gemini', 'gemini-api'],
   'group-droid': ['droid'],
-  'group-deepseek': ['deepseek']
+  'group-deepseek': ['deepseek'],
+  'group-minimax': ['minimax']
 }
 
 // 平台请求处理器
@@ -2541,7 +2568,8 @@ const platformRequestHandlers = {
   ccr: () => httpApis.getCcrAccountsApi(),
   droid: () => httpApis.getDroidAccountsApi(),
   'gemini-api': () => httpApis.getGeminiApiAccountsApi(),
-  deepseek: () => httpApis.getDeepSeekAccountsApi()
+  deepseek: () => httpApis.getDeepSeekAccountsApi(),
+  minimax: () => httpApis.getMiniMaxAccountsApi()
 }
 
 const allPlatformKeys = Object.keys(platformRequestHandlers)
@@ -2581,7 +2609,8 @@ const groupPlatformMeta = {
   gemini: { label: 'Gemini', icon: 'fa-robot' },
   openai: { label: 'OpenAI', icon: 'fa-openai' },
   droid: { label: 'Droid', icon: 'fa-robot' },
-  deepseek: { label: 'DeepSeek', icon: 'fa-fish' }
+  deepseek: { label: 'DeepSeek', icon: 'fa-fish' },
+  minimax: { label: 'MiniMax', icon: 'fa-play-circle' }
 }
 
 const groupOptions = computed(() => {
@@ -2686,6 +2715,7 @@ const showResetButton = (account) => {
     'ccr',
     'droid',
     'deepseek',
+    'minimax',
     'bedrock',
     'azure-openai',
     'azure_openai'
@@ -2991,7 +3021,8 @@ const accountStats = computed(() => {
     { value: 'openai-responses', label: 'OpenAI-Responses' },
     { value: 'ccr', label: 'CCR' },
     { value: 'droid', label: 'Droid' },
-    { value: 'deepseek', label: 'DeepSeek' }
+    { value: 'deepseek', label: 'DeepSeek' },
+    { value: 'minimax', label: 'MiniMax' }
   ]
 
   return platforms
@@ -3475,6 +3506,15 @@ const loadAccounts = async (forceReload = false) => {
             const boundApiKeysCount =
               counts.deepseekAccountId?.[acc.id] || acc.boundApiKeysCount || 0
             return { ...acc, platform: 'deepseek', boundApiKeysCount }
+          })
+          allAccounts.push(...items)
+          break
+        }
+        case 'minimax': {
+          const items = list.map((acc) => {
+            const boundApiKeysCount =
+              counts.minimaxAccountId?.[acc.id] || acc.boundApiKeysCount || 0
+            return { ...acc, platform: 'minimax', boundApiKeysCount }
           })
           allAccounts.push(...items)
           break
@@ -4026,7 +4066,8 @@ const getBoundApiKeysForAccount = (account) => {
       key.azureOpenaiAccountId === accountId ||
       key.openaiAccountId === `responses:${accountId}` ||
       key.geminiAccountId === `api:${accountId}` ||
-      key.accountBindings?.deepseek?.accountId === accountId
+      key.accountBindings?.deepseek?.accountId === accountId ||
+      key.accountBindings?.minimax?.accountId === accountId
     )
   })
 }
@@ -4055,6 +4096,8 @@ const resolveAccountDeleteEndpoint = (account) => {
       return `/admin/gemini-api-accounts/${account.id}`
     case 'deepseek':
       return `/admin/deepseek-accounts/${account.id}`
+    case 'minimax':
+      return `/admin/minimax-accounts/${account.id}`
     default:
       return null
   }
@@ -4200,6 +4243,7 @@ const RESET_STATUS_ENDPOINT_MAP = {
   ccr: (id) => `/admin/ccr-accounts/${id}/reset-status`,
   droid: (id) => `/admin/droid-accounts/${id}/reset-status`,
   deepseek: (id) => `/admin/deepseek-accounts/${id}/reset-status`,
+  minimax: (id) => `/admin/minimax-accounts/${id}/reset-status`,
   'gemini-api': (id) => `/admin/gemini-api-accounts/${id}/reset-status`,
   gemini: (id) => `/admin/gemini-accounts/${id}/reset-status`,
   bedrock: (id) => `/admin/bedrock-accounts/${id}/reset-status`,
@@ -4219,6 +4263,7 @@ const TOGGLE_SCHEDULABLE_ENDPOINT_MAP = {
   ccr: (id) => `/admin/ccr-accounts/${id}/toggle-schedulable`,
   droid: (id) => `/admin/droid-accounts/${id}/toggle-schedulable`,
   deepseek: (id) => `/admin/deepseek-accounts/${id}/toggle-schedulable`,
+  minimax: (id) => `/admin/minimax-accounts/${id}/toggle-schedulable`,
   'gemini-api': (id) => `/admin/gemini-api-accounts/${id}/toggle-schedulable`
 }
 
@@ -5270,6 +5315,9 @@ const handleSaveAccountExpiry = async ({ accountId, expiresAt }) => {
         break
       case 'deepseek':
         endpoint = `/admin/deepseek-accounts/${accountId}` // 使用 :id
+        break
+      case 'minimax':
+        endpoint = `/admin/minimax-accounts/${accountId}` // 使用 :id
         break
       case 'azure_openai':
         endpoint = `/admin/azure-openai-accounts/${accountId}` // 使用 :id
