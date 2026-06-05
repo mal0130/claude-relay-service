@@ -28,12 +28,36 @@
  * parseSSELine('data: [DONE]')
  * // => { type: 'control', data: null, line: '...', jsonStr: '[DONE]' }
  */
-function parseSSELine(line) {
-  if (!line.startsWith('data: ')) {
-    return { type: 'other', line, data: null }
+function getSSEFieldValue(line, fieldName) {
+  const prefix = `${fieldName}:`
+  if (!line.startsWith(prefix)) {
+    return null
   }
 
-  const jsonStr = line.substring(6).trim()
+  const value = line.slice(prefix.length)
+  return (value.startsWith(' ') ? value.slice(1) : value).trimEnd()
+}
+
+function findEventBoundary(buffer) {
+  const candidates = [
+    { idx: buffer.indexOf('\n\n'), length: 2 },
+    { idx: buffer.indexOf('\r\n\r\n'), length: 4 },
+    { idx: buffer.indexOf('\r\r'), length: 2 }
+  ].filter((candidate) => candidate.idx !== -1)
+
+  if (candidates.length === 0) {
+    return null
+  }
+
+  candidates.sort((a, b) => a.idx - b.idx)
+  return candidates[0]
+}
+
+function parseSSELine(line) {
+  const jsonStr = getSSEFieldValue(line, 'data')
+  if (jsonStr === null) {
+    return { type: 'other', line, data: null }
+  }
 
   if (!jsonStr || jsonStr === '[DONE]') {
     return { type: 'control', line, data: null, jsonStr }
@@ -65,18 +89,18 @@ class IncrementalSSEParser {
     this.buffer += chunk
     const events = []
 
-    // 查找完整的事件（以 \n\n 分隔）
-    let idx
-    while ((idx = this.buffer.indexOf('\n\n')) !== -1) {
-      const event = this.buffer.slice(0, idx)
-      this.buffer = this.buffer.slice(idx + 2)
+    // 查找完整的事件（兼容 \n\n、\r\n\r\n、\r\r 分隔）
+    let boundary
+    while ((boundary = findEventBoundary(this.buffer))) {
+      const event = this.buffer.slice(0, boundary.idx)
+      this.buffer = this.buffer.slice(boundary.idx + boundary.length)
 
       if (event.trim()) {
         // 解析事件中的每一行
-        const lines = event.split('\n')
+        const lines = event.split(/\r\n|\n|\r/)
         for (const line of lines) {
-          if (line.startsWith('data: ')) {
-            const jsonStr = line.slice(6)
+          const jsonStr = getSSEFieldValue(line, 'data')
+          if (jsonStr !== null) {
             if (jsonStr && jsonStr !== '[DONE]') {
               try {
                 events.push({ type: 'data', data: JSON.parse(jsonStr) })
@@ -86,8 +110,11 @@ class IncrementalSSEParser {
             } else if (jsonStr === '[DONE]') {
               events.push({ type: 'done' })
             }
-          } else if (line.startsWith('event: ')) {
-            events.push({ type: 'event', name: line.slice(7).trim() })
+          } else {
+            const eventName = getSSEFieldValue(line, 'event')
+            if (eventName !== null) {
+              events.push({ type: 'event', name: eventName.trim() })
+            }
           }
         }
       }

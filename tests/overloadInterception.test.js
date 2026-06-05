@@ -24,8 +24,8 @@ describe('server_is_overloaded interception logic', () => {
       error: {
         message: '因模型算力受限导致请求失败，你可以尝试重新提交，或更换其他渠道继续。',
         type: 'server_error',
-        code: 'server_is_overloaded',
-      },
+        code: 'server_is_overloaded'
+      }
     }
     const output = `data: ${JSON.stringify(friendly)}\n\n`
     expect(output).toContain('server_is_overloaded')
@@ -33,8 +33,7 @@ describe('server_is_overloaded interception logic', () => {
   })
 
   test('normal chunk passes through without interception', () => {
-    const normalChunk =
-      'data: {"type":"response.output_text.delta","delta":"hello"}\n\n'
+    const normalChunk = 'data: {"type":"response.output_text.delta","delta":"hello"}\n\n'
 
     const sseParser = new IncrementalSSEParser()
     const events = sseParser.feed(normalChunk)
@@ -49,5 +48,19 @@ describe('server_is_overloaded interception logic', () => {
     }
 
     expect(overloaded).toBe(false)
+  })
+
+  test('parses standard SSE variants used by Anthropic-compatible streams', () => {
+    const chunk =
+      'event: message_delta\r\n' +
+      'data:{"type":"message_delta","usage":{"output_tokens":7}}\r\n\r\n'
+
+    const sseParser = new IncrementalSSEParser()
+    const events = sseParser.feed(chunk)
+
+    expect(events).toEqual([
+      { type: 'event', name: 'message_delta' },
+      { type: 'data', data: { type: 'message_delta', usage: { output_tokens: 7 } } }
+    ])
   })
 })
