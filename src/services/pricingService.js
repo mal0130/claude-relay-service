@@ -1484,8 +1484,9 @@ class PricingService {
     const isLongContextModel = typeof modelName === 'string' && modelName.includes('[1m]')
     let isLongContextRequest = false
     let useLongContextPricing = false
+    let useMiniMax512kPricing = false
 
-    // 计算总输入 tokens（用于判断是否超过 200K 阈值）
+    // 计算总输入 tokens（用于判断分层阈值）
     const inputTokens = usage.input_tokens || 0
     const cacheCreationTokens = usage.cache_creation_input_tokens || 0
     const cacheReadTokens = usage.cache_read_input_tokens || 0
@@ -1503,6 +1504,9 @@ class PricingService {
     const standardPricing = this.getModelPricing(modelName)
     const pricing = standardPricing
     const isLongContextModeEnabled = isLongContextModel || hasContext1mBeta
+    const isMiniMaxProvider =
+      typeof pricing?.litellm_provider === 'string' && pricing.litellm_provider.toLowerCase() === 'minimax'
+    const isMiniMaxM3 = isMiniMaxProvider && normalizedModelName === 'MiniMax-M3'
     // Per official Anthropic pricing: all Claude models have flat pricing with no 200K+ premium
     // https://platform.claude.com/docs/en/about-claude/pricing
     const ignores200kLongContextPricing =
@@ -1528,6 +1532,13 @@ class PricingService {
           `💰 Using 200K+ pricing for ${modelName}: total input tokens = ${totalInputTokens.toLocaleString()}`
         )
       }
+    }
+
+    if (isMiniMaxM3 && totalInputTokens > 512 * 1024) {
+      useMiniMax512kPricing = true
+      logger.info(
+        `💰 Using MiniMax 512K+ pricing for ${modelName}: total input tokens = ${totalInputTokens.toLocaleString()}`
+      )
     }
 
     if (!pricing) {
@@ -1563,8 +1574,11 @@ class PricingService {
     const hasInput200kPrice =
       pricing.input_cost_per_token_above_200k_tokens !== null &&
       pricing.input_cost_per_token_above_200k_tokens !== undefined
+    const hasInput512kPrice =
+      pricing.input_cost_per_token_above_512k_tokens !== null &&
+      pricing.input_cost_per_token_above_512k_tokens !== undefined
 
-    // 确定实际使用的输入价格（普通或 200K+ 高档价格）
+    // 确定实际使用的输入价格（普通或分层高档价格）
     // Claude 模型在 200K+ 场景下如果缺少官方字段，按 2 倍输入价兜底
     let actualInputPrice = useLongContextPricing
       ? hasInput200kPrice
@@ -1572,17 +1586,24 @@ class PricingService {
         : isClaudeModel
           ? baseInputPrice * 2
           : baseInputPrice
-      : baseInputPrice
+      : useMiniMax512kPricing && hasInput512kPrice
+        ? pricing.input_cost_per_token_above_512k_tokens
+        : baseInputPrice
 
     const baseOutputPrice = pricing.output_cost_per_token || 0
     const hasOutput200kPrice =
       pricing.output_cost_per_token_above_200k_tokens !== null &&
       pricing.output_cost_per_token_above_200k_tokens !== undefined
+    const hasOutput512kPrice =
+      pricing.output_cost_per_token_above_512k_tokens !== null &&
+      pricing.output_cost_per_token_above_512k_tokens !== undefined
     let actualOutputPrice = useLongContextPricing
       ? hasOutput200kPrice
         ? pricing.output_cost_per_token_above_200k_tokens
         : baseOutputPrice
-      : baseOutputPrice
+      : useMiniMax512kPricing && hasOutput512kPrice
+        ? pricing.output_cost_per_token_above_512k_tokens
+        : baseOutputPrice
 
     // 缓存价格：优先从 model_pricing.json 取，Claude 缺失时用倍率兜底
     let actualCacheCreatePrice = 0
@@ -1609,6 +1630,13 @@ class PricingService {
         : isClaudeModel
           ? 0
           : pricing.cache_creation_input_token_cost_above_1hr || 0
+    } else if (useMiniMax512kPricing) {
+      actualCacheCreatePrice = pricing.cache_creation_input_token_cost || 0
+      actualCacheReadPrice =
+        pricing.cache_read_input_token_cost_above_512k_tokens ||
+        pricing.cache_read_input_token_cost ||
+        0
+      actualEphemeral1hPrice = pricing.cache_creation_input_token_cost_above_1hr || 0
     } else {
       actualCacheCreatePrice = pricing.cache_creation_input_token_cost || 0
       actualCacheReadPrice = pricing.cache_read_input_token_cost || 0

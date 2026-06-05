@@ -353,6 +353,68 @@ describe('PricingService - Long Context Pricing', () => {
     })
   })
 
+  describe('MiniMax M3 512K 分层计费', () => {
+    it('512K 以下应使用基础价格', () => {
+      pricingService.pricingData = pricingService.getMiniMaxFallbackPricing(
+        new Date('2026-06-05T00:00:00.000Z')
+      )
+
+      const usage = {
+        input_tokens: 500000,
+        output_tokens: 10000,
+        cache_creation_input_tokens: 10000,
+        cache_read_input_tokens: 10000
+      }
+
+      const result = pricingService.calculateCost(usage, 'MiniMax-M3')
+
+      expect(result.pricing.input).toBeCloseTo(0.3 / 1e6, 14)
+      expect(result.pricing.output).toBeCloseTo(1.2 / 1e6, 14)
+      expect(result.pricing.cacheRead).toBeCloseTo(0.06 / 1e6, 14)
+      expect(result.pricing.cacheCreate).toBeCloseTo(0.375 / 1e6, 14)
+    })
+
+    it('512K 以上应切换到高档价格', () => {
+      pricingService.pricingData = pricingService.getMiniMaxFallbackPricing(
+        new Date('2026-06-05T00:00:00.000Z')
+      )
+
+      const usage = {
+        input_tokens: 520000,
+        output_tokens: 10000,
+        cache_creation_input_tokens: 3000,
+        cache_read_input_tokens: 2000
+      }
+      // Total input: 525000 > 512 * 1024
+
+      const result = pricingService.calculateCost(usage, 'MiniMax-M3')
+
+      expect(result.pricing.input).toBeCloseTo(1.2 / 1e6, 14)
+      expect(result.pricing.output).toBeCloseTo(4.8 / 1e6, 14)
+      expect(result.pricing.cacheRead).toBeCloseTo(0.24 / 1e6, 14)
+      expect(result.pricing.cacheCreate).toBeCloseTo(0.375 / 1e6, 14)
+    })
+
+    it('其他 MiniMax 模型不应触发 M3 的 512K 分层价格', () => {
+      pricingService.pricingData = pricingService.getMiniMaxFallbackPricing(
+        new Date('2026-06-05T00:00:00.000Z')
+      )
+
+      const usage = {
+        input_tokens: 600000,
+        output_tokens: 10000,
+        cache_creation_input_tokens: 5000,
+        cache_read_input_tokens: 5000
+      }
+
+      const result = pricingService.calculateCost(usage, 'MiniMax-M2.7')
+
+      expect(result.pricing.input).toBeCloseTo(0.3 / 1e6, 14)
+      expect(result.pricing.output).toBeCloseTo(1.2 / 1e6, 14)
+      expect(result.pricing.cacheRead).toBeCloseTo(0.06 / 1e6, 14)
+    })
+  })
+
   describe('DeepSeek 官方价格', () => {
     const deepseekPricingHtml = `
       <table>
