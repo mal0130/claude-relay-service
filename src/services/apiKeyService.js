@@ -19,7 +19,9 @@ const ACCOUNT_TYPE_CONFIG = {
   'gemini-api': { prefix: 'gemini_api_account:' },
   droid: { prefix: 'droid:account:' },
   deepseek: { prefix: 'deepseek:account:' },
-  minimax: { prefix: 'minimax:account:' }
+  minimax: { prefix: 'minimax:account:' },
+  glm: { prefix: 'glm:account:' },
+  kimi: { prefix: 'kimi:account:' }
 }
 
 const ACCOUNT_TYPE_PRIORITY = [
@@ -32,7 +34,9 @@ const ACCOUNT_TYPE_PRIORITY = [
   'gemini-api',
   'droid',
   'deepseek',
-  'minimax'
+  'minimax',
+  'glm',
+  'kimi'
 ]
 
 const ACCOUNT_CATEGORY_MAP = {
@@ -45,7 +49,9 @@ const ACCOUNT_CATEGORY_MAP = {
   'gemini-api': 'gemini',
   droid: 'droid',
   deepseek: 'deepseek',
-  minimax: 'minimax'
+  minimax: 'minimax',
+  glm: 'glm',
+  kimi: 'kimi'
 }
 
 /**
@@ -2572,6 +2578,10 @@ class ApiKeyService {
         pushType('deepseek')
       } else if (lowerModel.includes('minimax')) {
         pushType('minimax')
+      } else if (lowerModel.includes('glm')) {
+        pushType('glm')
+      } else if (lowerModel.includes('kimi') || lowerModel.includes('moonshot')) {
+        pushType('kimi')
       }
     }
 
@@ -3133,11 +3143,17 @@ class ApiKeyService {
         droid: 'droidAccountId',
         deepseek: null,
         minimax: null,
+        glm: null,
+        kimi: null,
         ccr: null // CCR 账号没有对应的 API Key 字段
       }
 
       const field = fieldMap[accountType]
-      const usesAccountBindings = accountType === 'deepseek' || accountType === 'minimax'
+      const usesAccountBindings =
+        accountType === 'deepseek' ||
+        accountType === 'minimax' ||
+        accountType === 'glm' ||
+        accountType === 'kimi'
       if (!field && !usesAccountBindings) {
         logger.info(`账号类型 ${accountType} 不需要解绑 API Key`)
         return 0
@@ -3158,6 +3174,10 @@ class ApiKeyService {
         boundKeys = allKeys.filter((key) => key.accountBindings?.deepseek?.accountId === accountId)
       } else if (accountType === 'minimax') {
         boundKeys = allKeys.filter((key) => key.accountBindings?.minimax?.accountId === accountId)
+      } else if (accountType === 'glm') {
+        boundKeys = allKeys.filter((key) => key.accountBindings?.glm?.accountId === accountId)
+      } else if (accountType === 'kimi') {
+        boundKeys = allKeys.filter((key) => key.accountBindings?.kimi?.accountId === accountId)
       } else {
         // 其他账号类型正常匹配
         boundKeys = allKeys.filter((key) => key[field] === accountId)

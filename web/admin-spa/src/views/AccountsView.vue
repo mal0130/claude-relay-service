@@ -650,6 +650,32 @@
                       >
                     </div>
                     <div
+                      v-else-if="account.platform === 'glm'"
+                      class="flex items-center gap-1.5 rounded-lg border border-teal-200 bg-gradient-to-r from-teal-100 to-cyan-100 px-2.5 py-1 dark:border-teal-700 dark:from-teal-900/20 dark:to-cyan-900/20"
+                    >
+                      <i class="fas fa-brain text-xs text-teal-700 dark:text-teal-400" />
+                      <span class="text-xs font-semibold text-teal-800 dark:text-teal-300"
+                        >GLM</span
+                      >
+                      <span class="mx-1 h-4 w-px bg-teal-300 dark:bg-teal-600" />
+                      <span class="text-xs font-medium text-teal-700 dark:text-teal-400"
+                        >API Key</span
+                      >
+                    </div>
+                    <div
+                      v-else-if="account.platform === 'kimi'"
+                      class="flex items-center gap-1.5 rounded-lg border border-violet-200 bg-gradient-to-r from-violet-100 to-purple-100 px-2.5 py-1 dark:border-violet-700 dark:from-violet-900/20 dark:to-purple-900/20"
+                    >
+                      <i class="fas fa-moon text-xs text-violet-700 dark:text-violet-400" />
+                      <span class="text-xs font-semibold text-violet-800 dark:text-violet-300"
+                        >Kimi</span
+                      >
+                      <span class="mx-1 h-4 w-px bg-violet-300 dark:bg-violet-600" />
+                      <span class="text-xs font-medium text-violet-700 dark:text-violet-400"
+                        >API Key</span
+                      >
+                    </div>
+                    <div
                       v-else-if="
                         account.platform === 'claude' || account.platform === 'claude-oauth'
                       "
@@ -1266,7 +1292,9 @@
                       account.platform === 'droid' ||
                       account.platform === 'gemini-api' ||
                       account.platform === 'deepseek' ||
-                      account.platform === 'minimax'
+                      account.platform === 'minimax' ||
+                      account.platform === 'glm' ||
+                      account.platform === 'kimi'
                     "
                     class="flex items-center gap-2"
                   >
@@ -1497,7 +1525,11 @@
                                 ? 'bg-[#3964fe]/10'
                                 : account.platform === 'minimax'
                                   ? 'bg-gradient-to-br from-pink-500 to-rose-600'
-                                  : 'bg-gradient-to-br from-blue-500 to-blue-600'
+                                  : account.platform === 'glm'
+                                    ? 'bg-gradient-to-br from-teal-500 to-cyan-600'
+                                    : account.platform === 'kimi'
+                                      ? 'bg-gradient-to-br from-violet-500 to-purple-600'
+                                      : 'bg-gradient-to-br from-blue-500 to-blue-600'
                 ]"
               >
                 <svg
@@ -1527,7 +1559,11 @@
                                 ? 'fas fa-robot'
                                 : account.platform === 'minimax'
                                   ? 'fas fa-play-circle'
-                                  : 'fas fa-robot'
+                                  : account.platform === 'glm'
+                                    ? 'fas fa-brain'
+                                    : account.platform === 'kimi'
+                                      ? 'fas fa-moon'
+                                      : 'fas fa-robot'
                   ]"
                 />
               </div>
@@ -2403,6 +2439,8 @@ const TEMP_UNAVAILABLE_ACCOUNT_TYPE_ALIASES = {
   droid: ['droid'],
   deepseek: ['deepseek'],
   minimax: ['minimax'],
+  glm: ['glm'],
+  kimi: ['kimi'],
   azure_openai: ['azure-openai'],
   'azure-openai': ['azure-openai']
 }
@@ -2451,6 +2489,8 @@ const supportedUsagePlatforms = [
   'droid',
   'deepseek',
   'minimax',
+  'glm',
+  'kimi',
   'gemini-api',
   'bedrock'
 ]
@@ -2543,6 +2583,18 @@ const platformHierarchy = [
     label: 'MiniMax（全部）',
     icon: 'fa-play-circle',
     children: [{ value: 'minimax', label: 'MiniMax API', icon: 'fa-play-circle' }]
+  },
+  {
+    value: 'group-glm',
+    label: 'GLM（全部）',
+    icon: 'fa-brain',
+    children: [{ value: 'glm', label: 'GLM API', icon: 'fa-brain' }]
+  },
+  {
+    value: 'group-kimi',
+    label: 'Kimi（全部）',
+    icon: 'fa-moon',
+    children: [{ value: 'kimi', label: 'Kimi API', icon: 'fa-moon' }]
   }
 ]
 
@@ -2553,7 +2605,9 @@ const platformGroupMap = {
   'group-gemini': ['gemini', 'gemini-api'],
   'group-droid': ['droid'],
   'group-deepseek': ['deepseek'],
-  'group-minimax': ['minimax']
+  'group-minimax': ['minimax'],
+  'group-glm': ['glm'],
+  'group-kimi': ['kimi']
 }
 
 // 平台请求处理器
@@ -2569,7 +2623,9 @@ const platformRequestHandlers = {
   droid: () => httpApis.getDroidAccountsApi(),
   'gemini-api': () => httpApis.getGeminiApiAccountsApi(),
   deepseek: () => httpApis.getDeepSeekAccountsApi(),
-  minimax: () => httpApis.getMiniMaxAccountsApi()
+  minimax: () => httpApis.getMiniMaxAccountsApi(),
+  glm: () => httpApis.getGlmAccountsApi(),
+  kimi: () => httpApis.getKimiAccountsApi()
 }
 
 const allPlatformKeys = Object.keys(platformRequestHandlers)
@@ -2610,7 +2666,9 @@ const groupPlatformMeta = {
   openai: { label: 'OpenAI', icon: 'fa-openai' },
   droid: { label: 'Droid', icon: 'fa-robot' },
   deepseek: { label: 'DeepSeek', icon: 'fa-fish' },
-  minimax: { label: 'MiniMax', icon: 'fa-play-circle' }
+  minimax: { label: 'MiniMax', icon: 'fa-play-circle' },
+  glm: { label: 'GLM', icon: 'fa-brain' },
+  kimi: { label: 'Kimi', icon: 'fa-moon' }
 }
 
 const groupOptions = computed(() => {
@@ -2716,6 +2774,8 @@ const showResetButton = (account) => {
     'droid',
     'deepseek',
     'minimax',
+    'glm',
+    'kimi',
     'bedrock',
     'azure-openai',
     'azure_openai'
@@ -2832,7 +2892,9 @@ const supportedTestPlatforms = [
   'azure-openai',
   'droid',
   'deepseek',
-  'ccr'
+  'ccr',
+  'glm',
+  'kimi'
 ]
 
 const canTestAccount = (account) => {
@@ -3022,7 +3084,9 @@ const accountStats = computed(() => {
     { value: 'ccr', label: 'CCR' },
     { value: 'droid', label: 'Droid' },
     { value: 'deepseek', label: 'DeepSeek' },
-    { value: 'minimax', label: 'MiniMax' }
+    { value: 'minimax', label: 'MiniMax' },
+    { value: 'glm', label: 'GLM' },
+    { value: 'kimi', label: 'Kimi' }
   ]
 
   return platforms
@@ -3515,6 +3579,22 @@ const loadAccounts = async (forceReload = false) => {
             const boundApiKeysCount =
               counts.minimaxAccountId?.[acc.id] || acc.boundApiKeysCount || 0
             return { ...acc, platform: 'minimax', boundApiKeysCount }
+          })
+          allAccounts.push(...items)
+          break
+        }
+        case 'glm': {
+          const items = list.map((acc) => {
+            const boundApiKeysCount = counts.glmAccountId?.[acc.id] || acc.boundApiKeysCount || 0
+            return { ...acc, platform: 'glm', boundApiKeysCount }
+          })
+          allAccounts.push(...items)
+          break
+        }
+        case 'kimi': {
+          const items = list.map((acc) => {
+            const boundApiKeysCount = counts.kimiAccountId?.[acc.id] || acc.boundApiKeysCount || 0
+            return { ...acc, platform: 'kimi', boundApiKeysCount }
           })
           allAccounts.push(...items)
           break
@@ -4067,7 +4147,9 @@ const getBoundApiKeysForAccount = (account) => {
       key.openaiAccountId === `responses:${accountId}` ||
       key.geminiAccountId === `api:${accountId}` ||
       key.accountBindings?.deepseek?.accountId === accountId ||
-      key.accountBindings?.minimax?.accountId === accountId
+      key.accountBindings?.minimax?.accountId === accountId ||
+      key.accountBindings?.glm?.accountId === accountId ||
+      key.accountBindings?.kimi?.accountId === accountId
     )
   })
 }
@@ -4098,6 +4180,10 @@ const resolveAccountDeleteEndpoint = (account) => {
       return `/admin/deepseek-accounts/${account.id}`
     case 'minimax':
       return `/admin/minimax-accounts/${account.id}`
+    case 'glm':
+      return `/admin/glm-accounts/${account.id}`
+    case 'kimi':
+      return `/admin/kimi-accounts/${account.id}`
     default:
       return null
   }
@@ -4244,6 +4330,8 @@ const RESET_STATUS_ENDPOINT_MAP = {
   droid: (id) => `/admin/droid-accounts/${id}/reset-status`,
   deepseek: (id) => `/admin/deepseek-accounts/${id}/reset-status`,
   minimax: (id) => `/admin/minimax-accounts/${id}/reset-status`,
+  glm: (id) => `/admin/glm-accounts/${id}/reset-status`,
+  kimi: (id) => `/admin/kimi-accounts/${id}/reset-status`,
   'gemini-api': (id) => `/admin/gemini-api-accounts/${id}/reset-status`,
   gemini: (id) => `/admin/gemini-accounts/${id}/reset-status`,
   bedrock: (id) => `/admin/bedrock-accounts/${id}/reset-status`,
@@ -4264,6 +4352,8 @@ const TOGGLE_SCHEDULABLE_ENDPOINT_MAP = {
   droid: (id) => `/admin/droid-accounts/${id}/toggle-schedulable`,
   deepseek: (id) => `/admin/deepseek-accounts/${id}/toggle-schedulable`,
   minimax: (id) => `/admin/minimax-accounts/${id}/toggle-schedulable`,
+  glm: (id) => `/admin/glm-accounts/${id}/toggle-schedulable`,
+  kimi: (id) => `/admin/kimi-accounts/${id}/toggle-schedulable`,
   'gemini-api': (id) => `/admin/gemini-api-accounts/${id}/toggle-schedulable`
 }
 
@@ -5318,6 +5408,12 @@ const handleSaveAccountExpiry = async ({ accountId, expiresAt }) => {
         break
       case 'minimax':
         endpoint = `/admin/minimax-accounts/${accountId}` // 使用 :id
+        break
+      case 'glm':
+        endpoint = `/admin/glm-accounts/${accountId}` // 使用 :id
+        break
+      case 'kimi':
+        endpoint = `/admin/kimi-accounts/${accountId}` // 使用 :id
         break
       case 'azure_openai':
         endpoint = `/admin/azure-openai-accounts/${accountId}` // 使用 :id

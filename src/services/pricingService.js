@@ -63,6 +63,24 @@ const MINIMAX_FALLBACK_USD_PER_MTOK = {
 }
 const usdPerMillionToUsdPerToken = (usdPerMillionTokens) => usdPerMillionTokens / 1_000_000
 
+const GLM_PRICING_SOURCE =
+  process.env.GLM_PRICING_URL || 'https://docs.z.ai/guides/overview/pricing'
+
+const KIMI_PRICING_SOURCE_K26 =
+  process.env.KIMI_PRICING_URL_K26 || 'https://platform.kimi.ai/docs/pricing/chat-k26'
+const KIMI_PRICING_SOURCE_K25 =
+  process.env.KIMI_PRICING_URL_K25 || 'https://platform.kimi.ai/docs/pricing/chat-k25'
+const KIMI_PRICING_SOURCE_MOONSHOT =
+  process.env.KIMI_PRICING_URL_MOONSHOT || 'https://platform.kimi.ai/docs/pricing/chat-v1'
+// Built-in fallback prices (USD per million tokens)
+const KIMI_FALLBACK_USD_PER_MTOK = {
+  k26: { cacheRead: 0.16, input: 0.95, output: 4.0, contextTokens: 262144, maxOutputTokens: 8192 },
+  k25: { cacheRead: 0.1, input: 0.6, output: 3.0, contextTokens: 262144, maxOutputTokens: 8192 },
+  moonshot8k: { input: 0.2, output: 2.0, contextTokens: 8192, maxOutputTokens: 4096 },
+  moonshot32k: { input: 1.0, output: 3.0, contextTokens: 32768, maxOutputTokens: 4096 },
+  moonshot128k: { input: 2.0, output: 5.0, contextTokens: 131072, maxOutputTokens: 4096 }
+}
+
 const stripHtmlTags = (html) => String(html || '').replace(/<[^>]*>/g, '')
 
 const decodeHtmlEntities = (value) =>
@@ -200,7 +218,7 @@ class PricingService {
       now = new Date(),
       maxInputTokens = MINIMAX_CONTEXT_TOKENS_DEFAULT,
       supportsReasoning = true,
-      pricingSource = 'minimax_builtin_fallback',
+      pricingSourceName = 'minimax_builtin_fallback',
       pricingCurrency = 'USD',
       inputUsdPerMillionAbove512k = null,
       outputUsdPerMillionAbove512k = null,
@@ -222,7 +240,7 @@ class PricingService {
       source,
       source_zh: MINIMAX_PRICING_SOURCE_ZH,
       pricing_currency: pricingCurrency,
-      pricing_source: pricingSource,
+      pricing_source: pricingSourceName,
       pricing_updated_at: refreshedAt,
       supported_endpoints: ['/v1/chat/completions', '/anthropic/v1/messages'],
       supports_function_calling: true,
@@ -330,6 +348,678 @@ class PricingService {
       'deepseek-chat': chatAlias,
       'deepseek-reasoner': reasonerAlias
     }
+  }
+
+  _createGlmPricingEntry(options) {
+    const {
+      inputUsdPerMillion,
+      outputUsdPerMillion,
+      cacheReadUsdPerMillion = 0,
+      source = GLM_PRICING_SOURCE,
+      now = new Date(),
+      pricingSourceName = 'glm_builtin_fallback',
+      baseEntry = {}
+    } = options
+
+    const maxInputTokens = Number(baseEntry.max_input_tokens) || 128000
+    const maxOutputTokens =
+      Number(baseEntry.max_output_tokens) || Number(baseEntry.max_tokens) || 4096
+
+    return {
+      input_cost_per_token: usdPerMillionToUsdPerToken(inputUsdPerMillion),
+      output_cost_per_token: usdPerMillionToUsdPerToken(outputUsdPerMillion),
+      cache_read_input_token_cost: usdPerMillionToUsdPerToken(cacheReadUsdPerMillion),
+      litellm_provider: 'glm',
+      max_input_tokens: maxInputTokens,
+      max_output_tokens: maxOutputTokens,
+      max_tokens: maxOutputTokens,
+      mode: 'chat',
+      source,
+      pricing_currency: 'USD',
+      pricing_source: pricingSourceName,
+      pricing_updated_at: new Date(now).toISOString(),
+      supported_endpoints: ['/v1/chat/completions'],
+      supports_function_calling: true
+    }
+  }
+
+  getGlmFallbackPricing(now = new Date()) {
+    const source = GLM_PRICING_SOURCE
+    return {
+      'glm-5.1': this._createGlmPricingEntry({
+        inputUsdPerMillion: 1.4,
+        cacheReadUsdPerMillion: 0.26,
+        outputUsdPerMillion: 4.4,
+        source,
+        now
+      }),
+      'glm-5-turbo': this._createGlmPricingEntry({
+        inputUsdPerMillion: 1.2,
+        cacheReadUsdPerMillion: 0.24,
+        outputUsdPerMillion: 4.0,
+        source,
+        now
+      }),
+      'glm-5': this._createGlmPricingEntry({
+        inputUsdPerMillion: 1.0,
+        cacheReadUsdPerMillion: 0.2,
+        outputUsdPerMillion: 3.2,
+        source,
+        now
+      }),
+      'glm-4.7-flashx': this._createGlmPricingEntry({
+        inputUsdPerMillion: 0.07,
+        cacheReadUsdPerMillion: 0.01,
+        outputUsdPerMillion: 0.4,
+        source,
+        now
+      }),
+      'glm-4.7-flash': this._createGlmPricingEntry({
+        inputUsdPerMillion: 0,
+        cacheReadUsdPerMillion: 0,
+        outputUsdPerMillion: 0,
+        source,
+        now
+      }),
+      'glm-4.7': this._createGlmPricingEntry({
+        inputUsdPerMillion: 0.6,
+        cacheReadUsdPerMillion: 0.11,
+        outputUsdPerMillion: 2.2,
+        source,
+        now
+      }),
+      'glm-4.6v-flashx': this._createGlmPricingEntry({
+        inputUsdPerMillion: 0.07,
+        cacheReadUsdPerMillion: 0.01,
+        outputUsdPerMillion: 0.4,
+        source,
+        now
+      }),
+      'glm-4.6v': this._createGlmPricingEntry({
+        inputUsdPerMillion: 0.6,
+        cacheReadUsdPerMillion: 0.11,
+        outputUsdPerMillion: 2.2,
+        source,
+        now
+      }),
+      'glm-4.6': this._createGlmPricingEntry({
+        inputUsdPerMillion: 0.6,
+        cacheReadUsdPerMillion: 0.11,
+        outputUsdPerMillion: 2.2,
+        source,
+        now
+      }),
+      'glm-4.5-flash': this._createGlmPricingEntry({
+        inputUsdPerMillion: 0,
+        cacheReadUsdPerMillion: 0,
+        outputUsdPerMillion: 0,
+        source,
+        now
+      }),
+      'glm-4.5-airx': this._createGlmPricingEntry({
+        inputUsdPerMillion: 1.1,
+        cacheReadUsdPerMillion: 0.22,
+        outputUsdPerMillion: 4.5,
+        source,
+        now
+      }),
+      'glm-4.5-air': this._createGlmPricingEntry({
+        inputUsdPerMillion: 0.2,
+        cacheReadUsdPerMillion: 0.03,
+        outputUsdPerMillion: 1.1,
+        source,
+        now
+      }),
+      'glm-4.5v': this._createGlmPricingEntry({
+        inputUsdPerMillion: 0.6,
+        cacheReadUsdPerMillion: 0.11,
+        outputUsdPerMillion: 2.2,
+        source,
+        now
+      }),
+      'glm-4.5-x': this._createGlmPricingEntry({
+        inputUsdPerMillion: 2.2,
+        cacheReadUsdPerMillion: 0.45,
+        outputUsdPerMillion: 8.9,
+        source,
+        now
+      }),
+      'glm-4.5': this._createGlmPricingEntry({
+        inputUsdPerMillion: 0.6,
+        cacheReadUsdPerMillion: 0.11,
+        outputUsdPerMillion: 2.2,
+        source,
+        now
+      }),
+      'glm-4-32b-0414-128k': this._createGlmPricingEntry({
+        inputUsdPerMillion: 0.1,
+        cacheReadUsdPerMillion: 0,
+        outputUsdPerMillion: 0.1,
+        source,
+        now
+      }),
+      'glm-4-flash': this._createGlmPricingEntry({
+        inputUsdPerMillion: 0,
+        outputUsdPerMillion: 0,
+        source,
+        now
+      }),
+      'glm-4-flash-250414': this._createGlmPricingEntry({
+        inputUsdPerMillion: 0,
+        outputUsdPerMillion: 0,
+        source,
+        now
+      }),
+      'glm-4-plus': this._createGlmPricingEntry({
+        inputUsdPerMillion: 7,
+        outputUsdPerMillion: 7,
+        source,
+        now
+      }),
+      'glm-4': this._createGlmPricingEntry({
+        inputUsdPerMillion: 14,
+        outputUsdPerMillion: 14,
+        source,
+        now
+      }),
+      'glm-4-long': this._createGlmPricingEntry({
+        inputUsdPerMillion: 1,
+        outputUsdPerMillion: 1,
+        source,
+        now
+      }),
+      'glm-4-air': this._createGlmPricingEntry({
+        inputUsdPerMillion: 1,
+        outputUsdPerMillion: 1,
+        source,
+        now
+      }),
+      'glm-4-airx': this._createGlmPricingEntry({
+        inputUsdPerMillion: 10,
+        outputUsdPerMillion: 10,
+        source,
+        now
+      }),
+      'glm-z1-flash': this._createGlmPricingEntry({
+        inputUsdPerMillion: 0,
+        outputUsdPerMillion: 0,
+        source,
+        now
+      }),
+      'glm-z1': this._createGlmPricingEntry({
+        inputUsdPerMillion: 20,
+        outputUsdPerMillion: 20,
+        source,
+        now
+      }),
+      'glm-z1-air': this._createGlmPricingEntry({
+        inputUsdPerMillion: 3.5,
+        outputUsdPerMillion: 3.5,
+        source,
+        now
+      }),
+      'glm-z1-airx': this._createGlmPricingEntry({
+        inputUsdPerMillion: 10,
+        outputUsdPerMillion: 10,
+        source,
+        now
+      })
+    }
+  }
+
+  _extractGlmPriceRow(html, modelLabel) {
+    const rows = [...String(html || '').matchAll(/<tr>([\s\S]*?)<\/tr>/gi)]
+
+    for (const [, rowHtml] of rows) {
+      const cells = [...rowHtml.matchAll(/<t[dh][^>]*>([\s\S]*?)<\/t[dh]>/gi)].map(
+        (match) => match[1]
+      )
+      if (cells.length < 3) {
+        continue
+      }
+
+      const labelCell = normalizeWhitespace(stripHtmlTags(cells[0]))
+      if (labelCell.toUpperCase() === String(modelLabel).toUpperCase()) {
+        return cells
+      }
+    }
+
+    return null
+  }
+
+  _parseGlmPriceCell(cellHtml) {
+    const text = normalizeWhitespace(stripHtmlTags(cellHtml))
+    if (!text) {
+      return null
+    }
+    if (/free/i.test(text)) {
+      return 0
+    }
+
+    const prices = extractUsdPrices(cellHtml)
+    if (prices.length > 0) {
+      return prices[0]
+    }
+
+    const match = text.match(/([0-9]+(?:\.[0-9]+)?)/)
+    return match ? Number(match[1]) : null
+  }
+
+  parseGlmPricingHtml(html, now = new Date()) {
+    const fallback = this.getGlmFallbackPricing(now)
+    const modelMappings = [
+      { label: 'GLM-5.1', key: 'glm-5.1' },
+      { label: 'GLM-5-Turbo', key: 'glm-5-turbo' },
+      { label: 'GLM-5', key: 'glm-5' },
+      { label: 'GLM-4.7-FlashX', key: 'glm-4.7-flashx' },
+      { label: 'GLM-4.7-Flash', key: 'glm-4.7-flash' },
+      { label: 'GLM-4.7', key: 'glm-4.7' },
+      { label: 'GLM-4.6V-FlashX', key: 'glm-4.6v-flashx' },
+      { label: 'GLM-4.6V', key: 'glm-4.6v' },
+      { label: 'GLM-4.6', key: 'glm-4.6' },
+      { label: 'GLM-4.5-Flash', key: 'glm-4.5-flash' },
+      { label: 'GLM-4.5-AirX', key: 'glm-4.5-airx' },
+      { label: 'GLM-4.5-Air', key: 'glm-4.5-air' },
+      { label: 'GLM-4.5V', key: 'glm-4.5v' },
+      { label: 'GLM-4.5-X', key: 'glm-4.5-x' },
+      { label: 'GLM-4.5', key: 'glm-4.5' },
+      { label: 'GLM-4-32B-0414-128K', key: 'glm-4-32b-0414-128k' }
+    ]
+
+    const pricing = { ...fallback }
+    let parsedCount = 0
+
+    for (const { label, key } of modelMappings) {
+      const cells = this._extractGlmPriceRow(html, label)
+      if (!cells) {
+        continue
+      }
+
+      const priceCells = cells.slice(1).map((cell) => this._parseGlmPriceCell(cell))
+      const input = priceCells[0]
+      const cacheRead = Number.isFinite(priceCells[1]) ? priceCells[1] : 0
+      const output = [...priceCells].reverse().find((price) => Number.isFinite(price))
+
+      if (!Number.isFinite(input) || !Number.isFinite(output)) {
+        throw new Error(`Invalid GLM pricing row for ${label}`)
+      }
+
+      pricing[key] = this._createGlmPricingEntry({
+        inputUsdPerMillion: input,
+        outputUsdPerMillion: output,
+        cacheReadUsdPerMillion: Number.isFinite(cacheRead) ? cacheRead : 0,
+        source: GLM_PRICING_SOURCE,
+        now,
+        pricingSourceName: 'glm_official_docs',
+        baseEntry: fallback[key]
+      })
+      parsedCount += 1
+    }
+
+    if (parsedCount === 0) {
+      throw new Error('GLM pricing table not found')
+    }
+
+    return pricing
+  }
+
+  async fetchGlmOfficialPricing(now = new Date()) {
+    const html = await this._downloadText(GLM_PRICING_SOURCE)
+    return this.parseGlmPricingHtml(html, now)
+  }
+
+  _isEquivalentGlmPricingEntry(current = {}, next = {}) {
+    const comparableFields = [
+      'cache_read_input_token_cost',
+      'input_cost_per_token',
+      'output_cost_per_token',
+      'pricing_source'
+    ]
+
+    return comparableFields.every((field) => current[field] === next[field])
+  }
+
+  _preserveGlmPricingUpdatedAt(currentPricingData = {}, nextPricingData = {}) {
+    const preserved = { ...nextPricingData }
+
+    for (const [modelName, nextEntry] of Object.entries(nextPricingData)) {
+      if (!String(modelName).toLowerCase().startsWith('glm-')) {
+        continue
+      }
+
+      const currentEntry = currentPricingData?.[modelName]
+      if (
+        currentEntry?.pricing_updated_at &&
+        this._isEquivalentGlmPricingEntry(currentEntry, nextEntry)
+      ) {
+        preserved[modelName] = {
+          ...nextEntry,
+          pricing_updated_at: currentEntry.pricing_updated_at
+        }
+      }
+    }
+
+    return preserved
+  }
+
+  getKimiFallbackPricing() {
+    const p = KIMI_FALLBACK_USD_PER_MTOK
+    const refreshedAt = new Date().toISOString()
+
+    const makeEntry = (
+      { input, output, cacheRead = 0, contextTokens, maxOutputTokens },
+      source
+    ) => ({
+      input_cost_per_token: usdPerMillionToUsdPerToken(input),
+      output_cost_per_token: usdPerMillionToUsdPerToken(output),
+      cache_read_input_token_cost: usdPerMillionToUsdPerToken(cacheRead),
+      litellm_provider: 'kimi',
+      max_input_tokens: contextTokens,
+      max_output_tokens: maxOutputTokens,
+      max_tokens: maxOutputTokens,
+      mode: 'chat',
+      source,
+      pricing_currency: 'USD',
+      pricing_source: 'kimi_builtin_fallback',
+      pricing_updated_at: refreshedAt,
+      supported_endpoints: ['/v1/chat/completions'],
+      supports_function_calling: true
+    })
+
+    const k26Entry = makeEntry(p.k26, KIMI_PRICING_SOURCE_K26)
+    const k25Entry = makeEntry(p.k25, KIMI_PRICING_SOURCE_K25)
+    const ms8k = makeEntry(p.moonshot8k, KIMI_PRICING_SOURCE_MOONSHOT)
+    const ms32k = makeEntry(p.moonshot32k, KIMI_PRICING_SOURCE_MOONSHOT)
+    const ms128k = makeEntry(p.moonshot128k, KIMI_PRICING_SOURCE_MOONSHOT)
+
+    return {
+      'kimi-k2.6': k26Entry,
+      'kimi-k2.5': k25Entry,
+      'moonshot-v1-8k': ms8k,
+      'moonshot-v1-32k': ms32k,
+      'moonshot-v1-128k': ms128k,
+      'moonshot-v1-8k-vision-preview': ms8k,
+      'moonshot-v1-32k-vision-preview': ms32k,
+      'moonshot-v1-128k-vision-preview': ms128k
+    }
+  }
+
+  _extractKimiPriceRow(html, modelId) {
+    const rows = [...String(html || '').matchAll(/<tr[^>]*>([\s\S]*?)<\/tr>/gi)]
+
+    for (const [, rowHtml] of rows) {
+      const cells = [...rowHtml.matchAll(/<t[dh][^>]*>([\s\S]*?)<\/t[dh]>/gi)].map(
+        (match) => match[1]
+      )
+      if (cells.length < 2) {
+        continue
+      }
+
+      const labelCell = normalizeWhitespace(stripHtmlTags(cells[0]))
+      if (labelCell.toLowerCase() === String(modelId).toLowerCase()) {
+        return cells
+      }
+    }
+
+    return null
+  }
+
+  _extractKimiPriceFromCell(cellHtml) {
+    const prices = extractUsdPrices(cellHtml)
+    if (prices.length > 0) {
+      return prices[0]
+    }
+
+    const sourcePriceMatch = String(cellHtml || '').match(/children:\s*\["\$",\s*"([0-9.]+)"\]/)
+    if (sourcePriceMatch) {
+      return Number(sourcePriceMatch[1])
+    }
+
+    const text = normalizeWhitespace(stripHtmlTags(cellHtml))
+    const match = text.match(/([0-9]+(?:\.[0-9]+)?)/)
+    return match ? Number(match[1]) : null
+  }
+
+  _extractKimiContextTokens(cellHtml, fallbackContextTokens) {
+    const text = normalizeWhitespace(stripHtmlTags(cellHtml))
+    const contextMatch = text.match(/([0-9][0-9,]*)\s*tokens/i)
+    return contextMatch ? Number(contextMatch[1].replace(/,/g, '')) : fallbackContextTokens
+  }
+
+  _extractKimiSourceRow(html, modelId) {
+    const source = String(html || '')
+    const startIndex = source.indexOf(String(modelId))
+
+    if (startIndex < 0) {
+      return null
+    }
+
+    return source.slice(startIndex, startIndex + 1200)
+  }
+
+  _parseKimiSourcePrices(rowSource, count) {
+    if (!rowSource) {
+      return []
+    }
+
+    return [
+      ...String(rowSource).matchAll(/children:\s*\[\\"\$\\",\s*\\"([0-9]+(?:\.[0-9]+)?)\\"\]/g)
+    ]
+      .slice(0, count)
+      .map((match) => Number(match[1]))
+  }
+
+  _buildKimiPricingEntry({
+    input,
+    output,
+    cacheRead = 0,
+    contextTokens,
+    maxOutputTokens,
+    source,
+    now
+  }) {
+    return {
+      input_cost_per_token: usdPerMillionToUsdPerToken(input),
+      output_cost_per_token: usdPerMillionToUsdPerToken(output),
+      cache_read_input_token_cost: usdPerMillionToUsdPerToken(cacheRead),
+      litellm_provider: 'kimi',
+      max_input_tokens: contextTokens,
+      max_output_tokens: maxOutputTokens,
+      max_tokens: maxOutputTokens,
+      mode: 'chat',
+      source,
+      pricing_currency: 'USD',
+      pricing_source: 'kimi_official_docs',
+      pricing_updated_at: new Date(now).toISOString(),
+      supported_endpoints: ['/v1/chat/completions'],
+      supports_function_calling: true
+    }
+  }
+
+  _parseKimiK2xPricingHtml(html, modelId, source, now = new Date()) {
+    const p = KIMI_FALLBACK_USD_PER_MTOK
+    const fallbackCtx = modelId === 'kimi-k2.6' ? p.k26 : p.k25
+    const { contextTokens: fallbackContextTokens, maxOutputTokens } = fallbackCtx
+    const rowSource = this._extractKimiSourceRow(html, modelId)
+
+    let cacheRead = null
+    let input = null
+    let output = null
+    let contextTokens = fallbackContextTokens
+
+    if (rowSource) {
+      const [parsedCacheRead, parsedInput, parsedOutput] = this._parseKimiSourcePrices(rowSource, 3)
+      cacheRead = parsedCacheRead
+      input = parsedInput
+      output = parsedOutput
+      contextTokens = this._extractKimiContextTokens(rowSource, fallbackCtx.contextTokens)
+    } else {
+      const cells = this._extractKimiPriceRow(html, modelId)
+      if (!cells || cells.length < 6) {
+        throw new Error(`Could not locate pricing row for ${modelId}`)
+      }
+      cacheRead = this._extractKimiPriceFromCell(cells[2])
+      input = this._extractKimiPriceFromCell(cells[3])
+      output = this._extractKimiPriceFromCell(cells[4])
+      contextTokens = this._extractKimiContextTokens(cells[5], fallbackCtx.contextTokens)
+    }
+
+    if (!Number.isFinite(cacheRead) || !Number.isFinite(input) || !Number.isFinite(output)) {
+      throw new Error(`Invalid prices for ${modelId}`)
+    }
+
+    return {
+      modelId,
+      entry: this._buildKimiPricingEntry({
+        input,
+        output,
+        cacheRead,
+        contextTokens,
+        maxOutputTokens,
+        source,
+        now
+      })
+    }
+  }
+
+  _parseKimiMoonshotPricingHtml(html, source, now = new Date()) {
+    const models = [
+      { id: 'moonshot-v1-8k', fallback: KIMI_FALLBACK_USD_PER_MTOK.moonshot8k },
+      { id: 'moonshot-v1-32k', fallback: KIMI_FALLBACK_USD_PER_MTOK.moonshot32k },
+      { id: 'moonshot-v1-128k', fallback: KIMI_FALLBACK_USD_PER_MTOK.moonshot128k },
+      {
+        id: 'moonshot-v1-8k-vision-preview',
+        fallback: KIMI_FALLBACK_USD_PER_MTOK.moonshot8k
+      },
+      {
+        id: 'moonshot-v1-32k-vision-preview',
+        fallback: KIMI_FALLBACK_USD_PER_MTOK.moonshot32k
+      },
+      {
+        id: 'moonshot-v1-128k-vision-preview',
+        fallback: KIMI_FALLBACK_USD_PER_MTOK.moonshot128k
+      }
+    ]
+
+    const result = {}
+
+    for (const { id, fallback } of models) {
+      const { contextTokens: fallbackContextTokens, maxOutputTokens } = fallback
+      const rowSource = this._extractKimiSourceRow(html, id)
+      let input = null
+      let output = null
+      let contextTokens = fallbackContextTokens
+
+      if (rowSource) {
+        const [parsedInput, parsedOutput] = this._parseKimiSourcePrices(rowSource, 2)
+        input = parsedInput
+        output = parsedOutput
+        contextTokens = this._extractKimiContextTokens(rowSource, fallback.contextTokens)
+      } else {
+        const cells = this._extractKimiPriceRow(html, id)
+        if (!cells || cells.length < 5) {
+          throw new Error(`Could not locate pricing row for ${id}`)
+        }
+        input = this._extractKimiPriceFromCell(cells[2])
+        output = this._extractKimiPriceFromCell(cells[3])
+        contextTokens = this._extractKimiContextTokens(cells[4], fallback.contextTokens)
+      }
+
+      if (!Number.isFinite(input) || !Number.isFinite(output)) {
+        throw new Error(`Invalid prices for ${id}`)
+      }
+
+      result[id] = this._buildKimiPricingEntry({
+        input,
+        output,
+        cacheRead: 0,
+        contextTokens,
+        maxOutputTokens,
+        source,
+        now
+      })
+    }
+
+    return result
+  }
+
+  // Fetch Kimi pricing from all 3 official pages in parallel.
+  // Any page that fails gracefully falls back to built-in prices for that model group.
+  async fetchKimiOfficialPricing() {
+    const fallback = this.getKimiFallbackPricing()
+
+    const [k26Result, k25Result, moonshotResult] = await Promise.allSettled([
+      this._downloadText(KIMI_PRICING_SOURCE_K26),
+      this._downloadText(KIMI_PRICING_SOURCE_K25),
+      this._downloadText(KIMI_PRICING_SOURCE_MOONSHOT)
+    ])
+
+    const pricing = {}
+
+    if (k26Result.status === 'fulfilled') {
+      try {
+        const { modelId, entry } = this._parseKimiK2xPricingHtml(
+          k26Result.value,
+          'kimi-k2.6',
+          KIMI_PRICING_SOURCE_K26
+        )
+        pricing[modelId] = entry
+        logger.success('Updated Kimi K2.6 pricing from official docs')
+      } catch (err) {
+        logger.warn(`⚠️  Failed to parse Kimi K2.6 pricing: ${err.message}`)
+        pricing['kimi-k2.6'] = fallback['kimi-k2.6']
+      }
+    } else {
+      logger.warn(`⚠️  Failed to fetch Kimi K2.6 pricing page: ${k26Result.reason?.message}`)
+      pricing['kimi-k2.6'] = fallback['kimi-k2.6']
+    }
+
+    if (k25Result.status === 'fulfilled') {
+      try {
+        const { modelId, entry } = this._parseKimiK2xPricingHtml(
+          k25Result.value,
+          'kimi-k2.5',
+          KIMI_PRICING_SOURCE_K25
+        )
+        pricing[modelId] = entry
+        logger.success('Updated Kimi K2.5 pricing from official docs')
+      } catch (err) {
+        logger.warn(`⚠️  Failed to parse Kimi K2.5 pricing: ${err.message}`)
+        pricing['kimi-k2.5'] = fallback['kimi-k2.5']
+      }
+    } else {
+      logger.warn(`⚠️  Failed to fetch Kimi K2.5 pricing page: ${k25Result.reason?.message}`)
+      pricing['kimi-k2.5'] = fallback['kimi-k2.5']
+    }
+
+    if (moonshotResult.status === 'fulfilled') {
+      try {
+        const moonshotPricing = this._parseKimiMoonshotPricingHtml(
+          moonshotResult.value,
+          KIMI_PRICING_SOURCE_MOONSHOT
+        )
+        Object.assign(pricing, moonshotPricing)
+        logger.success('Updated Kimi moonshot-v1 pricing from official docs')
+      } catch (err) {
+        logger.warn(`⚠️  Failed to parse Kimi moonshot-v1 pricing: ${err.message}`)
+        for (const key of Object.keys(fallback)) {
+          if (key.startsWith('moonshot-')) {
+            pricing[key] = fallback[key]
+          }
+        }
+      }
+    } else {
+      logger.warn(
+        `⚠️  Failed to fetch Kimi moonshot-v1 pricing page: ${moonshotResult.reason?.message}`
+      )
+      for (const key of Object.keys(fallback)) {
+        if (key.startsWith('moonshot-')) {
+          pricing[key] = fallback[key]
+        }
+      }
+    }
+
+    return pricing
   }
 
   getDeepSeekFallbackPricing(now = new Date()) {
@@ -727,6 +1417,77 @@ class PricingService {
     }
 
     return preserved
+  }
+
+  _hasCompleteGlmPricing(pricingData) {
+    return !!(
+      pricingData?.['glm-5.1'] ||
+      pricingData?.['glm-4.5'] ||
+      pricingData?.['glm-4-plus'] ||
+      pricingData?.['glm-4-flash']
+    )
+  }
+
+  async enrichPricingDataWithGlm(pricingData, options = {}) {
+    const enriched = { ...(pricingData || {}) }
+    let glmPricing = null
+
+    if (options.allowRemote === true) {
+      try {
+        glmPricing = await this.fetchGlmOfficialPricing(options.now || new Date())
+        logger.success('Updated GLM pricing from official docs')
+      } catch (error) {
+        logger.warn(`⚠️  Failed to update GLM pricing from official docs: ${error.message}`)
+      }
+    }
+
+    if (options.forceBuiltIn !== true && !glmPricing && this._hasCompleteGlmPricing(enriched)) {
+      logger.info('Keeping existing GLM pricing entries')
+      return enriched
+    }
+
+    if (!glmPricing) {
+      glmPricing = this.getGlmFallbackPricing(options.now || new Date())
+      logger.info('💰 Injecting built-in GLM pricing entries')
+    }
+
+    glmPricing = this._preserveGlmPricingUpdatedAt(enriched, glmPricing)
+
+    return { ...enriched, ...glmPricing }
+  }
+
+  _hasCompleteKimiPricing(pricingData) {
+    return !!(
+      pricingData?.['kimi-k2.6'] &&
+      pricingData?.['kimi-k2.5'] &&
+      pricingData?.['moonshot-v1-8k']
+    )
+  }
+
+  async enrichPricingDataWithKimi(pricingData, options = {}) {
+    const enriched = { ...(pricingData || {}) }
+    let kimiPricing = null
+
+    if (options.allowRemote === true) {
+      try {
+        kimiPricing = await this.fetchKimiOfficialPricing()
+        logger.success('Updated Kimi pricing from official docs')
+      } catch (error) {
+        logger.warn(`⚠️  Failed to update Kimi pricing from official docs: ${error.message}`)
+      }
+    }
+
+    if (options.forceBuiltIn !== true && !kimiPricing && this._hasCompleteKimiPricing(enriched)) {
+      logger.info('Keeping existing Kimi pricing entries')
+      return enriched
+    }
+
+    if (!kimiPricing) {
+      kimiPricing = this.getKimiFallbackPricing()
+      logger.info('💰 Injecting built-in Kimi pricing entries')
+    }
+
+    return { ...enriched, ...kimiPricing }
   }
 
   async enrichPricingDataWithMiniMax(pricingData, options = {}) {
@@ -1206,6 +1967,10 @@ class PricingService {
             enrichedData = await this.enrichPricingDataWithMiniMax(enrichedData, {
               allowRemote: false
             })
+            enrichedData = await this.enrichPricingDataWithGlm(enrichedData, {
+              allowRemote: true
+            })
+            enrichedData = await this.enrichPricingDataWithKimi(enrichedData, { allowRemote: true })
             const formattedJson = JSON.stringify(enrichedData, null, 2)
 
             // 保存合并后的价格文件；哈希仍记录主价格镜像原文，避免哈希轮询反复触发。
@@ -1250,6 +2015,8 @@ class PricingService {
         parsed = await this.enrichPricingDataWithMiniMax(parsed, {
           allowRemote: false
         })
+        parsed = await this.enrichPricingDataWithGlm(parsed, { allowRemote: false })
+        parsed = await this.enrichPricingDataWithKimi(parsed, { allowRemote: false })
         this.pricingData = parsed
 
         const stats = fs.statSync(this.pricingFile)
@@ -1281,6 +2048,14 @@ class PricingService {
           forceBuiltIn: true
         })
         jsonData = await this.enrichPricingDataWithMiniMax(jsonData, {
+          allowRemote: false,
+          forceBuiltIn: true
+        })
+        jsonData = await this.enrichPricingDataWithGlm(jsonData, {
+          allowRemote: false,
+          forceBuiltIn: true
+        })
+        jsonData = await this.enrichPricingDataWithKimi(jsonData, {
           allowRemote: false,
           forceBuiltIn: true
         })
@@ -1346,6 +2121,18 @@ class PricingService {
     if (minimaxFallback) {
       logger.info(`💰 Using built-in MiniMax pricing fallback for ${modelName}`)
       return minimaxFallback
+    }
+
+    const glmFallback = this.getGlmFallbackPricing()[modelName]
+    if (glmFallback) {
+      logger.info(`💰 Using built-in GLM pricing fallback for ${modelName}`)
+      return glmFallback
+    }
+
+    const kimiFallback = this.getKimiFallbackPricing()[modelName]
+    if (kimiFallback) {
+      logger.info(`💰 Using built-in Kimi pricing fallback for ${modelName}`)
+      return kimiFallback
     }
 
     // 对于Bedrock区域前缀模型（如 us.anthropic.claude-sonnet-4-20250514-v1:0），
@@ -1752,6 +2539,42 @@ class PricingService {
     }
   }
 
+  getGlmPricingStatus() {
+    const glmModels = this.pricingData
+      ? Object.keys(this.pricingData).filter((m) => m.startsWith('glm-'))
+      : []
+    const refPricing =
+      this.pricingData?.['glm-5.1'] ||
+      this.pricingData?.['glm-4.5'] ||
+      this.pricingData?.['glm-4-plus'] ||
+      this.getGlmFallbackPricing()['glm-4-plus']
+
+    return {
+      modelCount: glmModels.length,
+      source: refPricing.source || GLM_PRICING_SOURCE,
+      currency: refPricing.pricing_currency || 'USD',
+      updatedAt: refPricing.pricing_updated_at || null
+    }
+  }
+  getKimiPricingStatus() {
+    const kimiModels = this.pricingData
+      ? Object.keys(this.pricingData).filter(
+          (m) => m.startsWith('moonshot-') || m.startsWith('kimi-k2.')
+        )
+      : []
+    const refPricing =
+      this.pricingData?.['kimi-k2.6'] ||
+      this.pricingData?.['moonshot-v1-8k'] ||
+      this.getKimiFallbackPricing()['kimi-k2.6']
+
+    return {
+      modelCount: kimiModels.length,
+      source: refPricing.source || KIMI_PRICING_SOURCE_K26,
+      currency: refPricing.pricing_currency || 'USD',
+      updatedAt: refPricing.pricing_updated_at || null
+    }
+  }
+
   getDeepSeekPricingStatus() {
     const deepseekModels = this.pricingData
       ? Object.keys(this.pricingData).filter((modelName) => modelName.includes('deepseek'))
@@ -1782,7 +2605,9 @@ class PricingService {
       sources: {
         primary: pricingSource.pricingUrl,
         deepseek: this.getDeepSeekPricingStatus(),
-        minimax: this.getMiniMaxPricingStatus()
+        minimax: this.getMiniMaxPricingStatus(),
+        glm: this.getGlmPricingStatus(),
+        kimi: this.getKimiPricingStatus()
       }
     }
   }
@@ -1886,6 +2711,8 @@ class PricingService {
       jsonData = await this.enrichPricingDataWithMiniMax(jsonData, {
         allowRemote: false
       })
+      jsonData = await this.enrichPricingDataWithGlm(jsonData, { allowRemote: false })
+      jsonData = await this.enrichPricingDataWithKimi(jsonData, { allowRemote: false })
 
       // 验证数据结构
       if (typeof jsonData !== 'object' || Object.keys(jsonData).length === 0) {

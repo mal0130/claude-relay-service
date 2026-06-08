@@ -206,6 +206,20 @@ export const createMiniMaxAccountApi = (data) =>
 export const updateMiniMaxAccountApi = (id, data) =>
   request({ url: `/admin/minimax-accounts/${id}`, method: 'PUT', data })
 
+// GLM 账户
+export const getGlmAccountsApi = () => request({ url: '/admin/glm-accounts', method: 'GET' })
+export const createGlmAccountApi = (data) =>
+  request({ url: '/admin/glm-accounts', method: 'POST', data })
+export const updateGlmAccountApi = (id, data) =>
+  request({ url: `/admin/glm-accounts/${id}`, method: 'PUT', data })
+
+// Kimi 账户
+export const getKimiAccountsApi = () => request({ url: '/admin/kimi-accounts', method: 'GET' })
+export const createKimiAccountApi = (data) =>
+  request({ url: '/admin/kimi-accounts', method: 'POST', data })
+export const updateKimiAccountApi = (id, data) =>
+  request({ url: `/admin/kimi-accounts/${id}`, method: 'PUT', data })
+
 // Azure OpenAI 账户
 export const getAzureOpenAIAccountsApi = () =>
   request({ url: '/admin/azure-openai-accounts', method: 'GET' })

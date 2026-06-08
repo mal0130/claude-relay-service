@@ -27,6 +27,8 @@ const openaiRoutes = require('./routes/openaiRoutes')
 const droidRoutes = require('./routes/droidRoutes')
 const deepseekRoutes = require('./routes/deepseekRoutes')
 const minimaxRoutes = require('./routes/minimaxRoutes')
+const glmRoutes = require('./routes/glmRoutes')
+const kimiRoutes = require('./routes/kimiRoutes')
 const userRoutes = require('./routes/userRoutes')
 const azureOpenaiRoutes = require('./routes/azureOpenaiRoutes')
 const webhookRoutes = require('./routes/webhook')
@@ -372,6 +374,8 @@ class Application {
       this.app.use('/openai', openaiRoutes) // Codex API 路由（/openai/responses, /openai/v1/responses）
       this.app.use('/deepseek', deepseekRoutes) // DeepSeek OpenAI-compatible API
       this.app.use('/minimax', minimaxRoutes) // MiniMax OpenAI/Anthropic-compatible API
+      this.app.use('/glm', glmRoutes) // GLM (智谱AI) OpenAI-compatible API
+      this.app.use('/kimi', kimiRoutes) // Kimi (月之暗面) OpenAI-compatible API
       // Droid 路由：支持多种 Factory.ai 端点
       this.app.use('/droid', droidRoutes) // Droid (Factory.ai) API 转发
       this.app.use('/azure', azureOpenaiRoutes)

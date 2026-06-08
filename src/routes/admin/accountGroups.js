@@ -7,6 +7,8 @@ const openaiAccountService = require('../../services/account/openaiAccountServic
 const droidAccountService = require('../../services/account/droidAccountService')
 const deepseekAccountService = require('../../services/account/deepseekAccountService')
 const minimaxAccountService = require('../../services/account/minimaxAccountService')
+const glmAccountService = require('../../services/account/glmAccountService')
+const kimiAccountService = require('../../services/account/kimiAccountService')
 const { authenticateAdmin } = require('../../middleware/auth')
 const logger = require('../../utils/logger')
 
@@ -120,6 +122,12 @@ router.get('/:groupId/members', authenticateAdmin, async (req, res) => {
         case 'minimax':
           account = await minimaxAccountService.getAccount(memberId)
           break
+        case 'glm':
+          account = await glmAccountService.getAccount(memberId)
+          break
+        case 'kimi':
+          account = await kimiAccountService.getAccount(memberId)
+          break
         case 'claude':
         default:
           account = await claudeAccountService.getAccount(memberId)
@@ -150,6 +158,12 @@ router.get('/:groupId/members', authenticateAdmin, async (req, res) => {
       }
       if (!account && group.platform !== 'minimax') {
         account = await minimaxAccountService.getAccount(memberId)
+      }
+      if (!account && group.platform !== 'glm') {
+        account = await glmAccountService.getAccount(memberId)
+      }
+      if (!account && group.platform !== 'kimi') {
+        account = await kimiAccountService.getAccount(memberId)
       }
 
       if (account) {

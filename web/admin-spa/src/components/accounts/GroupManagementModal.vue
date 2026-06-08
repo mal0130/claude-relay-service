@@ -41,7 +41,11 @@
                         ? 'bg-[#3964fe]/10 text-[#3964fe] dark:bg-[#3964fe]/20 dark:text-[#6f8cff]'
                         : tab.key === 'minimax'
                           ? 'bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-300'
-                          : 'bg-gray-200 text-gray-700 dark:bg-gray-700 dark:text-gray-200'
+                          : tab.key === 'glm'
+                            ? 'bg-teal-100 text-teal-700 dark:bg-teal-900/30 dark:text-teal-300'
+                            : tab.key === 'kimi'
+                              ? 'bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-300'
+                              : 'bg-gray-200 text-gray-700 dark:bg-gray-700 dark:text-gray-200'
                 : 'bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-400 dark:hover:bg-gray-700'
             ]"
             @click="activeTab = tab.key"
@@ -251,6 +255,14 @@
                 <input v-model="createForm.platform" class="mr-2" type="radio" value="minimax" />
                 <span class="text-sm text-gray-700 dark:text-gray-300">MiniMax</span>
               </label>
+              <label class="flex cursor-pointer items-center">
+                <input v-model="createForm.platform" class="mr-2" type="radio" value="glm" />
+                <span class="text-sm text-gray-700 dark:text-gray-300">GLM（智谱AI）</span>
+              </label>
+              <label class="flex cursor-pointer items-center">
+                <input v-model="createForm.platform" class="mr-2" type="radio" value="kimi" />
+                <span class="text-sm text-gray-700 dark:text-gray-300">Kimi（月之暗面）</span>
+              </label>
             </div>
           </div>
 
@@ -317,7 +329,9 @@ const platformTabs = [
   { key: 'openai', label: 'OpenAI', color: 'gray' },
   { key: 'droid', label: 'Droid', color: 'cyan' },
   { key: 'deepseek', label: 'DeepSeek', color: 'blue' },
-  { key: 'minimax', label: 'MiniMax', color: 'rose' }
+  { key: 'minimax', label: 'MiniMax', color: 'rose' },
+  { key: 'glm', label: 'GLM', color: 'teal' },
+  { key: 'kimi', label: 'Kimi', color: 'violet' }
 ]
 
 const platformLabels = {
@@ -326,7 +340,9 @@ const platformLabels = {
   openai: 'OpenAI',
   droid: 'Droid',
   deepseek: 'DeepSeek',
-  minimax: 'MiniMax'
+  minimax: 'MiniMax',
+  glm: 'GLM',
+  kimi: 'Kimi'
 }
 
 const platformBadgeClasses = {
@@ -335,7 +351,9 @@ const platformBadgeClasses = {
   openai: 'bg-gray-100 text-gray-700',
   droid: 'bg-cyan-100 text-cyan-700',
   deepseek: 'bg-[#3964fe]/10 text-[#3964fe]',
-  minimax: 'bg-rose-100 text-rose-700'
+  minimax: 'bg-rose-100 text-rose-700',
+  glm: 'bg-teal-100 text-teal-700',
+  kimi: 'bg-violet-100 text-violet-700'
 }
 
 const getPlatformLabel = (platform) => platformLabels[platform] || platform

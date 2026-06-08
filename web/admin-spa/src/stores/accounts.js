@@ -17,7 +17,9 @@ const PLATFORM_CONFIG = {
   },
   droid: { endpoint: 'droid-accounts', stateKey: 'droidAccounts' },
   deepseek: { endpoint: 'deepseek-accounts', stateKey: 'deepseekAccounts' },
-  minimax: { endpoint: 'minimax-accounts', stateKey: 'minimaxAccounts' }
+  minimax: { endpoint: 'minimax-accounts', stateKey: 'minimaxAccounts' },
+  glm: { endpoint: 'glm-accounts', stateKey: 'glmAccounts' },
+  kimi: { endpoint: 'kimi-accounts', stateKey: 'kimiAccounts' }
 }
 
 export const useAccountsStore = defineStore('accounts', () => {
@@ -31,6 +33,8 @@ export const useAccountsStore = defineStore('accounts', () => {
   const droidAccounts = ref([])
   const deepseekAccounts = ref([])
   const minimaxAccounts = ref([])
+  const glmAccounts = ref([])
+  const kimiAccounts = ref([])
   const loading = ref(false)
   const error = ref(null)
   const sortBy = ref('')
@@ -70,6 +74,8 @@ export const useAccountsStore = defineStore('accounts', () => {
   const fetchDeepSeekAccounts = () =>
     fetchAccounts(httpApis.getDeepSeekAccountsApi, deepseekAccounts)
   const fetchMiniMaxAccounts = () => fetchAccounts(httpApis.getMiniMaxAccountsApi, minimaxAccounts)
+  const fetchGlmAccounts = () => fetchAccounts(httpApis.getGlmAccountsApi, glmAccounts)
+  const fetchKimiAccounts = () => fetchAccounts(httpApis.getKimiAccountsApi, kimiAccounts)
 
   const fetchAllAccounts = async () => {
     loading.value = true
@@ -83,7 +89,9 @@ export const useAccountsStore = defineStore('accounts', () => {
       fetchOpenAIResponsesAccounts(),
       fetchDroidAccounts(),
       fetchDeepSeekAccounts(),
-      fetchMiniMaxAccounts()
+      fetchMiniMaxAccounts(),
+      fetchGlmAccounts(),
+      fetchKimiAccounts()
     ])
     loading.value = false
   }
@@ -111,7 +119,10 @@ export const useAccountsStore = defineStore('accounts', () => {
     mutateAccount(httpApis.createDeepSeekAccountApi, fetchDeepSeekAccounts, data)
   const createMiniMaxAccount = (data) =>
     mutateAccount(httpApis.createMiniMaxAccountApi, fetchMiniMaxAccounts, data)
-
+  const createGlmAccount = (data) =>
+    mutateAccount(httpApis.createGlmAccountApi, fetchGlmAccounts, data)
+  const createKimiAccount = (data) =>
+    mutateAccount(httpApis.createKimiAccountApi, fetchKimiAccounts, data)
   // 更新账户
   const updateClaudeAccount = (id, data) =>
     mutateAccount(httpApis.updateClaudeAccountApi, fetchClaudeAccounts, id, data)
@@ -135,6 +146,10 @@ export const useAccountsStore = defineStore('accounts', () => {
     mutateAccount(httpApis.updateDeepSeekAccountApi, fetchDeepSeekAccounts, id, data)
   const updateMiniMaxAccount = (id, data) =>
     mutateAccount(httpApis.updateMiniMaxAccountApi, fetchMiniMaxAccounts, id, data)
+  const updateGlmAccount = (id, data) =>
+    mutateAccount(httpApis.updateGlmAccountApi, fetchGlmAccounts, id, data)
+  const updateKimiAccount = (id, data) =>
+    mutateAccount(httpApis.updateKimiAccountApi, fetchKimiAccounts, id, data)
 
   // 切换账户状态
   const toggleAccount = async (platform, id) => {
@@ -153,7 +168,9 @@ export const useAccountsStore = defineStore('accounts', () => {
         'openai-responses': fetchOpenAIResponsesAccounts,
         droid: fetchDroidAccounts,
         deepseek: fetchDeepSeekAccounts,
-        minimax: fetchMiniMaxAccounts
+        minimax: fetchMiniMaxAccounts,
+        glm: fetchGlmAccounts,
+        kimi: fetchKimiAccounts
       }
       await fetchMap[platform]()
     } else error.value = res.message
@@ -178,7 +195,9 @@ export const useAccountsStore = defineStore('accounts', () => {
         'openai-responses': fetchOpenAIResponsesAccounts,
         droid: fetchDroidAccounts,
         deepseek: fetchDeepSeekAccounts,
-        minimax: fetchMiniMaxAccounts
+        minimax: fetchMiniMaxAccounts,
+        glm: fetchGlmAccounts,
+        kimi: fetchKimiAccounts
       }
       await fetchMap[platform]()
     } else {
@@ -287,6 +306,8 @@ export const useAccountsStore = defineStore('accounts', () => {
     droidAccounts.value = []
     deepseekAccounts.value = []
     minimaxAccounts.value = []
+    glmAccounts.value = []
+    kimiAccounts.value = []
     loading.value = false
     error.value = null
     sortBy.value = ''
@@ -304,6 +325,8 @@ export const useAccountsStore = defineStore('accounts', () => {
     droidAccounts,
     deepseekAccounts,
     minimaxAccounts,
+    glmAccounts,
+    kimiAccounts,
     loading,
     error,
     sortBy,
@@ -318,6 +341,8 @@ export const useAccountsStore = defineStore('accounts', () => {
     fetchDroidAccounts,
     fetchDeepSeekAccounts,
     fetchMiniMaxAccounts,
+    fetchGlmAccounts,
+    fetchKimiAccounts,
     fetchAllAccounts,
     createClaudeAccount,
     createClaudeConsoleAccount,
@@ -331,6 +356,8 @@ export const useAccountsStore = defineStore('accounts', () => {
     createGeminiApiAccount,
     createDeepSeekAccount,
     createMiniMaxAccount,
+    createGlmAccount,
+    createKimiAccount,
     updateClaudeAccount,
     updateClaudeConsoleAccount,
     updateBedrockAccount,
@@ -341,6 +368,8 @@ export const useAccountsStore = defineStore('accounts', () => {
     updateGeminiApiAccount,
     updateDeepSeekAccount,
     updateMiniMaxAccount,
+    updateGlmAccount,
+    updateKimiAccount,
     toggleAccount,
     deleteAccount,
     refreshClaudeToken,

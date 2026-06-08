@@ -785,6 +785,26 @@
                 />
                 <span class="text-sm text-gray-700 dark:text-gray-300">MiniMax</span>
               </label>
+              <label class="flex cursor-pointer items-center">
+                <input
+                  v-model="form.permissions"
+                  class="mr-2 rounded text-blue-600 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-700"
+                  type="checkbox"
+                  value="glm"
+                  @change="updatePermissions"
+                />
+                <span class="text-sm text-gray-700 dark:text-gray-300">GLM（智谱AI）</span>
+              </label>
+              <label class="flex cursor-pointer items-center">
+                <input
+                  v-model="form.permissions"
+                  class="mr-2 rounded text-blue-600 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-700"
+                  type="checkbox"
+                  value="kimi"
+                  @change="updatePermissions"
+                />
+                <span class="text-sm text-gray-700 dark:text-gray-300">Kimi（月之暗面）</span>
+              </label>
             </div>
             <p class="mt-2 text-xs text-gray-500 dark:text-gray-400">
               不选择任何服务表示允许访问全部服务
@@ -910,6 +930,34 @@
                   :groups="localAccounts.minimaxGroups"
                   placeholder="请选择MiniMax账号"
                   platform="minimax"
+                />
+              </div>
+              <div>
+                <label class="mb-1 block text-sm font-medium text-gray-600 dark:text-gray-400"
+                  >GLM 专属账号</label
+                >
+                <AccountSelector
+                  v-model="form.glmAccountId"
+                  :accounts="localAccounts.glm"
+                  default-option-text="使用共享账号池"
+                  :disabled="form.permissions.length > 0 && !form.permissions.includes('glm')"
+                  :groups="localAccounts.glmGroups"
+                  placeholder="请选择GLM账号"
+                  platform="glm"
+                />
+              </div>
+              <div>
+                <label class="mb-1 block text-sm font-medium text-gray-600 dark:text-gray-400"
+                  >Kimi 专属账号</label
+                >
+                <AccountSelector
+                  v-model="form.kimiAccountId"
+                  :accounts="localAccounts.kimi"
+                  default-option-text="使用共享账号池"
+                  :disabled="form.permissions.length > 0 && !form.permissions.includes('kimi')"
+                  :groups="localAccounts.kimiGroups"
+                  placeholder="请选择Kimi账号"
+                  platform="kimi"
                 />
               </div>
             </div>
@@ -1112,7 +1160,11 @@ const props = defineProps({
       openaiGroups: [],
       droidGroups: [],
       deepseekGroups: [],
-      minimaxGroups: []
+      minimaxGroups: [],
+      glm: [],
+      kimi: [],
+      glmGroups: [],
+      kimiGroups: []
     })
   }
 })
@@ -1152,12 +1204,16 @@ const localAccounts = ref({
   droid: [],
   deepseek: [],
   minimax: [],
+  glm: [],
+  kimi: [],
   claudeGroups: [],
   geminiGroups: [],
   openaiGroups: [],
   droidGroups: [],
   deepseekGroups: [],
-  minimaxGroups: []
+  minimaxGroups: [],
+  glmGroups: [],
+  kimiGroups: []
 })
 
 // 表单验证状态
@@ -1186,6 +1242,8 @@ const availableServices = [
   { key: 'droid', label: 'Droid' },
   { key: 'deepseek', label: 'DeepSeek' },
   { key: 'minimax', label: 'MiniMax' },
+  { key: 'glm', label: 'GLM' },
+  { key: 'kimi', label: 'Kimi' },
   { key: 'bedrock', label: 'Bedrock' },
   { key: 'azure', label: 'Azure' },
   { key: 'ccr', label: 'CCR' }
@@ -1219,6 +1277,8 @@ const form = reactive({
   droidAccountId: '',
   deepseekAccountId: '',
   minimaxAccountId: '',
+  glmAccountId: '',
+  kimiAccountId: '',
   enableModelRestriction: false,
   restrictedModels: [],
   modelInput: '',
@@ -1303,7 +1363,17 @@ onMounted(async () => {
       openaiGroups: props.accounts.openaiGroups || [],
       droidGroups: props.accounts.droidGroups || [],
       deepseekGroups: props.accounts.deepseekGroups || [],
-      minimaxGroups: props.accounts.minimaxGroups || []
+      minimaxGroups: props.accounts.minimaxGroups || [],
+      glm: (props.accounts.glm || []).map((account) => ({
+        ...account,
+        platform: account.platform || 'glm'
+      })),
+      kimi: (props.accounts.kimi || []).map((account) => ({
+        ...account,
+        platform: account.platform || 'kimi'
+      })),
+      glmGroups: props.accounts.glmGroups || [],
+      kimiGroups: props.accounts.kimiGroups || []
     }
   }
 
@@ -1325,6 +1395,8 @@ const refreshAccounts = async () => {
       droidData,
       deepseekData,
       minimaxData,
+      glmData,
+      kimiData,
       groupsData
     ] = await Promise.all([
       httpApis.getClaudeAccountsApi(),
@@ -1337,6 +1409,8 @@ const refreshAccounts = async () => {
       httpApis.getDroidAccountsApi(),
       httpApis.getDeepSeekAccountsApi(),
       httpApis.getMiniMaxAccountsApi(),
+      httpApis.getGlmAccountsApi(),
+      httpApis.getKimiAccountsApi(),
       httpApis.getAccountGroupsApi()
     ])
 
@@ -1446,6 +1520,22 @@ const refreshAccounts = async () => {
       }))
     }
 
+    if (glmData.success) {
+      localAccounts.value.glm = (glmData.data || []).map((account) => ({
+        ...account,
+        platform: 'glm',
+        isDedicated: account.accountType === 'dedicated'
+      }))
+    }
+
+    if (kimiData.success) {
+      localAccounts.value.kimi = (kimiData.data || []).map((account) => ({
+        ...account,
+        platform: 'kimi',
+        isDedicated: account.accountType === 'dedicated'
+      }))
+    }
+
     // 处理分组数据
     if (groupsData.success) {
       const allGroups = groupsData.data || []
@@ -1455,6 +1545,8 @@ const refreshAccounts = async () => {
       localAccounts.value.droidGroups = allGroups.filter((g) => g.platform === 'droid')
       localAccounts.value.deepseekGroups = allGroups.filter((g) => g.platform === 'deepseek')
       localAccounts.value.minimaxGroups = allGroups.filter((g) => g.platform === 'minimax')
+      localAccounts.value.glmGroups = allGroups.filter((g) => g.platform === 'glm')
+      localAccounts.value.kimiGroups = allGroups.filter((g) => g.platform === 'kimi')
     }
 
     showToast('账号列表已刷新', 'success')
@@ -1743,6 +1835,18 @@ const createApiKey = async () => {
       baseData.accountBindings = {
         ...(baseData.accountBindings || {}),
         minimax: { mode: 'shared', accountId: form.minimaxAccountId }
+      }
+    }
+    if (form.glmAccountId) {
+      baseData.accountBindings = {
+        ...(baseData.accountBindings || {}),
+        glm: { mode: 'shared', accountId: form.glmAccountId }
+      }
+    }
+    if (form.kimiAccountId) {
+      baseData.accountBindings = {
+        ...(baseData.accountBindings || {}),
+        kimi: { mode: 'shared', accountId: form.kimiAccountId }
       }
     }
 

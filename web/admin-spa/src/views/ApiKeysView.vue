@@ -597,6 +597,36 @@
                                 {{ getMiniMaxBindingInfo(key) }}
                               </span>
                             </div>
+                            <!-- GLM 绑定 -->
+                            <div
+                              v-if="getGlmAccountId(key)"
+                              class="flex items-center gap-1 text-xs"
+                            >
+                              <span
+                                class="inline-flex items-center rounded bg-teal-100 px-1.5 py-0.5 text-teal-700 dark:bg-teal-900/30 dark:text-teal-300"
+                              >
+                                <i class="fas fa-layer-group mr-1 text-[10px]" />
+                                GLM
+                              </span>
+                              <span class="truncate text-gray-600 dark:text-gray-400">
+                                {{ getGlmBindingInfo(key) }}
+                              </span>
+                            </div>
+                            <!-- Kimi 绑定 -->
+                            <div
+                              v-if="getKimiAccountId(key)"
+                              class="flex items-center gap-1 text-xs"
+                            >
+                              <span
+                                class="inline-flex items-center rounded bg-violet-100 px-1.5 py-0.5 text-violet-700 dark:bg-violet-900/30 dark:text-violet-300"
+                              >
+                                <i class="fas fa-layer-group mr-1 text-[10px]" />
+                                Kimi
+                              </span>
+                              <span class="truncate text-gray-600 dark:text-gray-400">
+                                {{ getKimiBindingInfo(key) }}
+                              </span>
+                            </div>
                             <!-- 共享池 -->
                             <div
                               v-if="
@@ -607,7 +637,9 @@
                                 !key.bedrockAccountId &&
                                 !key.droidAccountId &&
                                 !getDeepSeekAccountId(key) &&
-                                !getMiniMaxAccountId(key)
+                                !getMiniMaxAccountId(key) &&
+                                !getGlmAccountId(key) &&
+                                !getKimiAccountId(key)
                               "
                               class="text-xs text-gray-500 dark:text-gray-400"
                             >
@@ -1398,6 +1430,30 @@
                     {{ getMiniMaxBindingInfo(key) }}
                   </span>
                 </div>
+                <!-- GLM 绑定 -->
+                <div v-if="getGlmAccountId(key)" class="flex flex-wrap items-center gap-1 text-xs">
+                  <span
+                    class="inline-flex items-center rounded bg-teal-100 px-2 py-0.5 text-teal-700 dark:bg-teal-900/30 dark:text-teal-300"
+                  >
+                    <i class="fas fa-layer-group mr-1" />
+                    GLM
+                  </span>
+                  <span class="text-gray-600 dark:text-gray-400">
+                    {{ getGlmBindingInfo(key) }}
+                  </span>
+                </div>
+                <!-- Kimi 绑定 -->
+                <div v-if="getKimiAccountId(key)" class="flex flex-wrap items-center gap-1 text-xs">
+                  <span
+                    class="inline-flex items-center rounded bg-violet-100 px-2 py-0.5 text-violet-700 dark:bg-violet-900/30 dark:text-violet-300"
+                  >
+                    <i class="fas fa-layer-group mr-1" />
+                    Kimi
+                  </span>
+                  <span class="text-gray-600 dark:text-gray-400">
+                    {{ getKimiBindingInfo(key) }}
+                  </span>
+                </div>
                 <!-- 无绑定时显示共享池 -->
                 <div
                   v-if="
@@ -1408,7 +1464,9 @@
                     !key.bedrockAccountId &&
                     !key.droidAccountId &&
                     !getDeepSeekAccountId(key) &&
-                    !getMiniMaxAccountId(key)
+                    !getMiniMaxAccountId(key) &&
+                    !getGlmAccountId(key) &&
+                    !getKimiAccountId(key)
                   "
                   class="text-xs text-gray-500 dark:text-gray-400"
                 >
@@ -1926,6 +1984,36 @@
                               {{ getMiniMaxBindingInfo(key) }}
                             </span>
                           </div>
+                          <!-- GLM 绑定 -->
+                          <div
+                            v-else-if="getGlmAccountId(key)"
+                            class="flex items-center gap-1 text-xs"
+                          >
+                            <span
+                              class="inline-flex items-center rounded bg-teal-100 px-1.5 py-0.5 text-teal-700 dark:bg-teal-900/30 dark:text-teal-300"
+                            >
+                              <i class="fas fa-layer-group mr-1 text-[10px]" />
+                              GLM
+                            </span>
+                            <span class="truncate text-gray-600 dark:text-gray-400">
+                              {{ getGlmBindingInfo(key) }}
+                            </span>
+                          </div>
+                          <!-- Kimi 绑定 -->
+                          <div
+                            v-else-if="getKimiAccountId(key)"
+                            class="flex items-center gap-1 text-xs"
+                          >
+                            <span
+                              class="inline-flex items-center rounded bg-violet-100 px-1.5 py-0.5 text-violet-700 dark:bg-violet-900/30 dark:text-violet-300"
+                            >
+                              <i class="fas fa-layer-group mr-1 text-[10px]" />
+                              Kimi
+                            </span>
+                            <span class="truncate text-gray-600 dark:text-gray-400">
+                              {{ getKimiBindingInfo(key) }}
+                            </span>
+                          </div>
                           <!-- 共享池 -->
                           <div v-else class="text-xs text-gray-500 dark:text-gray-400">
                             <i class="fas fa-share-alt mr-1" />
@@ -2301,7 +2389,11 @@ const accounts = ref({
   openaiGroups: [],
   droidGroups: [],
   deepseekGroups: [],
-  minimaxGroups: []
+  minimaxGroups: [],
+  glm: [],
+  kimi: [],
+  glmGroups: [],
+  kimiGroups: []
 })
 // 账号数据加载状态
 const accountsLoading = ref(false)
@@ -2504,6 +2596,8 @@ const loadAccounts = async (forceRefresh = false) => {
       droidData,
       deepseekData,
       minimaxData,
+      glmData,
+      kimiData,
       groupsData
     ] = await Promise.all([
       httpApis.getClaudeAccountsApi(),
@@ -2516,6 +2610,8 @@ const loadAccounts = async (forceRefresh = false) => {
       httpApis.getDroidAccountsApi(),
       httpApis.getDeepSeekAccountsApi(),
       httpApis.getMiniMaxAccountsApi(),
+      httpApis.getGlmAccountsApi(),
+      httpApis.getKimiAccountsApi(),
       httpApis.getAccountGroupsApi()
     ])
 
@@ -2617,6 +2713,22 @@ const loadAccounts = async (forceRefresh = false) => {
       }))
     }
 
+    if (glmData.success) {
+      accounts.value.glm = (glmData.data || []).map((account) => ({
+        ...account,
+        platform: 'glm',
+        isDedicated: account.accountType === 'dedicated'
+      }))
+    }
+
+    if (kimiData.success) {
+      accounts.value.kimi = (kimiData.data || []).map((account) => ({
+        ...account,
+        platform: 'kimi',
+        isDedicated: account.accountType === 'dedicated'
+      }))
+    }
+
     if (groupsData.success) {
       // 处理分组数据
       const allGroups = groupsData.data || []
@@ -2626,6 +2738,8 @@ const loadAccounts = async (forceRefresh = false) => {
       accounts.value.droidGroups = allGroups.filter((g) => g.platform === 'droid')
       accounts.value.deepseekGroups = allGroups.filter((g) => g.platform === 'deepseek')
       accounts.value.minimaxGroups = allGroups.filter((g) => g.platform === 'minimax')
+      accounts.value.glmGroups = allGroups.filter((g) => g.platform === 'glm')
+      accounts.value.kimiGroups = allGroups.filter((g) => g.platform === 'kimi')
     }
 
     // 标记账号数据已加载
@@ -3118,6 +3232,11 @@ const getDeepSeekAccountId = (key) =>
 const getMiniMaxAccountId = (key) =>
   normalizeAccountBindings(key?.accountBindings).minimax?.accountId || ''
 
+const getGlmAccountId = (key) => normalizeAccountBindings(key?.accountBindings).glm?.accountId || ''
+
+const getKimiAccountId = (key) =>
+  normalizeAccountBindings(key?.accountBindings).kimi?.accountId || ''
+
 // 获取绑定账户名称
 const getBoundAccountName = (accountId) => {
   if (!accountId) return '未知账户'
@@ -3157,6 +3276,16 @@ const getBoundAccountName = (accountId) => {
     const minimaxGroup = accounts.value.minimaxGroups.find((g) => g.id === groupId)
     if (minimaxGroup) {
       return `分组-${minimaxGroup.name}`
+    }
+
+    const glmGroup = accounts.value.glmGroups.find((g) => g.id === groupId)
+    if (glmGroup) {
+      return `分组-${glmGroup.name}`
+    }
+
+    const kimiGroup = accounts.value.kimiGroups.find((g) => g.id === groupId)
+    if (kimiGroup) {
+      return `分组-${kimiGroup.name}`
     }
 
     // 如果找不到分组，返回分组ID的前8位
@@ -3232,6 +3361,16 @@ const getBoundAccountName = (accountId) => {
   const minimaxAccount = accounts.value.minimax.find((acc) => acc.id === accountId)
   if (minimaxAccount) {
     return `${minimaxAccount.name}`
+  }
+
+  const glmAccount = accounts.value.glm.find((acc) => acc.id === accountId)
+  if (glmAccount) {
+    return `${glmAccount.name}`
+  }
+
+  const kimiAccount = accounts.value.kimi.find((acc) => acc.id === accountId)
+  if (kimiAccount) {
+    return `${kimiAccount.name}`
   }
 
   // 如果找不到，返回账户ID的前8位
@@ -3416,6 +3555,48 @@ const getMiniMaxBindingInfo = (key) => {
   }
 
   const account = accounts.value.minimax.find((acc) => acc.id === accountId)
+  if (!account) {
+    return `⚠️ ${info} (账户不存在)`
+  }
+  if (account.accountType === 'dedicated') {
+    return `🔒 专属-${info}`
+  }
+  return info
+}
+
+const getGlmBindingInfo = (key) => {
+  const accountId = getGlmAccountId(key)
+  if (!accountId) {
+    return ''
+  }
+
+  const info = getBoundAccountName(accountId)
+  if (accountId.startsWith('group:')) {
+    return info
+  }
+
+  const account = accounts.value.glm.find((acc) => acc.id === accountId)
+  if (!account) {
+    return `⚠️ ${info} (账户不存在)`
+  }
+  if (account.accountType === 'dedicated') {
+    return `🔒 专属-${info}`
+  }
+  return info
+}
+
+const getKimiBindingInfo = (key) => {
+  const accountId = getKimiAccountId(key)
+  if (!accountId) {
+    return ''
+  }
+
+  const info = getBoundAccountName(accountId)
+  if (accountId.startsWith('group:')) {
+    return info
+  }
+
+  const account = accounts.value.kimi.find((acc) => acc.id === accountId)
   if (!account) {
     return `⚠️ ${info} (账户不存在)`
   }

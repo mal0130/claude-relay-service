@@ -273,6 +273,68 @@
                       <p class="text-xs text-gray-600 dark:text-gray-400">国产模型</p>
                     </div>
                   </div>
+
+                  <!-- GLM 分组 -->
+                  <div
+                    class="group relative cursor-pointer overflow-hidden rounded-lg border-2 transition-all duration-200"
+                    :class="[
+                      platformGroup === 'glm'
+                        ? 'border-teal-500 bg-gradient-to-br from-teal-50 to-cyan-50 shadow-md dark:from-teal-900/20 dark:to-cyan-900/20'
+                        : 'border-gray-200 bg-white hover:border-teal-300 hover:shadow dark:border-gray-700 dark:bg-gray-800 dark:hover:border-teal-600'
+                    ]"
+                    @click="selectPlatformGroup('glm')"
+                  >
+                    <div class="p-3">
+                      <div class="flex items-center justify-between">
+                        <div
+                          class="flex h-8 w-8 items-center justify-center rounded-md bg-teal-100 dark:bg-teal-900/30"
+                        >
+                          <i class="fas fa-brain text-sm text-teal-600 dark:text-teal-400"></i>
+                        </div>
+                        <div
+                          v-if="platformGroup === 'glm'"
+                          class="flex h-5 w-5 items-center justify-center rounded-full bg-teal-500"
+                        >
+                          <i class="fas fa-check text-xs text-white"></i>
+                        </div>
+                      </div>
+                      <h4 class="mt-2 text-sm font-semibold text-gray-900 dark:text-gray-100">
+                        GLM
+                      </h4>
+                      <p class="text-xs text-gray-600 dark:text-gray-400">智谱AI</p>
+                    </div>
+                  </div>
+
+                  <!-- Kimi 分组 -->
+                  <div
+                    class="group relative cursor-pointer overflow-hidden rounded-lg border-2 transition-all duration-200"
+                    :class="[
+                      platformGroup === 'kimi'
+                        ? 'border-violet-500 bg-gradient-to-br from-violet-50 to-purple-50 shadow-md dark:from-violet-900/20 dark:to-purple-900/20'
+                        : 'border-gray-200 bg-white hover:border-violet-300 hover:shadow dark:border-gray-700 dark:bg-gray-800 dark:hover:border-violet-600'
+                    ]"
+                    @click="selectPlatformGroup('kimi')"
+                  >
+                    <div class="p-3">
+                      <div class="flex items-center justify-between">
+                        <div
+                          class="flex h-8 w-8 items-center justify-center rounded-md bg-violet-100 dark:bg-violet-900/30"
+                        >
+                          <i class="fas fa-moon text-sm text-violet-600 dark:text-violet-400"></i>
+                        </div>
+                        <div
+                          v-if="platformGroup === 'kimi'"
+                          class="flex h-5 w-5 items-center justify-center rounded-full bg-violet-500"
+                        >
+                          <i class="fas fa-check text-xs text-white"></i>
+                        </div>
+                      </div>
+                      <h4 class="mt-2 text-sm font-semibold text-gray-900 dark:text-gray-100">
+                        Kimi
+                      </h4>
+                      <p class="text-xs text-gray-600 dark:text-gray-400">月之暗面</p>
+                    </div>
+                  </div>
                 </div>
 
                 <!-- 子平台选择器 -->
@@ -712,6 +774,64 @@
                         </div>
                       </label>
                     </template>
+
+                    <!-- GLM 子选项 -->
+                    <template v-if="platformGroup === 'glm'">
+                      <label
+                        class="group relative flex cursor-pointer items-center rounded-md border p-2 transition-all"
+                        :class="[
+                          form.platform === 'glm'
+                            ? 'border-teal-500 bg-teal-50 dark:border-teal-400 dark:bg-teal-900/30'
+                            : 'border-gray-300 bg-white hover:border-teal-400 hover:bg-teal-50/50 dark:border-gray-600 dark:bg-gray-700 dark:hover:border-teal-500 dark:hover:bg-teal-900/20'
+                        ]"
+                      >
+                        <input v-model="form.platform" class="sr-only" type="radio" value="glm" />
+                        <div class="flex items-center gap-2">
+                          <i class="fas fa-brain text-sm text-teal-600 dark:text-teal-400"></i>
+                          <div>
+                            <span class="block text-xs font-medium text-gray-900 dark:text-gray-100"
+                              >GLM API</span
+                            >
+                            <span class="text-xs text-gray-500 dark:text-gray-400">标准 API</span>
+                          </div>
+                        </div>
+                        <div
+                          v-if="form.platform === 'glm'"
+                          class="absolute right-1 top-1 flex h-4 w-4 items-center justify-center rounded-full bg-teal-500"
+                        >
+                          <i class="fas fa-check text-xs text-white"></i>
+                        </div>
+                      </label>
+                    </template>
+
+                    <!-- Kimi 子选项 -->
+                    <template v-if="platformGroup === 'kimi'">
+                      <label
+                        class="group relative flex cursor-pointer items-center rounded-md border p-2 transition-all"
+                        :class="[
+                          form.platform === 'kimi'
+                            ? 'border-violet-500 bg-violet-50 dark:border-violet-400 dark:bg-violet-900/30'
+                            : 'border-gray-300 bg-white hover:border-violet-400 hover:bg-violet-50/50 dark:border-gray-600 dark:bg-gray-700 dark:hover:border-violet-500 dark:hover:bg-violet-900/20'
+                        ]"
+                      >
+                        <input v-model="form.platform" class="sr-only" type="radio" value="kimi" />
+                        <div class="flex items-center gap-2">
+                          <i class="fas fa-moon text-sm text-violet-600 dark:text-violet-400"></i>
+                          <div>
+                            <span class="block text-xs font-medium text-gray-900 dark:text-gray-100"
+                              >Kimi API</span
+                            >
+                            <span class="text-xs text-gray-500 dark:text-gray-400">标准 API</span>
+                          </div>
+                        </div>
+                        <div
+                          v-if="form.platform === 'kimi'"
+                          class="absolute right-1 top-1 flex h-4 w-4 items-center justify-center rounded-full bg-violet-500"
+                        >
+                          <i class="fas fa-check text-xs text-white"></i>
+                        </div>
+                      </label>
+                    </template>
                   </div>
                 </div>
               </div>
@@ -727,7 +847,9 @@
                 form.platform !== 'openai-responses' &&
                 form.platform !== 'gemini-api' &&
                 form.platform !== 'deepseek' &&
-                form.platform !== 'minimax'
+                form.platform !== 'minimax' &&
+                form.platform !== 'glm' &&
+                form.platform !== 'kimi'
               "
             >
               <label class="mb-3 block text-sm font-semibold text-gray-700 dark:text-gray-300"
@@ -1950,6 +2072,104 @@
                     class="form-input w-full border-gray-300 pr-10 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200 dark:placeholder-gray-400"
                     :class="{ 'border-red-500 dark:border-red-400': errors.apiKey }"
                     placeholder="请输入 MiniMax API 密钥"
+                    required
+                    :type="showApiKey ? 'text' : 'password'"
+                  />
+                  <button
+                    class="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:text-gray-500 dark:hover:text-gray-400"
+                    type="button"
+                    @click="showApiKey = !showApiKey"
+                  >
+                    <i :class="showApiKey ? 'fas fa-eye-slash' : 'fas fa-eye'" />
+                  </button>
+                </div>
+                <p v-if="errors.apiKey" class="mt-1 text-xs text-red-500">
+                  {{ errors.apiKey }}
+                </p>
+              </div>
+
+              <input v-model.number="form.rateLimitDuration" type="hidden" value="60" />
+            </div>
+
+            <!-- GLM API 配置 -->
+            <div v-if="form.platform === 'glm' && !isEdit" class="space-y-4">
+              <div>
+                <label class="mb-3 block text-sm font-semibold text-gray-700 dark:text-gray-300"
+                  >API 基础地址</label
+                >
+                <input
+                  v-model="form.baseApi"
+                  class="form-input w-full border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200 dark:placeholder-gray-400"
+                  placeholder="https://open.bigmodel.cn/api/paas/v4"
+                  type="url"
+                />
+                <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                  可填写官方或兼容服务商的基础地址，留空使用默认地址。
+                </p>
+                <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                  客户端使用中转地址 <code>/glm/v1</code>，此处只填写上游服务商地址。
+                </p>
+              </div>
+
+              <div>
+                <label class="mb-3 block text-sm font-semibold text-gray-700 dark:text-gray-300"
+                  >API 密钥 *</label
+                >
+                <div class="relative">
+                  <input
+                    v-model="form.apiKey"
+                    class="form-input w-full border-gray-300 pr-10 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200 dark:placeholder-gray-400"
+                    :class="{ 'border-red-500 dark:border-red-400': errors.apiKey }"
+                    placeholder="请输入 GLM API 密钥"
+                    required
+                    :type="showApiKey ? 'text' : 'password'"
+                  />
+                  <button
+                    class="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:text-gray-500 dark:hover:text-gray-400"
+                    type="button"
+                    @click="showApiKey = !showApiKey"
+                  >
+                    <i :class="showApiKey ? 'fas fa-eye-slash' : 'fas fa-eye'" />
+                  </button>
+                </div>
+                <p v-if="errors.apiKey" class="mt-1 text-xs text-red-500">
+                  {{ errors.apiKey }}
+                </p>
+              </div>
+
+              <input v-model.number="form.rateLimitDuration" type="hidden" value="60" />
+            </div>
+
+            <!-- Kimi API 配置 -->
+            <div v-if="form.platform === 'kimi' && !isEdit" class="space-y-4">
+              <div>
+                <label class="mb-3 block text-sm font-semibold text-gray-700 dark:text-gray-300"
+                  >API 基础地址</label
+                >
+                <input
+                  v-model="form.baseApi"
+                  class="form-input w-full border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200 dark:placeholder-gray-400"
+                  placeholder="https://api.moonshot.cn"
+                  type="url"
+                />
+                <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                  可填写官方或兼容服务商的基础地址，留空使用默认地址。
+                </p>
+                <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                  客户端使用中转地址 <code>/kimi/v1</code>，此处只填写上游服务商地址。
+                </p>
+              </div>
+
+              <div>
+                <label class="mb-3 block text-sm font-semibold text-gray-700 dark:text-gray-300"
+                  >API 密钥 *</label
+                >
+                <div class="relative">
+                  <input
+                    v-model="form.apiKey"
+                    class="form-input w-full border-gray-300 pr-10 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200 dark:placeholder-gray-400"
+                    :class="{ 'border-red-500 dark:border-red-400': errors.apiKey }"
+                    placeholder="请输入 Kimi API 密钥"
                     required
                     :type="showApiKey ? 'text' : 'password'"
                   />
@@ -3939,6 +4159,138 @@
             </div>
           </div>
 
+          <!-- GLM 特定字段（编辑模式）-->
+          <div v-if="form.platform === 'glm'" class="space-y-4">
+            <div>
+              <label class="mb-3 block text-sm font-semibold text-gray-700 dark:text-gray-300"
+                >API 基础地址</label
+              >
+              <input
+                v-model="form.baseApi"
+                class="form-input w-full border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200"
+                placeholder="https://open.bigmodel.cn/api/paas/v4"
+                type="url"
+              />
+              <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                客户端使用中转地址 <code>/glm/v1</code>，此处只填写上游服务商地址。
+              </p>
+            </div>
+
+            <div>
+              <label class="mb-3 block text-sm font-semibold text-gray-700 dark:text-gray-300"
+                >API 密钥</label
+              >
+              <div class="relative">
+                <input
+                  v-model="form.apiKey"
+                  class="form-input w-full border-gray-300 pr-10 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200"
+                  placeholder="留空表示不更新"
+                  :type="showApiKey ? 'text' : 'password'"
+                />
+                <button
+                  class="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                  type="button"
+                  @click="showApiKey = !showApiKey"
+                >
+                  <i :class="showApiKey ? 'fas fa-eye-slash' : 'fas fa-eye'" />
+                </button>
+              </div>
+              <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">留空表示不更新 API Key</p>
+            </div>
+
+            <div class="grid grid-cols-2 gap-4">
+              <div>
+                <label class="mb-3 block text-sm font-semibold text-gray-700 dark:text-gray-300">
+                  每日额度限制 ($)
+                </label>
+                <input
+                  v-model.number="form.dailyQuota"
+                  class="form-input w-full border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200"
+                  min="0"
+                  placeholder="0 表示不限制"
+                  step="0.01"
+                  type="number"
+                />
+              </div>
+              <div>
+                <label class="mb-3 block text-sm font-semibold text-gray-700 dark:text-gray-300">
+                  额度重置时间
+                </label>
+                <input
+                  v-model="form.quotaResetTime"
+                  class="form-input w-full border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200"
+                  type="time"
+                />
+              </div>
+            </div>
+          </div>
+
+          <!-- Kimi 特定字段（编辑模式）-->
+          <div v-if="form.platform === 'kimi'" class="space-y-4">
+            <div>
+              <label class="mb-3 block text-sm font-semibold text-gray-700 dark:text-gray-300"
+                >API 基础地址</label
+              >
+              <input
+                v-model="form.baseApi"
+                class="form-input w-full border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200"
+                placeholder="https://api.moonshot.cn"
+                type="url"
+              />
+              <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                客户端使用中转地址 <code>/kimi/v1</code>，此处只填写上游服务商地址。
+              </p>
+            </div>
+
+            <div>
+              <label class="mb-3 block text-sm font-semibold text-gray-700 dark:text-gray-300"
+                >API 密钥</label
+              >
+              <div class="relative">
+                <input
+                  v-model="form.apiKey"
+                  class="form-input w-full border-gray-300 pr-10 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200"
+                  placeholder="留空表示不更新"
+                  :type="showApiKey ? 'text' : 'password'"
+                />
+                <button
+                  class="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                  type="button"
+                  @click="showApiKey = !showApiKey"
+                >
+                  <i :class="showApiKey ? 'fas fa-eye-slash' : 'fas fa-eye'" />
+                </button>
+              </div>
+              <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">留空表示不更新 API Key</p>
+            </div>
+
+            <div class="grid grid-cols-2 gap-4">
+              <div>
+                <label class="mb-3 block text-sm font-semibold text-gray-700 dark:text-gray-300">
+                  每日额度限制 ($)
+                </label>
+                <input
+                  v-model.number="form.dailyQuota"
+                  class="form-input w-full border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200"
+                  min="0"
+                  placeholder="0 表示不限制"
+                  step="0.01"
+                  type="number"
+                />
+              </div>
+              <div>
+                <label class="mb-3 block text-sm font-semibold text-gray-700 dark:text-gray-300">
+                  额度重置时间
+                </label>
+                <input
+                  v-model="form.quotaResetTime"
+                  class="form-input w-full border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200"
+                  type="time"
+                />
+              </div>
+            </div>
+          </div>
+
           <!-- Gemini API 特定字段（编辑模式）-->
           <div v-if="form.platform === 'gemini-api'" class="space-y-4">
             <div>
@@ -4512,7 +4864,9 @@ const autoProtectionPlatforms = [
   'openai',
   'openai-responses',
   'deepseek',
-  'minimax'
+  'minimax',
+  'glm',
+  'kimi'
 ]
 
 // OAuthFlow 组件引用
@@ -4573,6 +4927,10 @@ const determinePlatformGroup = (platform) => {
     return 'deepseek'
   } else if (platform === 'minimax') {
     return 'minimax'
+  } else if (platform === 'glm') {
+    return 'glm'
+  } else if (platform === 'kimi') {
+    return 'kimi'
   }
   return ''
 }
@@ -4725,7 +5083,13 @@ const form = ref({
   platform: props.account?.platform || 'claude',
   addType: (() => {
     const platform = props.account?.platform || 'claude'
-    if (platform === 'deepseek' || platform === 'minimax') return 'apikey'
+    if (
+      platform === 'deepseek' ||
+      platform === 'minimax' ||
+      platform === 'glm' ||
+      platform === 'kimi'
+    )
+      return 'apikey'
     if (platform === 'gemini' || platform === 'gemini-antigravity' || platform === 'openai')
       return 'oauth'
     if (platform === 'claude') return 'oauth'
@@ -5707,6 +6071,11 @@ const createAccount = async () => {
       errors.value.apiKey = '请填写 API 密钥'
       hasError = true
     }
+  } else if (form.value.platform === 'glm' || form.value.platform === 'kimi') {
+    if (!form.value.apiKey || form.value.apiKey.trim() === '') {
+      errors.value.apiKey = '请填写 API 密钥'
+      hasError = true
+    }
   } else if (form.value.platform === 'bedrock') {
     // Bedrock 验证 - 根据凭证类型进行不同验证
     if (form.value.credentialType === 'access_key') {
@@ -5792,6 +6161,11 @@ const createAccount = async () => {
         hasError = true
       }
     } else if (form.value.platform === 'minimax') {
+      if (!form.value.apiKey || form.value.apiKey.trim() === '') {
+        errors.value.apiKey = '请填写 API 密钥'
+        hasError = true
+      }
+    } else if (form.value.platform === 'glm' || form.value.platform === 'kimi') {
       if (!form.value.apiKey || form.value.apiKey.trim() === '') {
         errors.value.apiKey = '请填写 API 密钥'
         hasError = true
@@ -5994,6 +6368,20 @@ const createAccount = async () => {
       data.rateLimitDuration = form.value.rateLimitDuration || 60
       data.dailyQuota = form.value.dailyQuota || 0
       data.quotaResetTime = form.value.quotaResetTime || '00:00'
+    } else if (form.value.platform === 'glm') {
+      data.baseApi = form.value.baseApi
+      data.apiKey = form.value.apiKey
+      data.priority = form.value.priority || 50
+      data.rateLimitDuration = form.value.rateLimitDuration || 60
+      data.dailyQuota = form.value.dailyQuota || 0
+      data.quotaResetTime = form.value.quotaResetTime || '00:00'
+    } else if (form.value.platform === 'kimi') {
+      data.baseApi = form.value.baseApi
+      data.apiKey = form.value.apiKey
+      data.priority = form.value.priority || 50
+      data.rateLimitDuration = form.value.rateLimitDuration || 60
+      data.dailyQuota = form.value.dailyQuota || 0
+      data.quotaResetTime = form.value.quotaResetTime || '00:00'
     } else if (form.value.platform === 'gemini-antigravity') {
       // Antigravity OAuth - set oauthProvider, submission happens below
       data.oauthProvider = 'antigravity'
@@ -6061,6 +6449,10 @@ const createAccount = async () => {
       result = await accountsStore.createDeepSeekAccount(data)
     } else if (form.value.platform === 'minimax') {
       result = await accountsStore.createMiniMaxAccount(data)
+    } else if (form.value.platform === 'glm') {
+      result = await accountsStore.createGlmAccount(data)
+    } else if (form.value.platform === 'kimi') {
+      result = await accountsStore.createKimiAccount(data)
     } else if (form.value.platform === 'bedrock') {
       result = await accountsStore.createBedrockAccount(data)
     } else if (form.value.platform === 'openai') {
@@ -6380,6 +6772,28 @@ const updateAccount = async () => {
       data.quotaResetTime = form.value.quotaResetTime || '00:00'
     }
 
+    if (props.account.platform === 'glm') {
+      data.baseApi = form.value.baseApi
+      if (form.value.apiKey && form.value.apiKey.trim()) {
+        data.apiKey = form.value.apiKey
+      }
+      data.priority = form.value.priority || 50
+      data.rateLimitDuration = form.value.rateLimitDuration || 60
+      data.dailyQuota = form.value.dailyQuota || 0
+      data.quotaResetTime = form.value.quotaResetTime || '00:00'
+    }
+
+    if (props.account.platform === 'kimi') {
+      data.baseApi = form.value.baseApi
+      if (form.value.apiKey && form.value.apiKey.trim()) {
+        data.apiKey = form.value.apiKey
+      }
+      data.priority = form.value.priority || 50
+      data.rateLimitDuration = form.value.rateLimitDuration || 60
+      data.dailyQuota = form.value.dailyQuota || 0
+      data.quotaResetTime = form.value.quotaResetTime || '00:00'
+    }
+
     // Bedrock 特定更新
     if (props.account.platform === 'bedrock') {
       // 更新凭证类型
@@ -6463,6 +6877,10 @@ const updateAccount = async () => {
       await accountsStore.updateDeepSeekAccount(props.account.id, data)
     } else if (props.account.platform === 'minimax') {
       await accountsStore.updateMiniMaxAccount(props.account.id, data)
+    } else if (props.account.platform === 'glm') {
+      await accountsStore.updateGlmAccount(props.account.id, data)
+    } else if (props.account.platform === 'kimi') {
+      await accountsStore.updateKimiAccount(props.account.id, data)
     } else if (props.account.platform === 'bedrock') {
       await accountsStore.updateBedrockAccount(props.account.id, data)
     } else if (props.account.platform === 'openai') {
@@ -6920,7 +7338,11 @@ watch(
           ? newAccount.authenticationMethod.trim().toLowerCase()
           : ''
       const derivedAddType =
-        newAccount.platform === 'deepseek' || normalizedAuthMethod === 'api_key'
+        newAccount.platform === 'deepseek' ||
+        newAccount.platform === 'minimax' ||
+        newAccount.platform === 'glm' ||
+        newAccount.platform === 'kimi' ||
+        normalizedAuthMethod === 'api_key'
           ? 'apikey'
           : normalizedAuthMethod === 'manual'
             ? 'manual'

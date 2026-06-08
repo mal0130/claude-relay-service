@@ -2,7 +2,16 @@ const { v4: uuidv4 } = require('uuid')
 const logger = require('../utils/logger')
 const redis = require('../models/redis')
 
-const VALID_GROUP_PLATFORMS = ['claude', 'gemini', 'openai', 'droid', 'deepseek', 'minimax']
+const VALID_GROUP_PLATFORMS = [
+  'claude',
+  'gemini',
+  'openai',
+  'droid',
+  'deepseek',
+  'minimax',
+  'glm',
+  'kimi'
+]
 
 function parseAccountBindings(accountBindings) {
   if (!accountBindings) {
@@ -408,7 +417,9 @@ class AccountGroupService {
           keyData.openaiAccountId === groupKey ||
           keyData.droidAccountId === groupKey ||
           accountBindings.deepseek?.accountId === groupKey ||
-          accountBindings.minimax?.accountId === groupKey
+          accountBindings.minimax?.accountId === groupKey ||
+          accountBindings.glm?.accountId === groupKey ||
+          accountBindings.kimi?.accountId === groupKey
 
         if (usesGroup) {
           boundApiKeys.push({

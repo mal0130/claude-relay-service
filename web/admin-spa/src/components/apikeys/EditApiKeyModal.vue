@@ -621,6 +621,26 @@
                 />
                 <span class="text-sm text-gray-700 dark:text-gray-300">MiniMax</span>
               </label>
+              <label class="flex cursor-pointer items-center">
+                <input
+                  v-model="form.permissions"
+                  class="mr-2 rounded text-blue-600 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-700"
+                  type="checkbox"
+                  value="glm"
+                  @change="updatePermissions"
+                />
+                <span class="text-sm text-gray-700 dark:text-gray-300">GLM（智谱AI）</span>
+              </label>
+              <label class="flex cursor-pointer items-center">
+                <input
+                  v-model="form.permissions"
+                  class="mr-2 rounded text-blue-600 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-700"
+                  type="checkbox"
+                  value="kimi"
+                  @change="updatePermissions"
+                />
+                <span class="text-sm text-gray-700 dark:text-gray-300">Kimi（月之暗面）</span>
+              </label>
             </div>
             <p class="mt-2 text-xs text-gray-500 dark:text-gray-400">
               不选择任何服务表示允许访问全部服务
@@ -954,6 +974,34 @@
                   platform="minimax"
                 />
               </div>
+              <div>
+                <label class="mb-1 block text-sm font-medium text-gray-600 dark:text-gray-400"
+                  >GLM 专属账号</label
+                >
+                <AccountSelector
+                  v-model="form.glmAccountId"
+                  :accounts="localAccounts.glm"
+                  default-option-text="使用共享账号池"
+                  :disabled="form.permissions.length > 0 && !form.permissions.includes('glm')"
+                  :groups="localAccounts.glmGroups"
+                  placeholder="请选择GLM账号"
+                  platform="glm"
+                />
+              </div>
+              <div>
+                <label class="mb-1 block text-sm font-medium text-gray-600 dark:text-gray-400"
+                  >Kimi 专属账号</label
+                >
+                <AccountSelector
+                  v-model="form.kimiAccountId"
+                  :accounts="localAccounts.kimi"
+                  default-option-text="使用共享账号池"
+                  :disabled="form.permissions.length > 0 && !form.permissions.includes('kimi')"
+                  :groups="localAccounts.kimiGroups"
+                  placeholder="请选择Kimi账号"
+                  platform="kimi"
+                />
+              </div>
             </div>
             <p class="mt-2 text-xs text-gray-500 dark:text-gray-400">
               修改绑定账号将影响此API Key的请求路由
@@ -1158,12 +1206,16 @@ const props = defineProps({
       droid: [],
       deepseek: [],
       minimax: [],
+      glm: [],
+      kimi: [],
       claudeGroups: [],
       geminiGroups: [],
       openaiGroups: [],
       droidGroups: [],
       deepseekGroups: [],
       minimaxGroups: [],
+      glmGroups: [],
+      kimiGroups: [],
       openaiResponses: []
     })
   }
@@ -1205,12 +1257,16 @@ const localAccounts = ref({
   droid: [],
   deepseek: [],
   minimax: [],
+  glm: [],
+  kimi: [],
   claudeGroups: [],
   geminiGroups: [],
   openaiGroups: [],
   droidGroups: [],
   deepseekGroups: [],
-  minimaxGroups: []
+  minimaxGroups: [],
+  glmGroups: [],
+  kimiGroups: []
 })
 
 // 支持的客户端列表
@@ -1237,6 +1293,8 @@ const availableServices = [
   { key: 'droid', label: 'Droid' },
   { key: 'deepseek', label: 'DeepSeek' },
   { key: 'minimax', label: 'MiniMax' },
+  { key: 'glm', label: 'GLM' },
+  { key: 'kimi', label: 'Kimi' },
   { key: 'bedrock', label: 'Bedrock' },
   { key: 'azure', label: 'Azure' },
   { key: 'ccr', label: 'CCR' }
@@ -1275,6 +1333,8 @@ const form = reactive({
   droidAccountId: '',
   deepseekAccountId: '',
   minimaxAccountId: '',
+  glmAccountId: '',
+  kimiAccountId: '',
   enableModelRestriction: false,
   restrictedModels: [],
   modelInput: '',
@@ -1603,6 +1663,20 @@ const updateApiKey = async () => {
       }
       data.accountBindings = accountBindings
     }
+    if (form.glmAccountId || accountBindings.glm) {
+      accountBindings.glm = {
+        mode: 'shared',
+        accountId: form.glmAccountId || ''
+      }
+      data.accountBindings = accountBindings
+    }
+    if (form.kimiAccountId || accountBindings.kimi) {
+      accountBindings.kimi = {
+        mode: 'shared',
+        accountId: form.kimiAccountId || ''
+      }
+      data.accountBindings = accountBindings
+    }
 
     // 模型限制 - 始终提交这些字段
     data.enableModelRestriction = form.enableModelRestriction
@@ -1655,6 +1729,8 @@ const refreshAccounts = async () => {
       droidData,
       deepseekData,
       minimaxData,
+      glmData,
+      kimiData,
       groupsData
     ] = await Promise.all([
       httpApis.getClaudeAccountsApi(),
@@ -1667,6 +1743,8 @@ const refreshAccounts = async () => {
       httpApis.getDroidAccountsApi(),
       httpApis.getDeepSeekAccountsApi(),
       httpApis.getMiniMaxAccountsApi(),
+      httpApis.getGlmAccountsApi(),
+      httpApis.getKimiAccountsApi(),
       httpApis.getAccountGroupsApi()
     ])
 
@@ -1776,6 +1854,22 @@ const refreshAccounts = async () => {
       }))
     }
 
+    if (glmData.success) {
+      localAccounts.value.glm = (glmData.data || []).map((account) => ({
+        ...account,
+        platform: 'glm',
+        isDedicated: account.accountType === 'dedicated'
+      }))
+    }
+
+    if (kimiData.success) {
+      localAccounts.value.kimi = (kimiData.data || []).map((account) => ({
+        ...account,
+        platform: 'kimi',
+        isDedicated: account.accountType === 'dedicated'
+      }))
+    }
+
     // 处理分组数据
     if (groupsData.success) {
       const allGroups = groupsData.data || []
@@ -1785,6 +1879,8 @@ const refreshAccounts = async () => {
       localAccounts.value.droidGroups = allGroups.filter((g) => g.platform === 'droid')
       localAccounts.value.deepseekGroups = allGroups.filter((g) => g.platform === 'deepseek')
       localAccounts.value.minimaxGroups = allGroups.filter((g) => g.platform === 'minimax')
+      localAccounts.value.glmGroups = allGroups.filter((g) => g.platform === 'glm')
+      localAccounts.value.kimiGroups = allGroups.filter((g) => g.platform === 'kimi')
     }
 
     showToast('账号列表已刷新', 'success')
@@ -1885,7 +1981,17 @@ onMounted(async () => {
       openaiGroups: props.accounts.openaiGroups || [],
       droidGroups: props.accounts.droidGroups || [],
       deepseekGroups: props.accounts.deepseekGroups || [],
-      minimaxGroups: props.accounts.minimaxGroups || []
+      minimaxGroups: props.accounts.minimaxGroups || [],
+      glm: (props.accounts.glm || []).map((account) => ({
+        ...account,
+        platform: account.platform || 'glm'
+      })),
+      kimi: (props.accounts.kimi || []).map((account) => ({
+        ...account,
+        platform: account.platform || 'kimi'
+      })),
+      glmGroups: props.accounts.glmGroups || [],
+      kimiGroups: props.accounts.kimiGroups || []
     }
   }
 
@@ -1923,7 +2029,7 @@ onMounted(async () => {
   form.weeklyResetHour = props.apiKey.weeklyResetHour || 0
   // 处理权限数据，兼容旧格式（字符串）和新格式（数组）
   // 有效的权限值
-  const VALID_PERMS = ['claude', 'gemini', 'openai', 'droid', 'deepseek', 'minimax']
+  const VALID_PERMS = ['claude', 'gemini', 'openai', 'droid', 'deepseek', 'minimax', 'glm', 'kimi']
   let perms = props.apiKey.permissions
   // 如果是字符串，尝试 JSON.parse（Redis 可能返回 "[]" 或 "[\"gemini\"]"）
   if (typeof perms === 'string') {
@@ -1970,6 +2076,8 @@ onMounted(async () => {
     normalizeAccountBindings(props.apiKey.accountBindings).deepseek?.accountId || ''
   form.minimaxAccountId =
     normalizeAccountBindings(props.apiKey.accountBindings).minimax?.accountId || ''
+  form.glmAccountId = normalizeAccountBindings(props.apiKey.accountBindings).glm?.accountId || ''
+  form.kimiAccountId = normalizeAccountBindings(props.apiKey.accountBindings).kimi?.accountId || ''
   form.restrictedModels = props.apiKey.restrictedModels || []
   form.allowedClients = props.apiKey.allowedClients || []
   form.tags = props.apiKey.tags || []
