@@ -94,13 +94,19 @@ function normalizeMiniMaxModel(model) {
 }
 
 function normalizeMiniMaxUsage(usage = {}) {
+  const cacheReadTokens = Number(
+    usage.cache_read_input_tokens ||
+      usage.prompt_cache_hit_tokens ||
+      usage.prompt_tokens_details?.cached_tokens ||
+      0
+  )
+  const totalInputTokens = Number(usage.prompt_tokens || usage.input_tokens || 0)
   return {
-    input_tokens: Number(usage.prompt_tokens || usage.input_tokens || 0),
+    input_tokens:
+      cacheReadTokens > 0 ? Math.max(0, totalInputTokens - cacheReadTokens) : totalInputTokens,
     output_tokens: Number(usage.completion_tokens || usage.output_tokens || 0),
     cache_creation_input_tokens: Number(usage.cache_creation_input_tokens || 0),
-    cache_read_input_tokens: Number(
-      usage.cache_read_input_tokens || usage.prompt_cache_hit_tokens || 0
-    )
+    cache_read_input_tokens: cacheReadTokens
   }
 }
 

@@ -21,8 +21,6 @@ const {
   buildAnthropicMessagesUrl,
   normalizeMiniMaxUsage,
   normalizeMiniMaxAnthropicUsage,
-  isMiniMaxModel,
-  normalizeMiniMaxModel,
   MINIMAX_DEFAULT_MODEL
 } = require('../minimaxPlatform')
 
@@ -623,8 +621,7 @@ class MiniMaxRelayService {
   }
 
   _normalizeRequestModel(model) {
-    const normalized = normalizeMiniMaxModel(model || MINIMAX_DEFAULT_MODEL)
-    return isMiniMaxModel(normalized) ? normalized : MINIMAX_DEFAULT_MODEL
+    return model || MINIMAX_DEFAULT_MODEL
   }
 
   _isModelRestricted(apiKeyData, model) {
