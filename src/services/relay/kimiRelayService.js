@@ -3,7 +3,7 @@ const crypto = require('crypto')
 const ProxyHelper = require('../../utils/proxyHelper')
 const logger = require('../../utils/logger')
 const config = require('../../../config/config')
-const { filterForOpenAI } = require('../../utils/headerFilter')
+const { filterForClaude, filterForOpenAI } = require('../../utils/headerFilter')
 const { IncrementalSSEParser } = require('../../utils/sseParser')
 const { updateRateLimitCounters } = require('../../utils/rateLimitHelper')
 const {
@@ -18,7 +18,9 @@ const unifiedKimiScheduler = require('../scheduler/unifiedKimiScheduler')
 const upstreamErrorHelper = require('../../utils/upstreamErrorHelper')
 const {
   buildChatCompletionsUrl,
+  buildAnthropicMessagesUrl,
   normalizeKimiUsage,
+  normalizeKimiAnthropicUsage,
   isKimiModel,
   normalizeKimiModel,
   KIMI_DEFAULT_MODEL
@@ -149,7 +151,141 @@ class KimiRelayService {
   _buildRequestBody(body) {
     const normalized = { ...body }
     normalized.model = this._normalizeRequestModel(normalized.model)
+
+    if (normalized.stream === true) {
+      normalized.stream_options = {
+        ...(normalized.stream_options || {}),
+        include_usage: true
+      }
+    }
+
     return normalized
+  }
+
+  _buildAnthropicRequestBody(body) {
+    const normalized = { ...body }
+    normalized.model = this._normalizeRequestModel(normalized.model)
+
+    return normalized
+  }
+
+  async handleAnthropicMessages(req, res) {
+    const apiKeyData = req.apiKey
+    const requestedModel = this._normalizeRequestModel(req.body?.model)
+    const sessionId =
+      req.headers['session_id'] ||
+      req.headers['x-session-id'] ||
+      req.body?.session_id ||
+      req.body?.conversation_id ||
+      null
+    const sessionHash = sessionId
+      ? crypto.createHash('sha256').update(String(sessionId)).digest('hex')
+      : null
+
+    let accountId = null
+    let upstreamResponse = null
+    const startTime = Date.now()
+
+    try {
+      if (!apiKeyService.hasPermission(apiKeyData?.permissions, 'kimi')) {
+        return res.status(403).json({
+          type: 'error',
+          error: {
+            type: 'permission_error',
+            message: 'This API key does not have permission to access Kimi'
+          }
+        })
+      }
+
+      if (this._isModelRestricted(apiKeyData, requestedModel)) {
+        return res.status(403).json({
+          type: 'error',
+          error: {
+            type: 'invalid_request_error',
+            message: `Model ${requestedModel} is not allowed for this API key`
+          }
+        })
+      }
+
+      const selection = await unifiedKimiScheduler.selectAccountForApiKey(
+        apiKeyData,
+        sessionHash,
+        requestedModel
+      )
+      const { accountId: selectedAccountId } = selection
+      accountId = selectedAccountId
+      const account = await kimiAccountService.getAccount(accountId)
+      if (!account) {
+        throw new Error('Kimi account not found')
+      }
+      if (!account.apiKey) {
+        throw new Error('Kimi account API Key not found or decryption failed')
+      }
+
+      const targetUrl = buildAnthropicMessagesUrl(account.baseApi)
+      const body = this._buildAnthropicRequestBody(req.body || {})
+      const isStream = body.stream === true
+      const abortController = new AbortController()
+
+      const onClientDisconnect = () => {
+        if (!abortController.signal.aborted) {
+          abortController.abort()
+        }
+      }
+      req.once('close', onClientDisconnect)
+      res.once('close', onClientDisconnect)
+
+      const requestConfig = {
+        headers: {
+          ...filterForClaude(req.headers || {}),
+          'x-api-key': account.apiKey,
+          'anthropic-version':
+            this._getHeaderValue(req.headers, 'anthropic-version') || '2023-06-01',
+          'Content-Type': 'application/json',
+          'accept-encoding': 'identity'
+        },
+        timeout: this.defaultTimeout,
+        validateStatus: () => true,
+        signal: abortController.signal
+      }
+
+      if (account.proxy) {
+        const agent = ProxyHelper.createProxyAgent(account.proxy)
+        if (agent) {
+          requestConfig.httpAgent = agent
+          requestConfig.httpsAgent = agent
+        }
+      }
+
+      if (isStream) {
+        requestConfig.responseType = 'stream'
+      }
+
+      logger.info(`🎯 Forwarding Kimi Anthropic request to ${targetUrl}, model=${requestedModel}`)
+      upstreamResponse = await axios.post(targetUrl, body, requestConfig)
+
+      if (isStream) {
+        return await this._handleAnthropicStreamResponse(req, res, {
+          upstreamResponse,
+          body,
+          accountId,
+          requestedModel,
+          sessionHash,
+          startTime
+        })
+      }
+
+      return await this._handleAnthropicJsonResponse(req, res, {
+        upstreamResponse,
+        body,
+        accountId,
+        requestedModel,
+        sessionHash,
+        startTime
+      })
+    } catch (error) {
+      return await this._handleRequestError(req, res, error, accountId, sessionHash)
+    }
   }
 
   async _handleJsonResponse(req, res, context) {
@@ -304,9 +440,260 @@ class KimiRelayService {
     })
   }
 
+  async _handleAnthropicJsonResponse(req, res, context) {
+    const { upstreamResponse, body, accountId, requestedModel, sessionHash, startTime } = context
+    const responseData = upstreamResponse.data
+
+    if (upstreamResponse.status >= 400) {
+      await this._handleUpstreamStatus(
+        upstreamResponse.status,
+        responseData,
+        accountId,
+        sessionHash
+      )
+      return res.status(upstreamResponse.status).json(responseData)
+    }
+
+    const usage = responseData?.usage
+    const model = this._normalizeRequestModel(responseData?.model || requestedModel)
+    let completionUsageSummary = this._buildUsageSummary()
+
+    if (usage) {
+      completionUsageSummary = await this._recordUsage(req, {
+        usage,
+        body,
+        model,
+        accountId,
+        sessionHash,
+        requestedModel,
+        stream: false,
+        statusCode: upstreamResponse.status,
+        protocol: 'anthropic',
+        assistantContent: responseData?.content
+      })
+    } else {
+      logger.warn(`⚠️ Kimi Anthropic non-stream response missing usage, model=${model}`)
+    }
+
+    logger.info(
+      formatCompletionUsageLog({
+        completionType: '非流式完成',
+        platform: 'kimi',
+        elapsedMs: Date.now() - startTime,
+        usageSummary: completionUsageSummary,
+        model,
+        requestedModel
+      })
+    )
+    return res.status(upstreamResponse.status).json(responseData)
+  }
+
+  async _handleAnthropicStreamResponse(req, res, context) {
+    const { upstreamResponse, body, accountId, requestedModel, sessionHash, startTime } = context
+
+    if (upstreamResponse.status >= 400) {
+      const errorBody = await this._readStreamToString(upstreamResponse.data)
+      const parsed = this._parseJsonSafe(errorBody) || {
+        type: 'error',
+        error: { type: 'api_error', message: errorBody }
+      }
+      await this._handleUpstreamStatus(upstreamResponse.status, parsed, accountId, sessionHash)
+      return res.status(upstreamResponse.status).json(parsed)
+    }
+
+    res.status(upstreamResponse.status)
+    res.setHeader('Content-Type', 'text/event-stream')
+    res.setHeader('Cache-Control', 'no-cache, no-transform')
+    res.setHeader('Connection', 'keep-alive')
+    res.setHeader('X-Accel-Buffering', 'no')
+    if (typeof res.flushHeaders === 'function') {
+      res.flushHeaders()
+    }
+
+    const parser = new IncrementalSSEParser()
+    let capturedUsage = null
+    let actualModel = requestedModel
+    const streamedAssistantText = []
+    const streamedThinkingText = []
+    let completionUsageSummary = this._buildUsageSummary()
+
+    upstreamResponse.data.on('data', (chunk) => {
+      if (!res.destroyed) {
+        res.write(chunk)
+      }
+
+      const events = parser.feed(chunk.toString())
+      for (const event of events) {
+        if (event.type === 'data' && event.data) {
+          actualModel = this._extractAnthropicModel(event.data, actualModel)
+          capturedUsage = this._mergeAnthropicUsage(
+            capturedUsage,
+            this._extractAnthropicUsage(event.data)
+          )
+          this._collectAnthropicStreamContent(
+            event.data,
+            streamedAssistantText,
+            streamedThinkingText
+          )
+        }
+      }
+    })
+
+    upstreamResponse.data.on('end', async () => {
+      try {
+        if (parser.getRemaining().trim()) {
+          const events = parser.feed('\n\n')
+          for (const event of events) {
+            if (event.type === 'data' && event.data) {
+              actualModel = this._extractAnthropicModel(event.data, actualModel)
+              capturedUsage = this._mergeAnthropicUsage(
+                capturedUsage,
+                this._extractAnthropicUsage(event.data)
+              )
+              this._collectAnthropicStreamContent(
+                event.data,
+                streamedAssistantText,
+                streamedThinkingText
+              )
+            }
+          }
+        }
+
+        if (capturedUsage) {
+          completionUsageSummary = await this._recordUsage(req, {
+            usage: capturedUsage,
+            body,
+            model: this._normalizeRequestModel(actualModel || requestedModel),
+            accountId,
+            sessionHash,
+            requestedModel,
+            stream: true,
+            statusCode: res.statusCode,
+            protocol: 'anthropic',
+            assistantContent: this._buildAnthropicAssistantContent(
+              streamedAssistantText,
+              streamedThinkingText
+            )
+          })
+        } else {
+          logger.warn(`⚠️ Kimi Anthropic stream response missing usage, model=${actualModel}`)
+        }
+
+        if (await unifiedKimiScheduler.isAccountRateLimited(accountId)) {
+          await unifiedKimiScheduler.removeAccountRateLimit(accountId)
+        }
+      } catch (error) {
+        logger.error('Failed to finalize Kimi Anthropic stream usage:', error)
+      }
+
+      logger.info(
+        formatCompletionUsageLog({
+          completionType: '流式完成',
+          platform: 'kimi',
+          elapsedMs: Date.now() - startTime,
+          usageSummary: completionUsageSummary,
+          model: this._normalizeRequestModel(actualModel || requestedModel),
+          requestedModel
+        })
+      )
+      res.end()
+    })
+
+    upstreamResponse.data.on('error', (error) => {
+      logger.error('Kimi Anthropic upstream stream error:', error)
+      if (!res.headersSent) {
+        res.status(502).json({
+          type: 'error',
+          error: { type: 'api_error', message: 'Upstream stream error' }
+        })
+      } else {
+        res.end()
+      }
+    })
+
+    req.on('close', () => {
+      try {
+        upstreamResponse.data?.destroy?.()
+      } catch (_) {
+        // ignore
+      }
+    })
+  }
+
   _normalizeRequestModel(model) {
     const normalized = normalizeKimiModel(model || KIMI_DEFAULT_MODEL)
     return isKimiModel(normalized) ? normalized : KIMI_DEFAULT_MODEL
+  }
+
+  _getHeaderValue(headers = {}, name) {
+    const lowerName = name.toLowerCase()
+    for (const [key, value] of Object.entries(headers || {})) {
+      if (key.toLowerCase() === lowerName) {
+        return Array.isArray(value) ? value[0] : value
+      }
+    }
+    return null
+  }
+
+  _extractAnthropicUsage(data = {}) {
+    if (data?.usage && typeof data.usage === 'object') {
+      return data.usage
+    }
+
+    if (data?.message?.usage && typeof data.message.usage === 'object') {
+      return data.message.usage
+    }
+
+    return null
+  }
+
+  _mergeAnthropicUsage(current, partial) {
+    if (!partial || typeof partial !== 'object') {
+      return current
+    }
+
+    return {
+      ...(current || {}),
+      ...partial,
+      cache_creation: {
+        ...(current?.cache_creation || {}),
+        ...(partial.cache_creation || {})
+      }
+    }
+  }
+
+  _extractAnthropicModel(data = {}, fallback = KIMI_DEFAULT_MODEL) {
+    return data?.message?.model || data?.model || fallback
+  }
+
+  _collectAnthropicStreamContent(data, streamedAssistantText, streamedThinkingText) {
+    const delta = data?.delta
+    if (!delta || typeof delta !== 'object') {
+      return
+    }
+
+    if (typeof delta.text === 'string' && delta.text) {
+      streamedAssistantText.push(delta.text)
+    }
+
+    if (typeof delta.thinking === 'string' && delta.thinking) {
+      streamedThinkingText.push(delta.thinking)
+    }
+  }
+
+  _buildAnthropicAssistantContent(streamedAssistantText, streamedThinkingText) {
+    const blocks = []
+    const thinking = streamedThinkingText.join('')
+    if (thinking) {
+      blocks.push({ type: 'thinking', thinking })
+    }
+
+    const text = streamedAssistantText.join('')
+    if (text) {
+      blocks.push({ type: 'text', text })
+    }
+
+    return blocks.length > 0 ? blocks : undefined
   }
 
   _isModelRestricted(apiKeyData, model) {
@@ -330,24 +717,37 @@ class KimiRelayService {
   }
 
   async _recordUsage(req, options) {
-    const { usage, body, model, accountId, sessionHash, stream, statusCode } = options
+    const {
+      usage,
+      body,
+      model,
+      accountId,
+      sessionHash,
+      stream,
+      statusCode,
+      protocol = 'openai',
+      assistantContent
+    } = options
     const resolvedRawSessionId =
       req.headers['session_id'] ||
       req.headers['x-session-id'] ||
       body?.session_id ||
       body?.conversation_id ||
       null
-    const normalizedUsage = normalizeKimiUsage(usage)
+    const isAnthropicProtocol = protocol === 'anthropic'
+    const normalizedUsage = isAnthropicProtocol
+      ? normalizeKimiAnthropicUsage(usage)
+      : normalizeKimiUsage(usage)
     const usageSummary = this._buildUsageSummary(normalizedUsage)
-    const inputBlock = buildInputMessagesBlock(body)
+    const inputBlock = isAnthropicProtocol ? null : buildInputMessagesBlock(body)
     const usageExtra = buildUsageMetadata({
       body,
-      format: 'openai',
+      format: isAnthropicProtocol ? 'anthropic' : 'openai',
       headers: req.headers,
       requestIp: req,
       sessionId: sessionHash || null,
       rawSessionId: resolvedRawSessionId,
-      assistantContent: inputBlock ? [inputBlock] : undefined
+      assistantContent: assistantContent || (inputBlock ? [inputBlock] : undefined)
     })
 
     const costs = await apiKeyService.recordUsageWithDetails(

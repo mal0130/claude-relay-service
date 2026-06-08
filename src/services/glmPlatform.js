@@ -10,8 +10,9 @@ const GLM_PLATFORM = {
   accountSubType: 'glm-api',
   accountSubTypeLabel: '标准 API',
   protocol: 'openai-compatible-chat',
-  protocols: ['openai-compatible-chat'],
+  protocols: ['openai-compatible-chat', 'anthropic-messages'],
   chatPath: '/chat/completions',
+  anthropicMessagesPath: '/anthropic/v1/messages',
   modelPatterns: ['glm-*'],
   modelAliases: {},
   capabilities: {
@@ -31,6 +32,28 @@ function normalizeBaseApi(baseApi = GLM_DEFAULT_BASE_API) {
 
 function buildChatCompletionsUrl(baseApi) {
   return `${normalizeBaseApi(baseApi)}${GLM_PLATFORM.chatPath}`
+}
+
+function buildAnthropicMessagesUrl(baseApi) {
+  const normalized = normalizeBaseApi(baseApi)
+
+  if (normalized.endsWith('/anthropic/v1/messages')) {
+    return normalized
+  }
+
+  if (normalized.endsWith('/anthropic/v1')) {
+    return `${normalized}/messages`
+  }
+
+  if (normalized.endsWith('/anthropic')) {
+    return `${normalized}/v1/messages`
+  }
+
+  if (normalized.endsWith('/v4')) {
+    return `${normalized.slice(0, -3)}${GLM_PLATFORM.anthropicMessagesPath}`
+  }
+
+  return `${normalized}${GLM_PLATFORM.anthropicMessagesPath}`
 }
 
 function isGlmModel(model) {
@@ -53,13 +76,34 @@ function normalizeGlmUsage(usage = {}) {
   }
 }
 
+function normalizeGlmAnthropicUsage(usage = {}) {
+  const cacheCreation =
+    usage.cache_creation && typeof usage.cache_creation === 'object' ? usage.cache_creation : null
+  const cacheCreationInputTokens =
+    Number(usage.cache_creation_input_tokens || 0) ||
+    Number(cacheCreation?.ephemeral_5m_input_tokens || 0) +
+      Number(cacheCreation?.ephemeral_1h_input_tokens || 0)
+
+  return {
+    input_tokens: Number(usage.input_tokens || usage.prompt_tokens || 0),
+    output_tokens: Number(usage.output_tokens || usage.completion_tokens || 0),
+    cache_creation_input_tokens: cacheCreationInputTokens,
+    cache_read_input_tokens: Number(
+      usage.cache_read_input_tokens || usage.prompt_cache_hit_tokens || 0
+    ),
+    ...(cacheCreation ? { cache_creation: cacheCreation } : {})
+  }
+}
+
 module.exports = {
   GLM_PLATFORM,
   GLM_DEFAULT_BASE_API,
   GLM_DEFAULT_MODEL,
   normalizeBaseApi,
   buildChatCompletionsUrl,
+  buildAnthropicMessagesUrl,
   isGlmModel,
   normalizeGlmModel,
-  normalizeGlmUsage
+  normalizeGlmUsage,
+  normalizeGlmAnthropicUsage
 }
