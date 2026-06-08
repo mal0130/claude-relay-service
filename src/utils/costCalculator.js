@@ -297,8 +297,18 @@ class CostCalculator {
    * @returns {Object} 费用详情
    */
   static calculateCost(usage, model = 'unknown', serviceTier = null) {
-    // 如果 usage 包含详细的 cache_creation 对象或是 1M 模型，优先使用 pricingService
-    if (this.isDetailedPricingRequest(usage, model)) {
+    const pricingData = pricingService.getModelPricing(model)
+    const totalInputTokens =
+      (usage.input_tokens || 0) +
+      (usage.cache_creation_input_tokens || 0) +
+      (usage.cache_read_input_tokens || 0)
+    const isMiniMaxM3TieredRequest =
+      model === 'MiniMax-M3' &&
+      pricingData?.litellm_provider === 'minimax' &&
+      totalInputTokens > 512 * 1024
+
+    // 如果 usage 包含详细的 cache_creation 对象、是 1M 模型，或命中 MiniMax M3 512K 分层，优先使用 pricingService
+    if (this.isDetailedPricingRequest(usage, model) || isMiniMaxM3TieredRequest) {
       const result = pricingService.calculateCost(usage, model)
       if (this.isValidPricingServiceResult(result)) {
         return this.buildDetailedPricingResult(usage, model, result)

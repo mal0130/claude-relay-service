@@ -356,6 +356,10 @@
                 <input v-model="form.permissions" class="mr-2" type="radio" value="deepseek" />
                 <span class="text-sm text-gray-700">仅 DeepSeek</span>
               </label>
+              <label class="flex cursor-pointer items-center">
+                <input v-model="form.permissions" class="mr-2" type="radio" value="minimax" />
+                <span class="text-sm text-gray-700">仅 MiniMax</span>
+              </label>
             </div>
           </div>
 
@@ -473,6 +477,21 @@
                   :special-options="accountSpecialOptions"
                 />
               </div>
+              <div>
+                <label class="mb-1 block text-sm font-medium text-gray-600 dark:text-gray-400"
+                  >MiniMax 专属账号</label
+                >
+                <AccountSelector
+                  v-model="minimaxAccountSelectorValue"
+                  :accounts="localAccounts.minimax"
+                  default-option-text="请选择MiniMax账号"
+                  :disabled="!isServiceSelectable('minimax')"
+                  :groups="localAccounts.minimaxGroups"
+                  placeholder="请选择MiniMax账号"
+                  platform="minimax"
+                  :special-options="accountSpecialOptions"
+                />
+              </div>
             </div>
           </div>
 
@@ -522,11 +541,13 @@ const props = defineProps({
       bedrock: [],
       droid: [],
       deepseek: [],
+      minimax: [],
       claudeGroups: [],
       geminiGroups: [],
       openaiGroups: [],
       droidGroups: [],
-      deepseekGroups: []
+      deepseekGroups: [],
+      minimaxGroups: []
     })
   }
 })
@@ -543,11 +564,13 @@ const localAccounts = ref({
   bedrock: [],
   droid: [],
   deepseek: [],
+  minimax: [],
   claudeGroups: [],
   geminiGroups: [],
   openaiGroups: [],
   droidGroups: [],
-  deepseekGroups: []
+  deepseekGroups: [],
+  minimaxGroups: []
 })
 
 // 标签相关
@@ -580,6 +603,7 @@ const form = reactive({
   bedrockAccountId: '',
   droidAccountId: '',
   deepseekAccountId: '',
+  minimaxAccountId: '',
   tags: [],
   isActive: null // null表示不修改
 })
@@ -609,6 +633,7 @@ const openaiAccountSelectorValue = createAccountSelectorModel('openaiAccountId')
 const bedrockAccountSelectorValue = createAccountSelectorModel('bedrockAccountId')
 const droidAccountSelectorValue = createAccountSelectorModel('droidAccountId')
 const deepseekAccountSelectorValue = createAccountSelectorModel('deepseekAccountId')
+const minimaxAccountSelectorValue = createAccountSelectorModel('minimaxAccountId')
 
 const isServiceSelectable = (service) => {
   if (!form.permissions) return true
@@ -653,6 +678,7 @@ const refreshAccounts = async () => {
       bedrockData,
       droidData,
       deepseekData,
+      minimaxData,
       groupsData
     ] = await Promise.all([
       httpApis.getClaudeAccountsApi(),
@@ -664,6 +690,7 @@ const refreshAccounts = async () => {
       httpApis.getBedrockAccountsApi(),
       httpApis.getDroidAccountsApi(),
       httpApis.getDeepSeekAccountsApi(),
+      httpApis.getMiniMaxAccountsApi(),
       httpApis.getAccountGroupsApi()
     ])
 
@@ -764,6 +791,14 @@ const refreshAccounts = async () => {
       }))
     }
 
+    if (minimaxData.success) {
+      localAccounts.value.minimax = (minimaxData.data || []).map((account) => ({
+        ...account,
+        platform: 'minimax',
+        isDedicated: account.accountType === 'dedicated'
+      }))
+    }
+
     // 处理分组数据
     if (groupsData.success) {
       const allGroups = groupsData.data || []
@@ -772,6 +807,7 @@ const refreshAccounts = async () => {
       localAccounts.value.openaiGroups = allGroups.filter((g) => g.platform === 'openai')
       localAccounts.value.droidGroups = allGroups.filter((g) => g.platform === 'droid')
       localAccounts.value.deepseekGroups = allGroups.filter((g) => g.platform === 'deepseek')
+      localAccounts.value.minimaxGroups = allGroups.filter((g) => g.platform === 'minimax')
     }
 
     showToast('账号列表已刷新', 'success')
@@ -875,9 +911,20 @@ const batchUpdateApiKeys = async () => {
 
     if (form.deepseekAccountId !== '') {
       updates.accountBindings = {
+        ...(updates.accountBindings || {}),
         deepseek: {
           mode: 'shared',
           accountId: form.deepseekAccountId === 'SHARED_POOL' ? '' : form.deepseekAccountId
+        }
+      }
+    }
+
+    if (form.minimaxAccountId !== '') {
+      updates.accountBindings = {
+        ...(updates.accountBindings || {}),
+        minimax: {
+          mode: 'shared',
+          accountId: form.minimaxAccountId === 'SHARED_POOL' ? '' : form.minimaxAccountId
         }
       }
     }
@@ -970,11 +1017,16 @@ onMounted(async () => {
         ...account,
         platform: account.platform || 'deepseek'
       })),
+      minimax: (props.accounts.minimax || []).map((account) => ({
+        ...account,
+        platform: account.platform || 'minimax'
+      })),
       claudeGroups: props.accounts.claudeGroups || [],
       geminiGroups: props.accounts.geminiGroups || [],
       openaiGroups: props.accounts.openaiGroups || [],
       droidGroups: props.accounts.droidGroups || [],
-      deepseekGroups: props.accounts.deepseekGroups || []
+      deepseekGroups: props.accounts.deepseekGroups || [],
+      minimaxGroups: props.accounts.minimaxGroups || []
     }
   }
 })

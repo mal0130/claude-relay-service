@@ -2570,7 +2570,7 @@ class ApiKeyService {
         pushType('droid')
       } else if (lowerModel.includes('deepseek')) {
         pushType('deepseek')
-      } else if (lowerModel.includes('minimax') || lowerModel.includes('abab')) {
+      } else if (lowerModel.includes('minimax')) {
         pushType('minimax')
       }
     }

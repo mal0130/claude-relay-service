@@ -582,6 +582,21 @@
                                 {{ getDeepSeekBindingInfo(key) }}
                               </span>
                             </div>
+                            <!-- MiniMax 绑定 -->
+                            <div
+                              v-if="getMiniMaxAccountId(key)"
+                              class="flex items-center gap-1 text-xs"
+                            >
+                              <span
+                                class="inline-flex items-center rounded bg-amber-100 px-1.5 py-0.5 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300"
+                              >
+                                <i class="fas fa-layer-group mr-1 text-[10px]" />
+                                MiniMax
+                              </span>
+                              <span class="truncate text-gray-600 dark:text-gray-400">
+                                {{ getMiniMaxBindingInfo(key) }}
+                              </span>
+                            </div>
                             <!-- 共享池 -->
                             <div
                               v-if="
@@ -591,7 +606,8 @@
                                 !key.openaiAccountId &&
                                 !key.bedrockAccountId &&
                                 !key.droidAccountId &&
-                                !getDeepSeekAccountId(key)
+                                !getDeepSeekAccountId(key) &&
+                                !getMiniMaxAccountId(key)
                               "
                               class="text-xs text-gray-500 dark:text-gray-400"
                             >
@@ -1367,6 +1383,21 @@
                     {{ getDeepSeekBindingInfo(key) }}
                   </span>
                 </div>
+                <!-- MiniMax 绑定 -->
+                <div
+                  v-if="getMiniMaxAccountId(key)"
+                  class="flex flex-wrap items-center gap-1 text-xs"
+                >
+                  <span
+                    class="inline-flex items-center rounded bg-amber-100 px-2 py-0.5 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300"
+                  >
+                    <i class="fas fa-layer-group mr-1" />
+                    MiniMax
+                  </span>
+                  <span class="text-gray-600 dark:text-gray-400">
+                    {{ getMiniMaxBindingInfo(key) }}
+                  </span>
+                </div>
                 <!-- 无绑定时显示共享池 -->
                 <div
                   v-if="
@@ -1376,7 +1407,8 @@
                     !key.openaiAccountId &&
                     !key.bedrockAccountId &&
                     !key.droidAccountId &&
-                    !getDeepSeekAccountId(key)
+                    !getDeepSeekAccountId(key) &&
+                    !getMiniMaxAccountId(key)
                   "
                   class="text-xs text-gray-500 dark:text-gray-400"
                 >
@@ -1879,6 +1911,21 @@
                               {{ getDeepSeekBindingInfo(key) }}
                             </span>
                           </div>
+                          <!-- MiniMax 绑定 -->
+                          <div
+                            v-else-if="getMiniMaxAccountId(key)"
+                            class="flex items-center gap-1 text-xs"
+                          >
+                            <span
+                              class="inline-flex items-center rounded bg-amber-100 px-1.5 py-0.5 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300"
+                            >
+                              <i class="fas fa-layer-group mr-1 text-[10px]" />
+                              MiniMax
+                            </span>
+                            <span class="truncate text-gray-600 dark:text-gray-400">
+                              {{ getMiniMaxBindingInfo(key) }}
+                            </span>
+                          </div>
                           <!-- 共享池 -->
                           <div v-else class="text-xs text-gray-500 dark:text-gray-400">
                             <i class="fas fa-share-alt mr-1" />
@@ -2248,11 +2295,13 @@ const accounts = ref({
   bedrock: [],
   droid: [],
   deepseek: [],
+  minimax: [],
   claudeGroups: [],
   geminiGroups: [],
   openaiGroups: [],
   droidGroups: [],
-  deepseekGroups: []
+  deepseekGroups: [],
+  minimaxGroups: []
 })
 // 账号数据加载状态
 const accountsLoading = ref(false)
@@ -2454,6 +2503,7 @@ const loadAccounts = async (forceRefresh = false) => {
       bedrockData,
       droidData,
       deepseekData,
+      minimaxData,
       groupsData
     ] = await Promise.all([
       httpApis.getClaudeAccountsApi(),
@@ -2465,6 +2515,7 @@ const loadAccounts = async (forceRefresh = false) => {
       httpApis.getBedrockAccountsApi(),
       httpApis.getDroidAccountsApi(),
       httpApis.getDeepSeekAccountsApi(),
+      httpApis.getMiniMaxAccountsApi(),
       httpApis.getAccountGroupsApi()
     ])
 
@@ -2558,6 +2609,14 @@ const loadAccounts = async (forceRefresh = false) => {
       }))
     }
 
+    if (minimaxData.success) {
+      accounts.value.minimax = (minimaxData.data || []).map((account) => ({
+        ...account,
+        platform: 'minimax',
+        isDedicated: account.accountType === 'dedicated'
+      }))
+    }
+
     if (groupsData.success) {
       // 处理分组数据
       const allGroups = groupsData.data || []
@@ -2566,6 +2625,7 @@ const loadAccounts = async (forceRefresh = false) => {
       accounts.value.openaiGroups = allGroups.filter((g) => g.platform === 'openai')
       accounts.value.droidGroups = allGroups.filter((g) => g.platform === 'droid')
       accounts.value.deepseekGroups = allGroups.filter((g) => g.platform === 'deepseek')
+      accounts.value.minimaxGroups = allGroups.filter((g) => g.platform === 'minimax')
     }
 
     // 标记账号数据已加载
@@ -3055,6 +3115,9 @@ const normalizeAccountBindings = (accountBindings) => {
 const getDeepSeekAccountId = (key) =>
   normalizeAccountBindings(key?.accountBindings).deepseek?.accountId || ''
 
+const getMiniMaxAccountId = (key) =>
+  normalizeAccountBindings(key?.accountBindings).minimax?.accountId || ''
+
 // 获取绑定账户名称
 const getBoundAccountName = (accountId) => {
   if (!accountId) return '未知账户'
@@ -3089,6 +3152,11 @@ const getBoundAccountName = (accountId) => {
     const deepseekGroup = accounts.value.deepseekGroups.find((g) => g.id === groupId)
     if (deepseekGroup) {
       return `分组-${deepseekGroup.name}`
+    }
+
+    const minimaxGroup = accounts.value.minimaxGroups.find((g) => g.id === groupId)
+    if (minimaxGroup) {
+      return `分组-${minimaxGroup.name}`
     }
 
     // 如果找不到分组，返回分组ID的前8位
@@ -3159,6 +3227,11 @@ const getBoundAccountName = (accountId) => {
   const deepseekAccount = accounts.value.deepseek.find((acc) => acc.id === accountId)
   if (deepseekAccount) {
     return `${deepseekAccount.name}`
+  }
+
+  const minimaxAccount = accounts.value.minimax.find((acc) => acc.id === accountId)
+  if (minimaxAccount) {
+    return `${minimaxAccount.name}`
   }
 
   // 如果找不到，返回账户ID的前8位
@@ -3322,6 +3395,27 @@ const getDeepSeekBindingInfo = (key) => {
   }
 
   const account = accounts.value.deepseek.find((acc) => acc.id === accountId)
+  if (!account) {
+    return `⚠️ ${info} (账户不存在)`
+  }
+  if (account.accountType === 'dedicated') {
+    return `🔒 专属-${info}`
+  }
+  return info
+}
+
+const getMiniMaxBindingInfo = (key) => {
+  const accountId = getMiniMaxAccountId(key)
+  if (!accountId) {
+    return ''
+  }
+
+  const info = getBoundAccountName(accountId)
+  if (accountId.startsWith('group:')) {
+    return info
+  }
+
+  const account = accounts.value.minimax.find((acc) => acc.id === accountId)
   if (!account) {
     return `⚠️ ${info} (账户不存在)`
   }

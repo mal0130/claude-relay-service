@@ -182,4 +182,51 @@ describe('CostCalculator', () => {
     expect(result.costs.total).toBeCloseTo(0.0000022512, 14)
     expect(result.debug.pricingSource).toBe('dynamic')
   })
+
+  it('uses MiniMax M3 512K tier pricing for regular requests', () => {
+    pricingService.getModelPricing.mockReturnValue({
+      input_cost_per_token: 0.3 / 1_000_000,
+      output_cost_per_token: 1.2 / 1_000_000,
+      cache_creation_input_token_cost: 0.375 / 1_000_000,
+      cache_read_input_token_cost: 0.06 / 1_000_000,
+      input_cost_per_token_above_512k_tokens: 1.2 / 1_000_000,
+      output_cost_per_token_above_512k_tokens: 4.8 / 1_000_000,
+      cache_read_input_token_cost_above_512k_tokens: 0.24 / 1_000_000,
+      litellm_provider: 'minimax'
+    })
+    pricingService.calculateCost.mockReturnValue({
+      hasPricing: true,
+      isLongContextRequest: false,
+      inputCost: 0.624,
+      outputCost: 0.048,
+      cacheCreateCost: 0.001125,
+      cacheReadCost: 0.00048,
+      totalCost: 0.673605,
+      pricing: {
+        input: 1.2 / 1_000_000,
+        output: 4.8 / 1_000_000,
+        cacheCreate: 0.375 / 1_000_000,
+        cacheRead: 0.24 / 1_000_000
+      }
+    })
+
+    const result = CostCalculator.calculateCost(
+      {
+        input_tokens: 520000,
+        output_tokens: 10000,
+        cache_creation_input_tokens: 3000,
+        cache_read_input_tokens: 2000
+      },
+      'MiniMax-M3'
+    )
+
+    expect(pricingService.calculateCost).toHaveBeenCalledTimes(1)
+    expect(result.usingDynamicPricing).toBe(true)
+    expect(result.pricing.input).toBeCloseTo(1.2, 12)
+    expect(result.pricing.output).toBeCloseTo(4.8, 12)
+    expect(result.pricing.cacheWrite).toBeCloseTo(0.375, 12)
+    expect(result.pricing.cacheRead).toBeCloseTo(0.24, 12)
+    expect(result.costs.total).toBeCloseTo(0.673605, 10)
+    expect(result.debug.pricingSource).toBe('dynamic')
+  })
 })

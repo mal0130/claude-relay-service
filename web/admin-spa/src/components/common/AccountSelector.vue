@@ -130,9 +130,11 @@
                         ? 'Droid 专属账号'
                         : platform === 'deepseek'
                           ? 'DeepSeek 专属账号'
-                          : platform === 'gemini'
-                            ? 'Gemini OAuth 专属账号'
-                            : 'OAuth 专属账号'
+                          : platform === 'minimax'
+                            ? 'MiniMax 专属账号'
+                            : platform === 'gemini'
+                              ? 'Gemini OAuth 专属账号'
+                              : 'OAuth 专属账号'
                 }}
               </div>
               <div
@@ -310,7 +312,7 @@ const props = defineProps({
     type: String,
     required: true,
     validator: (value) =>
-      ['claude', 'gemini', 'openai', 'bedrock', 'droid', 'deepseek'].includes(value)
+      ['claude', 'gemini', 'openai', 'bedrock', 'droid', 'deepseek', 'minimax'].includes(value)
   },
   accounts: {
     type: Array,
@@ -477,6 +479,8 @@ const filteredOAuthAccounts = computed(() => {
     accounts = sortedAccounts.value.filter((a) => a.platform === 'droid')
   } else if (props.platform === 'deepseek') {
     accounts = sortedAccounts.value.filter((a) => a.platform === 'deepseek')
+  } else if (props.platform === 'minimax') {
+    accounts = sortedAccounts.value.filter((a) => a.platform === 'minimax')
   } else if (props.platform === 'gemini') {
     // 对于 Gemini，只显示 OAuth 类型的账号（排除 gemini-api）
     accounts = sortedAccounts.value.filter((a) => a.platform === 'gemini')

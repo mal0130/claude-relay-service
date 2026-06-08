@@ -181,7 +181,7 @@ class ServiceRatesService {
       return 'deepseek'
     }
 
-    if (modelLower.includes('minimax') || modelLower.includes('abab')) {
+    if (modelLower.includes('minimax')) {
       return 'minimax'
     }
 

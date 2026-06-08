@@ -611,6 +611,16 @@
                 />
                 <span class="text-sm text-gray-700 dark:text-gray-300">DeepSeek</span>
               </label>
+              <label class="flex cursor-pointer items-center">
+                <input
+                  v-model="form.permissions"
+                  class="mr-2 rounded text-blue-600 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-700"
+                  type="checkbox"
+                  value="minimax"
+                  @change="updatePermissions"
+                />
+                <span class="text-sm text-gray-700 dark:text-gray-300">MiniMax</span>
+              </label>
             </div>
             <p class="mt-2 text-xs text-gray-500 dark:text-gray-400">
               不选择任何服务表示允许访问全部服务
@@ -930,6 +940,20 @@
                   platform="deepseek"
                 />
               </div>
+              <div>
+                <label class="mb-1 block text-sm font-medium text-gray-600 dark:text-gray-400"
+                  >MiniMax 专属账号</label
+                >
+                <AccountSelector
+                  v-model="form.minimaxAccountId"
+                  :accounts="localAccounts.minimax"
+                  default-option-text="使用共享账号池"
+                  :disabled="form.permissions.length > 0 && !form.permissions.includes('minimax')"
+                  :groups="localAccounts.minimaxGroups"
+                  placeholder="请选择MiniMax账号"
+                  platform="minimax"
+                />
+              </div>
             </div>
             <p class="mt-2 text-xs text-gray-500 dark:text-gray-400">
               修改绑定账号将影响此API Key的请求路由
@@ -1133,11 +1157,13 @@ const props = defineProps({
       bedrock: [],
       droid: [],
       deepseek: [],
+      minimax: [],
       claudeGroups: [],
       geminiGroups: [],
       openaiGroups: [],
       droidGroups: [],
       deepseekGroups: [],
+      minimaxGroups: [],
       openaiResponses: []
     })
   }
@@ -1178,11 +1204,13 @@ const localAccounts = ref({
   bedrock: [],
   droid: [],
   deepseek: [],
+  minimax: [],
   claudeGroups: [],
   geminiGroups: [],
   openaiGroups: [],
   droidGroups: [],
-  deepseekGroups: []
+  deepseekGroups: [],
+  minimaxGroups: []
 })
 
 // 支持的客户端列表
@@ -1208,6 +1236,7 @@ const availableServices = [
   { key: 'codex', label: 'Codex' },
   { key: 'droid', label: 'Droid' },
   { key: 'deepseek', label: 'DeepSeek' },
+  { key: 'minimax', label: 'MiniMax' },
   { key: 'bedrock', label: 'Bedrock' },
   { key: 'azure', label: 'Azure' },
   { key: 'ccr', label: 'CCR' }
@@ -1245,6 +1274,7 @@ const form = reactive({
   bedrockAccountId: '',
   droidAccountId: '',
   deepseekAccountId: '',
+  minimaxAccountId: '',
   enableModelRestriction: false,
   restrictedModels: [],
   modelInput: '',
@@ -1566,6 +1596,13 @@ const updateApiKey = async () => {
       }
       data.accountBindings = accountBindings
     }
+    if (form.minimaxAccountId || accountBindings.minimax) {
+      accountBindings.minimax = {
+        mode: 'shared',
+        accountId: form.minimaxAccountId || ''
+      }
+      data.accountBindings = accountBindings
+    }
 
     // 模型限制 - 始终提交这些字段
     data.enableModelRestriction = form.enableModelRestriction
@@ -1617,6 +1654,7 @@ const refreshAccounts = async () => {
       bedrockData,
       droidData,
       deepseekData,
+      minimaxData,
       groupsData
     ] = await Promise.all([
       httpApis.getClaudeAccountsApi(),
@@ -1628,6 +1666,7 @@ const refreshAccounts = async () => {
       httpApis.getBedrockAccountsApi(),
       httpApis.getDroidAccountsApi(),
       httpApis.getDeepSeekAccountsApi(),
+      httpApis.getMiniMaxAccountsApi(),
       httpApis.getAccountGroupsApi()
     ])
 
@@ -1729,6 +1768,14 @@ const refreshAccounts = async () => {
       }))
     }
 
+    if (minimaxData.success) {
+      localAccounts.value.minimax = (minimaxData.data || []).map((account) => ({
+        ...account,
+        platform: 'minimax',
+        isDedicated: account.accountType === 'dedicated'
+      }))
+    }
+
     // 处理分组数据
     if (groupsData.success) {
       const allGroups = groupsData.data || []
@@ -1737,6 +1784,7 @@ const refreshAccounts = async () => {
       localAccounts.value.openaiGroups = allGroups.filter((g) => g.platform === 'openai')
       localAccounts.value.droidGroups = allGroups.filter((g) => g.platform === 'droid')
       localAccounts.value.deepseekGroups = allGroups.filter((g) => g.platform === 'deepseek')
+      localAccounts.value.minimaxGroups = allGroups.filter((g) => g.platform === 'minimax')
     }
 
     showToast('账号列表已刷新', 'success')
@@ -1828,11 +1876,16 @@ onMounted(async () => {
         ...account,
         platform: account.platform || 'deepseek'
       })),
+      minimax: (props.accounts.minimax || []).map((account) => ({
+        ...account,
+        platform: account.platform || 'minimax'
+      })),
       claudeGroups: props.accounts.claudeGroups || [],
       geminiGroups: props.accounts.geminiGroups || [],
       openaiGroups: props.accounts.openaiGroups || [],
       droidGroups: props.accounts.droidGroups || [],
-      deepseekGroups: props.accounts.deepseekGroups || []
+      deepseekGroups: props.accounts.deepseekGroups || [],
+      minimaxGroups: props.accounts.minimaxGroups || []
     }
   }
 
@@ -1870,7 +1923,7 @@ onMounted(async () => {
   form.weeklyResetHour = props.apiKey.weeklyResetHour || 0
   // 处理权限数据，兼容旧格式（字符串）和新格式（数组）
   // 有效的权限值
-  const VALID_PERMS = ['claude', 'gemini', 'openai', 'droid', 'deepseek']
+  const VALID_PERMS = ['claude', 'gemini', 'openai', 'droid', 'deepseek', 'minimax']
   let perms = props.apiKey.permissions
   // 如果是字符串，尝试 JSON.parse（Redis 可能返回 "[]" 或 "[\"gemini\"]"）
   if (typeof perms === 'string') {
@@ -1915,6 +1968,8 @@ onMounted(async () => {
   form.droidAccountId = props.apiKey.droidAccountId || ''
   form.deepseekAccountId =
     normalizeAccountBindings(props.apiKey.accountBindings).deepseek?.accountId || ''
+  form.minimaxAccountId =
+    normalizeAccountBindings(props.apiKey.accountBindings).minimax?.accountId || ''
   form.restrictedModels = props.apiKey.restrictedModels || []
   form.allowedClients = props.apiKey.allowedClients || []
   form.tags = props.apiKey.tags || []

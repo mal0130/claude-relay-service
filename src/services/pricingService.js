@@ -671,7 +671,7 @@ class PricingService {
           outputAbove512k: standardM3Long.output,
           cacheReadAbove512k: standardM3Long.cacheRead
         },
-        m2_7: m2_7,
+        m2_7,
         m2_7_highspeed: m2_7Highspeed
       },
       priority: {
@@ -685,11 +685,11 @@ class PricingService {
         }
       },
       historical: {
-        m2_5: m2_5,
+        m2_5,
         m2_5_highspeed: m2_5Highspeed,
-        m2_1: m2_1,
+        m2_1,
         m2_1_highspeed: m2_1Highspeed,
-        m2: m2
+        m2
       }
     })
   }
@@ -1505,7 +1505,8 @@ class PricingService {
     const pricing = standardPricing
     const isLongContextModeEnabled = isLongContextModel || hasContext1mBeta
     const isMiniMaxProvider =
-      typeof pricing?.litellm_provider === 'string' && pricing.litellm_provider.toLowerCase() === 'minimax'
+      typeof pricing?.litellm_provider === 'string' &&
+      pricing.litellm_provider.toLowerCase() === 'minimax'
     const isMiniMaxM3 = isMiniMaxProvider && normalizedModelName === 'MiniMax-M3'
     // Per official Anthropic pricing: all Claude models have flat pricing with no 200K+ premium
     // https://platform.claude.com/docs/en/about-claude/pricing

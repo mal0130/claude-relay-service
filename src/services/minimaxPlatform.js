@@ -13,7 +13,7 @@ const MINIMAX_PLATFORM = {
   protocols: ['openai-compatible-chat', 'anthropic-messages'],
   chatPath: '/chat/completions',
   anthropicMessagesPath: '/anthropic/v1/messages',
-  modelPatterns: ['minimax-*', 'abab*'],
+  modelPatterns: ['minimax-*'],
   modelAliases: {
     'minimax-m3': 'MiniMax-M3',
     'minimax-m2.7': 'MiniMax-M2.7',
@@ -81,7 +81,7 @@ function buildAnthropicMessagesUrl(baseApi) {
 }
 
 function isMiniMaxModel(model) {
-  return typeof model === 'string' && /^(minimax-|abab)/i.test(model)
+  return typeof model === 'string' && /^minimax-/i.test(model)
 }
 
 function normalizeMiniMaxModel(model) {

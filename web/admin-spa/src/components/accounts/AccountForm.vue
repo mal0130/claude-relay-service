@@ -242,6 +242,37 @@
                       <p class="text-xs text-gray-600 dark:text-gray-400">国产模型</p>
                     </div>
                   </div>
+
+                  <!-- MiniMax 分组 -->
+                  <div
+                    class="group relative cursor-pointer overflow-hidden rounded-lg border-2 transition-all duration-200"
+                    :class="[
+                      platformGroup === 'minimax'
+                        ? 'border-purple-500 bg-gradient-to-br from-purple-50 to-violet-50 shadow-md dark:from-purple-900/20 dark:to-violet-900/20'
+                        : 'border-gray-200 bg-white hover:border-purple-300 hover:shadow dark:border-gray-700 dark:bg-gray-800 dark:hover:border-purple-600'
+                    ]"
+                    @click="selectPlatformGroup('minimax')"
+                  >
+                    <div class="p-3">
+                      <div class="flex items-center justify-between">
+                        <div
+                          class="flex h-8 w-8 items-center justify-center rounded-md bg-purple-100 dark:bg-purple-900/30"
+                        >
+                          <i class="fas fa-atom text-sm text-purple-600 dark:text-purple-400"></i>
+                        </div>
+                        <div
+                          v-if="platformGroup === 'minimax'"
+                          class="flex h-5 w-5 items-center justify-center rounded-full bg-purple-500"
+                        >
+                          <i class="fas fa-check text-xs text-white"></i>
+                        </div>
+                      </div>
+                      <h4 class="mt-2 text-sm font-semibold text-gray-900 dark:text-gray-100">
+                        MiniMax
+                      </h4>
+                      <p class="text-xs text-gray-600 dark:text-gray-400">国产模型</p>
+                    </div>
+                  </div>
                 </div>
 
                 <!-- 子平台选择器 -->
@@ -647,6 +678,40 @@
                         </div>
                       </label>
                     </template>
+
+                    <!-- MiniMax 子选项 -->
+                    <template v-if="platformGroup === 'minimax'">
+                      <label
+                        class="group relative flex cursor-pointer items-center rounded-md border p-2 transition-all"
+                        :class="[
+                          form.platform === 'minimax'
+                            ? 'border-purple-500 bg-purple-50 dark:border-purple-400 dark:bg-purple-900/30'
+                            : 'border-gray-300 bg-white hover:border-purple-400 hover:bg-purple-50/50 dark:border-gray-600 dark:bg-gray-700 dark:hover:border-purple-500 dark:hover:bg-purple-900/20'
+                        ]"
+                      >
+                        <input
+                          v-model="form.platform"
+                          class="sr-only"
+                          type="radio"
+                          value="minimax"
+                        />
+                        <div class="flex items-center gap-2">
+                          <i class="fas fa-atom text-sm text-purple-600 dark:text-purple-400"></i>
+                          <div>
+                            <span class="block text-xs font-medium text-gray-900 dark:text-gray-100"
+                              >MiniMax API</span
+                            >
+                            <span class="text-xs text-gray-500 dark:text-gray-400">标准 API</span>
+                          </div>
+                        </div>
+                        <div
+                          v-if="form.platform === 'minimax'"
+                          class="absolute right-1 top-1 flex h-4 w-4 items-center justify-center rounded-full bg-purple-500"
+                        >
+                          <i class="fas fa-check text-xs text-white"></i>
+                        </div>
+                      </label>
+                    </template>
                   </div>
                 </div>
               </div>
@@ -661,7 +726,8 @@
                 form.platform !== 'azure_openai' &&
                 form.platform !== 'openai-responses' &&
                 form.platform !== 'gemini-api' &&
-                form.platform !== 'deepseek'
+                form.platform !== 'deepseek' &&
+                form.platform !== 'minimax'
               "
             >
               <label class="mb-3 block text-sm font-semibold text-gray-700 dark:text-gray-300"
@@ -1854,6 +1920,55 @@
               <input v-model.number="form.rateLimitDuration" type="hidden" value="60" />
             </div>
 
+            <!-- MiniMax API 配置 -->
+            <div v-if="form.platform === 'minimax' && !isEdit" class="space-y-4">
+              <div>
+                <label class="mb-3 block text-sm font-semibold text-gray-700 dark:text-gray-300"
+                  >API 基础地址</label
+                >
+                <input
+                  v-model="form.baseApi"
+                  class="form-input w-full border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200 dark:placeholder-gray-400"
+                  placeholder="https://api.minimax.chat"
+                  type="url"
+                />
+                <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                  可填写官方或兼容服务商的基础地址，留空使用默认地址。
+                </p>
+                <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                  客户端使用中转地址 <code>/minimax/v1</code>，此处只填写上游服务商地址。
+                </p>
+              </div>
+
+              <div>
+                <label class="mb-3 block text-sm font-semibold text-gray-700 dark:text-gray-300"
+                  >API 密钥 *</label
+                >
+                <div class="relative">
+                  <input
+                    v-model="form.apiKey"
+                    class="form-input w-full border-gray-300 pr-10 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200 dark:placeholder-gray-400"
+                    :class="{ 'border-red-500 dark:border-red-400': errors.apiKey }"
+                    placeholder="请输入 MiniMax API 密钥"
+                    required
+                    :type="showApiKey ? 'text' : 'password'"
+                  />
+                  <button
+                    class="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:text-gray-500 dark:hover:text-gray-400"
+                    type="button"
+                    @click="showApiKey = !showApiKey"
+                  >
+                    <i :class="showApiKey ? 'fas fa-eye-slash' : 'fas fa-eye'" />
+                  </button>
+                </div>
+                <p v-if="errors.apiKey" class="mt-1 text-xs text-red-500">
+                  {{ errors.apiKey }}
+                </p>
+              </div>
+
+              <input v-model.number="form.rateLimitDuration" type="hidden" value="60" />
+            </div>
+
             <!-- Gemini API 配置 -->
             <div v-if="form.platform === 'gemini-api' && !isEdit" class="space-y-4">
               <div>
@@ -2148,6 +2263,7 @@
                 form.platform !== 'ccr' &&
                 form.platform !== 'bedrock' &&
                 form.platform !== 'deepseek' &&
+                form.platform !== 'minimax' &&
                 form.platform !== 'azure_openai' &&
                 form.platform !== 'openai-responses'
               "
@@ -3757,6 +3873,72 @@
             </div>
           </div>
 
+          <!-- MiniMax 特定字段（编辑模式）-->
+          <div v-if="form.platform === 'minimax'" class="space-y-4">
+            <div>
+              <label class="mb-3 block text-sm font-semibold text-gray-700 dark:text-gray-300"
+                >API 基础地址</label
+              >
+              <input
+                v-model="form.baseApi"
+                class="form-input w-full border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200"
+                placeholder="https://api.minimax.chat"
+                type="url"
+              />
+              <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                客户端使用中转地址 <code>/minimax/v1</code>，此处只填写上游服务商地址。
+              </p>
+            </div>
+
+            <div>
+              <label class="mb-3 block text-sm font-semibold text-gray-700 dark:text-gray-300"
+                >API 密钥</label
+              >
+              <div class="relative">
+                <input
+                  v-model="form.apiKey"
+                  class="form-input w-full border-gray-300 pr-10 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200"
+                  placeholder="留空表示不更新"
+                  :type="showApiKey ? 'text' : 'password'"
+                />
+                <button
+                  class="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                  type="button"
+                  @click="showApiKey = !showApiKey"
+                >
+                  <i :class="showApiKey ? 'fas fa-eye-slash' : 'fas fa-eye'" />
+                </button>
+              </div>
+              <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">留空表示不更新 API Key</p>
+            </div>
+
+            <div class="grid grid-cols-2 gap-4">
+              <div>
+                <label class="mb-3 block text-sm font-semibold text-gray-700 dark:text-gray-300">
+                  每日额度限制 ($)
+                </label>
+                <input
+                  v-model.number="form.dailyQuota"
+                  class="form-input w-full border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200"
+                  min="0"
+                  placeholder="0 表示不限制"
+                  step="0.01"
+                  type="number"
+                />
+              </div>
+              <div>
+                <label class="mb-3 block text-sm font-semibold text-gray-700 dark:text-gray-300">
+                  额度重置时间
+                </label>
+                <input
+                  v-model="form.quotaResetTime"
+                  class="form-input w-full border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200"
+                  type="time"
+                />
+              </div>
+            </div>
+          </div>
+
           <!-- Gemini API 特定字段（编辑模式）-->
           <div v-if="form.platform === 'gemini-api'" class="space-y-4">
             <div>
@@ -4146,7 +4328,8 @@
               form.platform !== 'bedrock' &&
               form.platform !== 'azure_openai' &&
               form.platform !== 'openai-responses' &&
-              form.platform !== 'deepseek'
+              form.platform !== 'deepseek' &&
+              form.platform !== 'minimax'
             "
             class="rounded-lg border border-amber-200 bg-amber-50 p-4 dark:border-amber-700 dark:bg-amber-900/30"
           >
@@ -4328,7 +4511,8 @@ const autoProtectionPlatforms = [
   'gemini-api',
   'openai',
   'openai-responses',
-  'deepseek'
+  'deepseek',
+  'minimax'
 ]
 
 // OAuthFlow 组件引用
@@ -4387,6 +4571,8 @@ const determinePlatformGroup = (platform) => {
     return 'droid'
   } else if (platform === 'deepseek') {
     return 'deepseek'
+  } else if (platform === 'minimax') {
+    return 'minimax'
   }
   return ''
 }
@@ -4539,7 +4725,7 @@ const form = ref({
   platform: props.account?.platform || 'claude',
   addType: (() => {
     const platform = props.account?.platform || 'claude'
-    if (platform === 'deepseek') return 'apikey'
+    if (platform === 'deepseek' || platform === 'minimax') return 'apikey'
     if (platform === 'gemini' || platform === 'gemini-antigravity' || platform === 'openai')
       return 'oauth'
     if (platform === 'claude') return 'oauth'
@@ -4914,6 +5100,9 @@ const selectPlatformGroup = (group) => {
     form.value.platform = 'droid'
   } else if (group === 'deepseek') {
     form.value.platform = 'deepseek'
+    form.value.addType = 'apikey'
+  } else if (group === 'minimax') {
+    form.value.platform = 'minimax'
     form.value.addType = 'apikey'
   }
 }
@@ -5592,7 +5781,7 @@ const createAccount = async () => {
     }
     // Claude Console、CCR、OpenAI-Responses 等其他平台不需要 Token 验证
   } else if (form.value.addType === 'apikey') {
-    // Gemini API 使用单个 apiKey 字段
+    // 使用单个 apiKey 字段的平台
     if (form.value.platform === 'gemini-api') {
       if (!form.value.apiKey || form.value.apiKey.trim() === '') {
         errors.value.apiKey = '请填写 API Key'
@@ -5600,6 +5789,11 @@ const createAccount = async () => {
       }
       if (!form.value.baseUrl || form.value.baseUrl.trim() === '') {
         errors.value.baseUrl = '请填写 API 基础地址'
+        hasError = true
+      }
+    } else if (form.value.platform === 'minimax') {
+      if (!form.value.apiKey || form.value.apiKey.trim() === '') {
+        errors.value.apiKey = '请填写 API 密钥'
         hasError = true
       }
     } else {
@@ -5793,6 +5987,13 @@ const createAccount = async () => {
       data.rateLimitDuration = form.value.rateLimitDuration || 60
       data.dailyQuota = form.value.dailyQuota || 0
       data.quotaResetTime = form.value.quotaResetTime || '00:00'
+    } else if (form.value.platform === 'minimax') {
+      data.baseApi = form.value.baseApi
+      data.apiKey = form.value.apiKey
+      data.priority = form.value.priority || 50
+      data.rateLimitDuration = form.value.rateLimitDuration || 60
+      data.dailyQuota = form.value.dailyQuota || 0
+      data.quotaResetTime = form.value.quotaResetTime || '00:00'
     } else if (form.value.platform === 'gemini-antigravity') {
       // Antigravity OAuth - set oauthProvider, submission happens below
       data.oauthProvider = 'antigravity'
@@ -5858,6 +6059,8 @@ const createAccount = async () => {
       result = await accountsStore.createOpenAIResponsesAccount(data)
     } else if (form.value.platform === 'deepseek') {
       result = await accountsStore.createDeepSeekAccount(data)
+    } else if (form.value.platform === 'minimax') {
+      result = await accountsStore.createMiniMaxAccount(data)
     } else if (form.value.platform === 'bedrock') {
       result = await accountsStore.createBedrockAccount(data)
     } else if (form.value.platform === 'openai') {
@@ -6166,6 +6369,17 @@ const updateAccount = async () => {
       data.quotaResetTime = form.value.quotaResetTime || '00:00'
     }
 
+    if (props.account.platform === 'minimax') {
+      data.baseApi = form.value.baseApi
+      if (form.value.apiKey && form.value.apiKey.trim()) {
+        data.apiKey = form.value.apiKey
+      }
+      data.priority = form.value.priority || 50
+      data.rateLimitDuration = form.value.rateLimitDuration || 60
+      data.dailyQuota = form.value.dailyQuota || 0
+      data.quotaResetTime = form.value.quotaResetTime || '00:00'
+    }
+
     // Bedrock 特定更新
     if (props.account.platform === 'bedrock') {
       // 更新凭证类型
@@ -6247,6 +6461,8 @@ const updateAccount = async () => {
       await accountsStore.updateOpenAIResponsesAccount(props.account.id, data)
     } else if (props.account.platform === 'deepseek') {
       await accountsStore.updateDeepSeekAccount(props.account.id, data)
+    } else if (props.account.platform === 'minimax') {
+      await accountsStore.updateMiniMaxAccount(props.account.id, data)
     } else if (props.account.platform === 'bedrock') {
       await accountsStore.updateBedrockAccount(props.account.id, data)
     } else if (props.account.platform === 'openai') {
@@ -6452,6 +6668,8 @@ watch(
     ) {
       form.value.addType = 'manual' // Claude Console、CCR、Bedrock、OpenAI-Responses 只支持手动模式
     } else if (newPlatform === 'deepseek') {
+      form.value.addType = 'apikey'
+    } else if (newPlatform === 'minimax') {
       form.value.addType = 'apikey'
     } else if (newPlatform === 'claude') {
       // 切换到 Claude 时，使用 oauth 作为默认方式

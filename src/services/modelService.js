@@ -85,9 +85,7 @@ class ModelService {
           'MiniMax-M2.5-highspeed',
           'MiniMax-M2.1',
           'MiniMax-M2.1-highspeed',
-          'MiniMax-M2',
-          'abab6.5s-chat',
-          'abab8.5s-chat'
+          'MiniMax-M2'
         ]
       }
     }

@@ -39,7 +39,9 @@
                       ? 'bg-cyan-100 text-cyan-700 dark:bg-cyan-900/30 dark:text-cyan-300'
                       : tab.key === 'deepseek'
                         ? 'bg-[#3964fe]/10 text-[#3964fe] dark:bg-[#3964fe]/20 dark:text-[#6f8cff]'
-                        : 'bg-gray-200 text-gray-700 dark:bg-gray-700 dark:text-gray-200'
+                        : tab.key === 'minimax'
+                          ? 'bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-300'
+                          : 'bg-gray-200 text-gray-700 dark:bg-gray-700 dark:text-gray-200'
                 : 'bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-400 dark:hover:bg-gray-700'
             ]"
             @click="activeTab = tab.key"
@@ -245,6 +247,10 @@
                 <input v-model="createForm.platform" class="mr-2" type="radio" value="deepseek" />
                 <span class="text-sm text-gray-700 dark:text-gray-300">DeepSeek</span>
               </label>
+              <label class="flex cursor-pointer items-center">
+                <input v-model="createForm.platform" class="mr-2" type="radio" value="minimax" />
+                <span class="text-sm text-gray-700 dark:text-gray-300">MiniMax</span>
+              </label>
             </div>
           </div>
 
@@ -310,7 +316,8 @@ const platformTabs = [
   { key: 'gemini', label: 'Gemini', color: 'blue' },
   { key: 'openai', label: 'OpenAI', color: 'gray' },
   { key: 'droid', label: 'Droid', color: 'cyan' },
-  { key: 'deepseek', label: 'DeepSeek', color: 'blue' }
+  { key: 'deepseek', label: 'DeepSeek', color: 'blue' },
+  { key: 'minimax', label: 'MiniMax', color: 'rose' }
 ]
 
 const platformLabels = {
@@ -318,7 +325,8 @@ const platformLabels = {
   gemini: 'Gemini',
   openai: 'OpenAI',
   droid: 'Droid',
-  deepseek: 'DeepSeek'
+  deepseek: 'DeepSeek',
+  minimax: 'MiniMax'
 }
 
 const platformBadgeClasses = {
@@ -326,7 +334,8 @@ const platformBadgeClasses = {
   gemini: 'bg-blue-100 text-blue-700',
   openai: 'bg-gray-100 text-gray-700',
   droid: 'bg-cyan-100 text-cyan-700',
-  deepseek: 'bg-[#3964fe]/10 text-[#3964fe]'
+  deepseek: 'bg-[#3964fe]/10 text-[#3964fe]',
+  minimax: 'bg-rose-100 text-rose-700'
 }
 
 const getPlatformLabel = (platform) => platformLabels[platform] || platform
