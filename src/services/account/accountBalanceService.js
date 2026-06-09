@@ -32,7 +32,9 @@ class AccountBalanceService {
       'droid',
       'ccr',
       'deepseek',
-      'minimax'
+      'minimax',
+      'glm',
+      'kimi'
     ]
   }
 
@@ -222,7 +224,9 @@ class AccountBalanceService {
       droid: require('./droidAccountService'),
       ccr: require('./ccrAccountService'),
       deepseek: require('./deepseekAccountService'),
-      minimax: require('./minimaxAccountService')
+      minimax: require('./minimaxAccountService'),
+      glm: require('./glmAccountService'),
+      kimi: require('./kimiAccountService')
     }
 
     const service = serviceMap[platform]
@@ -258,7 +262,9 @@ class AccountBalanceService {
       droid: require('./droidAccountService'),
       ccr: require('./ccrAccountService'),
       deepseek: require('./deepseekAccountService'),
-      minimax: require('./minimaxAccountService')
+      minimax: require('./minimaxAccountService'),
+      glm: require('./glmAccountService'),
+      kimi: require('./kimiAccountService')
     }
 
     const service = serviceMap[platform]

@@ -33,7 +33,17 @@ function normalizeBaseApi(baseApi = KIMI_DEFAULT_BASE_API) {
 }
 
 function buildChatCompletionsUrl(baseApi) {
-  return `${normalizeBaseApi(baseApi)}${KIMI_PLATFORM.chatPath}`
+  const normalized = normalizeBaseApi(baseApi)
+
+  if (normalized.endsWith('/chat/completions')) {
+    return normalized
+  }
+
+  if (normalized.endsWith('/v1')) {
+    return `${normalized}/chat/completions`
+  }
+
+  return `${normalized}${KIMI_PLATFORM.chatPath}`
 }
 
 function buildAnthropicMessagesUrl(baseApi) {

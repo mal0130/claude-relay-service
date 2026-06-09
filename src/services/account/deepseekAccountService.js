@@ -32,7 +32,8 @@ class DeepSeekAccountService {
       dailyQuota = 0,
       quotaResetTime = '00:00',
       rateLimitDuration = 60,
-      disableAutoProtection = false
+      disableAutoProtection = false,
+      supportedModels = {}
     } = options
 
     if (!apiKey) {
@@ -40,6 +41,7 @@ class DeepSeekAccountService {
     }
 
     const accountId = uuidv4()
+    const processedModels = this._processModelMapping(supportedModels)
     const accountData = {
       id: accountId,
       platform: 'deepseek',
@@ -51,6 +53,7 @@ class DeepSeekAccountService {
       apiKey: encryptor.encrypt(apiKey),
       priority: priority.toString(),
       proxy: proxy ? JSON.stringify(proxy) : '',
+      supportedModels: JSON.stringify(processedModels),
       isActive: isActive.toString(),
       schedulable: schedulable.toString(),
       dailyQuota: dailyQuota.toString(),
@@ -95,6 +98,12 @@ class DeepSeekAccountService {
       }
     }
 
+    try {
+      accountData.supportedModels = JSON.parse(accountData.supportedModels || '{}')
+    } catch {
+      accountData.supportedModels = {}
+    }
+
     return accountData
   }
 
@@ -128,6 +137,11 @@ class DeepSeekAccountService {
         normalizedUpdates.disableAutoProtection === 'true'
           ? 'true'
           : 'false'
+    }
+
+    if (normalizedUpdates.supportedModels !== undefined) {
+      const processedModels = this._processModelMapping(normalizedUpdates.supportedModels)
+      normalizedUpdates.supportedModels = JSON.stringify(processedModels)
     }
 
     for (const field of ['priority', 'dailyQuota', 'rateLimitDuration']) {
@@ -205,6 +219,12 @@ class DeepSeekAccountService {
         } catch {
           accountData.proxy = null
         }
+      }
+
+      try {
+        accountData.supportedModels = JSON.parse(accountData.supportedModels || '{}')
+      } catch {
+        accountData.supportedModels = {}
       }
 
       const rateLimitInfo = this._getRateLimitInfo(accountData)
@@ -420,6 +440,57 @@ class DeepSeekAccountService {
     if (accountData.accountType === 'shared') {
       await client.sadd(this.SHARED_ACCOUNTS_KEY, accountId)
     }
+  }
+
+  _processModelMapping(supportedModels) {
+    if (!supportedModels || (Array.isArray(supportedModels) && supportedModels.length === 0)) {
+      return {}
+    }
+    if (typeof supportedModels === 'object' && !Array.isArray(supportedModels)) {
+      return supportedModels
+    }
+    if (Array.isArray(supportedModels)) {
+      const mapping = {}
+      supportedModels.forEach((model) => {
+        if (model && typeof model === 'string') {
+          mapping[model] = model
+        }
+      })
+      return mapping
+    }
+    return {}
+  }
+
+  isModelSupported(modelMapping, requestedModel) {
+    if (!modelMapping || Object.keys(modelMapping).length === 0) {
+      return true
+    }
+    if (Object.prototype.hasOwnProperty.call(modelMapping, requestedModel)) {
+      return true
+    }
+    const requestedModelLower = requestedModel.toLowerCase()
+    for (const key of Object.keys(modelMapping)) {
+      if (key.toLowerCase() === requestedModelLower) {
+        return true
+      }
+    }
+    return false
+  }
+
+  getMappedModel(modelMapping, requestedModel) {
+    if (!modelMapping || Object.keys(modelMapping).length === 0) {
+      return requestedModel
+    }
+    if (modelMapping[requestedModel]) {
+      return modelMapping[requestedModel]
+    }
+    const requestedModelLower = requestedModel.toLowerCase()
+    for (const [key, value] of Object.entries(modelMapping)) {
+      if (key.toLowerCase() === requestedModelLower) {
+        return value
+      }
+    }
+    return requestedModel
   }
 }
 

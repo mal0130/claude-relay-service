@@ -85,7 +85,13 @@ class GlmRelayService {
       }
 
       const targetUrl = buildChatCompletionsUrl(account.baseApi)
-      const body = this._buildRequestBody(req.body || {})
+      const mappedModel =
+        account.supportedModels &&
+        typeof account.supportedModels === 'object' &&
+        !Array.isArray(account.supportedModels)
+          ? glmAccountService.getMappedModel(account.supportedModels, requestedModel)
+          : requestedModel
+      const body = this._buildRequestBody(req.body || {}, mappedModel)
       const isStream = body.stream === true
       const abortController = new AbortController()
 
@@ -148,9 +154,9 @@ class GlmRelayService {
     }
   }
 
-  _buildRequestBody(body) {
+  _buildRequestBody(body, mappedModel) {
     const normalized = { ...body }
-    normalized.model = this._normalizeRequestModel(normalized.model)
+    normalized.model = mappedModel || this._normalizeRequestModel(normalized.model)
 
     if (normalized.stream === true) {
       normalized.stream_options = {
@@ -162,9 +168,9 @@ class GlmRelayService {
     return normalized
   }
 
-  _buildAnthropicRequestBody(body) {
+  _buildAnthropicRequestBody(body, mappedModel) {
     const normalized = { ...body }
-    normalized.model = this._normalizeRequestModel(normalized.model)
+    normalized.model = mappedModel || this._normalizeRequestModel(normalized.model)
 
     return normalized
   }
@@ -223,7 +229,13 @@ class GlmRelayService {
       }
 
       const targetUrl = buildAnthropicMessagesUrl(account.baseApi)
-      const body = this._buildAnthropicRequestBody(req.body || {})
+      const mappedModel =
+        account.supportedModels &&
+        typeof account.supportedModels === 'object' &&
+        !Array.isArray(account.supportedModels)
+          ? glmAccountService.getMappedModel(account.supportedModels, requestedModel)
+          : requestedModel
+      const body = this._buildAnthropicRequestBody(req.body || {}, mappedModel)
       const isStream = body.stream === true
       const abortController = new AbortController()
 
@@ -726,8 +738,11 @@ class GlmRelayService {
       stream,
       statusCode,
       protocol = 'openai',
-      assistantContent
+      assistantContent,
+      requestedModel
     } = options
+    // 计费使用请求模型（用户配置的），避免上游返回免费模型导致费用为0
+    const billingModel = requestedModel || model
     const resolvedRawSessionId =
       req.headers['session_id'] ||
       req.headers['x-session-id'] ||
@@ -753,7 +768,7 @@ class GlmRelayService {
     const costs = await apiKeyService.recordUsageWithDetails(
       req.apiKey.id,
       normalizedUsage,
-      model,
+      billingModel,
       accountId,
       'glm',
       usageExtra,
@@ -774,7 +789,7 @@ class GlmRelayService {
         cacheCreateTokens: normalizedUsage.cache_creation_input_tokens,
         cacheReadTokens: normalizedUsage.cache_read_input_tokens
       },
-      model,
+      billingModel,
       req.apiKey.id,
       'glm',
       costs

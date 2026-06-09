@@ -11,6 +11,8 @@ const droidAccountService = require('../../services/account/droidAccountService'
 const bedrockAccountService = require('../../services/account/bedrockAccountService')
 const deepseekAccountService = require('../../services/account/deepseekAccountService')
 const minimaxAccountService = require('../../services/account/minimaxAccountService')
+const glmAccountService = require('../../services/account/glmAccountService')
+const kimiAccountService = require('../../services/account/kimiAccountService')
 const redis = require('../../models/redis')
 const { authenticateAdmin } = require('../../middleware/auth')
 const logger = require('../../utils/logger')
@@ -117,6 +119,8 @@ const accountTypeNames = {
   droid: 'Droid',
   deepseek: 'DeepSeek',
   minimax: 'MiniMax',
+  glm: 'GLM',
+  kimi: 'Kimi',
   bedrock: 'AWS Bedrock',
   unknown: '未知渠道'
 }
@@ -132,6 +136,8 @@ const resolveAccountByPlatform = async (accountId, platform) => {
     droid: droidAccountService,
     deepseek: deepseekAccountService,
     minimax: minimaxAccountService,
+    glm: glmAccountService,
+    kimi: kimiAccountService,
     ccr: ccrAccountService,
     bedrock: bedrockAccountService
   }
@@ -270,7 +276,9 @@ router.get('/accounts/:accountId/usage-history', authenticateAdmin, async (req, 
       'droid',
       'bedrock',
       'deepseek',
-      'minimax'
+      'minimax',
+      'glm',
+      'kimi'
     ]
     if (!allowedPlatforms.includes(platform)) {
       return res.status(400).json({
@@ -286,7 +294,9 @@ router.get('/accounts/:accountId/usage-history', authenticateAdmin, async (req, 
       droid: 'droid',
       bedrock: 'bedrock',
       deepseek: 'deepseek',
-      minimax: 'minimax'
+      minimax: 'minimax',
+      glm: 'glm',
+      kimi: 'kimi'
     }
 
     const fallbackModelMap = {
@@ -299,7 +309,9 @@ router.get('/accounts/:accountId/usage-history', authenticateAdmin, async (req, 
       droid: 'unknown',
       bedrock: 'us.anthropic.claude-3-5-sonnet-20241022-v2:0',
       deepseek: 'deepseek-chat',
-      minimax: 'MiniMax-M3'
+      minimax: 'MiniMax-M3',
+      glm: 'glm-4-flash',
+      kimi: 'moonshot-v1-8k'
     }
 
     // 获取账户信息以获取创建时间
@@ -335,6 +347,12 @@ router.get('/accounts/:accountId/usage-history', authenticateAdmin, async (req, 
           break
         case 'minimax':
           accountData = await minimaxAccountService.getAccount(accountId)
+          break
+        case 'glm':
+          accountData = await glmAccountService.getAccount(accountId)
+          break
+        case 'kimi':
+          accountData = await kimiAccountService.getAccount(accountId)
           break
         case 'bedrock': {
           const result = await bedrockAccountService.getAccount(accountId)
@@ -1263,7 +1281,7 @@ router.get('/account-usage-trend', authenticateAdmin, async (req, res) => {
   try {
     const { granularity = 'day', group = 'claude', days = 7, startDate, endDate } = req.query
 
-    const allowedGroups = ['claude', 'openai', 'gemini', 'droid', 'bedrock', 'deepseek', 'minimax']
+    const allowedGroups = ['claude', 'openai', 'gemini', 'droid', 'bedrock', 'deepseek', 'minimax', 'glm', 'kimi']
     if (!allowedGroups.includes(group)) {
       return res.status(400).json({
         success: false,
@@ -1278,7 +1296,9 @@ router.get('/account-usage-trend', authenticateAdmin, async (req, res) => {
       droid: 'Droid账户',
       bedrock: 'Bedrock账户',
       deepseek: 'DeepSeek账户',
-      minimax: 'MiniMax账户'
+      minimax: 'MiniMax账户',
+      glm: 'GLM账户',
+      kimi: 'Kimi账户'
     }
 
     // 拉取各平台账号列表
@@ -1404,6 +1424,28 @@ router.get('/account-usage-trend', authenticateAdmin, async (req, res) => {
           id,
           name: account.name || `MiniMax账号 ${shortId}`,
           platform: 'minimax'
+        }
+      })
+    } else if (group === 'glm') {
+      const glmAccounts = await glmAccountService.getAllAccounts(true)
+      accounts = glmAccounts.map((account) => {
+        const id = String(account.id || '')
+        const shortId = id ? id.slice(0, 8) : '未知'
+        return {
+          id,
+          name: account.name || `GLM账号 ${shortId}`,
+          platform: 'glm'
+        }
+      })
+    } else if (group === 'kimi') {
+      const kimiAccounts = await kimiAccountService.getAllAccounts(true)
+      accounts = kimiAccounts.map((account) => {
+        const id = String(account.id || '')
+        const shortId = id ? id.slice(0, 8) : '未知'
+        return {
+          id,
+          name: account.name || `Kimi账号 ${shortId}`,
+          platform: 'kimi'
         }
       })
     }
@@ -2831,7 +2873,9 @@ router.get('/api-keys/:keyId/usage-records', authenticateAdmin, async (req, res)
       { type: 'gemini-api', getter: (id) => geminiApiAccountService.getAccount(id) },
       { type: 'droid', getter: (id) => droidAccountService.getAccount(id) },
       { type: 'deepseek', getter: (id) => deepseekAccountService.getAccount(id) },
-      { type: 'minimax', getter: (id) => minimaxAccountService.getAccount(id) }
+      { type: 'minimax', getter: (id) => minimaxAccountService.getAccount(id) },
+      { type: 'glm', getter: (id) => glmAccountService.getAccount(id) },
+      { type: 'kimi', getter: (id) => kimiAccountService.getAccount(id) }
     ]
 
     const accountCache = new Map()

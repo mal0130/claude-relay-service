@@ -10,7 +10,7 @@ const requestBodyRuleService = require('../../services/requestBodyRuleService')
 const router = express.Router()
 
 // 有效的权限值列表
-const VALID_PERMISSIONS = ['claude', 'gemini', 'openai', 'droid', 'deepseek', 'minimax']
+const VALID_PERMISSIONS = ['claude', 'gemini', 'openai', 'droid', 'deepseek', 'minimax', 'glm', 'kimi']
 
 function normalizeAccountBindings(accountBindings) {
   if (accountBindings === undefined || accountBindings === null || accountBindings === '') {
@@ -897,6 +897,8 @@ router.get('/accounts/binding-counts', authenticateAdmin, async (req, res) => {
       droidAccountId: {},
       deepseekAccountId: {},
       minimaxAccountId: {},
+      glmAccountId: {},
+      kimiAccountId: {},
       ccrAccountId: {}
     }
 
@@ -956,6 +958,18 @@ router.get('/accounts/binding-counts', authenticateAdmin, async (req, res) => {
       if (minimaxAccountId) {
         bindingCounts.minimaxAccountId[minimaxAccountId] =
           (bindingCounts.minimaxAccountId[minimaxAccountId] || 0) + 1
+      }
+
+      const glmAccountId = accountBindings.glm?.accountId
+      if (glmAccountId) {
+        bindingCounts.glmAccountId[glmAccountId] =
+          (bindingCounts.glmAccountId[glmAccountId] || 0) + 1
+      }
+
+      const kimiAccountId = accountBindings.kimi?.accountId
+      if (kimiAccountId) {
+        bindingCounts.kimiAccountId[kimiAccountId] =
+          (bindingCounts.kimiAccountId[kimiAccountId] || 0) + 1
       }
 
       // CCR 账户

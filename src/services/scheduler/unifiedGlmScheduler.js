@@ -149,6 +149,16 @@ class UnifiedGlmScheduler {
 
     if (
       requestedModel &&
+      account.supportedModels &&
+      typeof account.supportedModels === 'object' &&
+      !Array.isArray(account.supportedModels) &&
+      Object.keys(account.supportedModels).length > 0
+    ) {
+      return glmAccountService.isModelSupported(account.supportedModels, requestedModel)
+    }
+
+    if (
+      requestedModel &&
       Array.isArray(account.supportedModels) &&
       account.supportedModels.length
     ) {

@@ -9,6 +9,8 @@ const droidAccountService = require('../../services/account/droidAccountService'
 const openaiResponsesAccountService = require('../../services/account/openaiResponsesAccountService')
 const deepseekAccountService = require('../../services/account/deepseekAccountService')
 const minimaxAccountService = require('../../services/account/minimaxAccountService')
+const glmAccountService = require('../../services/account/glmAccountService')
+const kimiAccountService = require('../../services/account/kimiAccountService')
 const redis = require('../../models/redis')
 const { authenticateAdmin } = require('../../middleware/auth')
 const logger = require('../../utils/logger')
@@ -41,6 +43,8 @@ router.get('/dashboard', authenticateAdmin, async (req, res) => {
       droidAccounts,
       deepseekAccounts,
       minimaxAccounts,
+      glmAccounts,
+      kimiAccounts,
       todayStats,
       systemAverages,
       realtimeMetrics
@@ -55,6 +59,8 @@ router.get('/dashboard', authenticateAdmin, async (req, res) => {
       droidAccountService.getAllAccounts(),
       deepseekAccountService.getAllAccounts(true),
       minimaxAccountService.getAllAccounts(true),
+      glmAccountService.getAllAccounts(true),
+      kimiAccountService.getAllAccounts(true),
       redis.getTodayStats(),
       redis.getSystemAverages(),
       redis.getRealtimeSystemMetrics()
@@ -193,6 +199,8 @@ router.get('/dashboard', authenticateAdmin, async (req, res) => {
     const openaiResponsesStats = countAccountStats(openaiResponsesAccounts, { isStringType: true })
     const deepseekStats = countAccountStats(deepseekAccounts, { isStringType: true })
     const minimaxStats = countAccountStats(minimaxAccounts, { isStringType: true })
+    const glmStats = countAccountStats(glmAccounts, { isStringType: true })
+    const kimiStats = countAccountStats(kimiAccounts, { isStringType: true })
 
     const dashboard = {
       overview: {
@@ -208,6 +216,8 @@ router.get('/dashboard', authenticateAdmin, async (req, res) => {
           openaiResponsesAccounts.length +
           deepseekAccounts.length +
           minimaxAccounts.length +
+          glmAccounts.length +
+          kimiAccounts.length +
           ccrAccounts.length,
         normalAccounts:
           claudeStats.normal +
@@ -218,6 +228,8 @@ router.get('/dashboard', authenticateAdmin, async (req, res) => {
           openaiResponsesStats.normal +
           deepseekStats.normal +
           minimaxStats.normal +
+          glmStats.normal +
+          kimiStats.normal +
           ccrStats.normal,
         abnormalAccounts:
           claudeStats.abnormal +
@@ -228,6 +240,8 @@ router.get('/dashboard', authenticateAdmin, async (req, res) => {
           openaiResponsesStats.abnormal +
           deepseekStats.abnormal +
           minimaxStats.abnormal +
+          glmStats.abnormal +
+          kimiStats.abnormal +
           ccrStats.abnormal +
           abnormalDroidAccounts,
         pausedAccounts:
@@ -239,6 +253,8 @@ router.get('/dashboard', authenticateAdmin, async (req, res) => {
           openaiResponsesStats.paused +
           deepseekStats.paused +
           minimaxStats.paused +
+          glmStats.paused +
+          kimiStats.paused +
           ccrStats.paused +
           pausedDroidAccounts,
         rateLimitedAccounts:
@@ -250,6 +266,8 @@ router.get('/dashboard', authenticateAdmin, async (req, res) => {
           openaiResponsesStats.rateLimited +
           deepseekStats.rateLimited +
           minimaxStats.rateLimited +
+          glmStats.rateLimited +
+          kimiStats.rateLimited +
           ccrStats.rateLimited +
           rateLimitedDroidAccounts,
         // 各平台详细统计
@@ -317,6 +335,20 @@ router.get('/dashboard', authenticateAdmin, async (req, res) => {
             paused: minimaxStats.paused,
             rateLimited: minimaxStats.rateLimited
           },
+          glm: {
+            total: glmAccounts.length,
+            normal: glmStats.normal,
+            abnormal: glmStats.abnormal,
+            paused: glmStats.paused,
+            rateLimited: glmStats.rateLimited
+          },
+          kimi: {
+            total: kimiAccounts.length,
+            normal: kimiStats.normal,
+            abnormal: kimiStats.abnormal,
+            paused: kimiStats.paused,
+            rateLimited: kimiStats.rateLimited
+          },
           droid: {
             total: droidAccounts.length,
             normal: normalDroidAccounts,
@@ -335,6 +367,8 @@ router.get('/dashboard', authenticateAdmin, async (req, res) => {
           openaiResponsesStats.normal +
           deepseekStats.normal +
           minimaxStats.normal +
+          glmStats.normal +
+          kimiStats.normal +
           ccrStats.normal +
           normalDroidAccounts,
         totalClaudeAccounts: claudeAccounts.length + claudeConsoleAccounts.length,

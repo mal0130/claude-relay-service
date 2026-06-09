@@ -2040,6 +2040,123 @@
               </div>
 
               <input v-model.number="form.rateLimitDuration" type="hidden" value="60" />
+
+              <!-- 模型映射配置 -->
+              <div>
+                <label class="mb-3 block text-sm font-semibold text-gray-700 dark:text-gray-300"
+                  >模型限制 (可选)</label
+                >
+                <div class="mb-4 flex gap-2">
+                  <button
+                    class="flex-1 rounded-lg px-4 py-2 text-sm font-medium transition-all"
+                    :class="
+                      modelRestrictionMode === 'whitelist'
+                        ? 'bg-blue-500 text-white shadow-md'
+                        : 'border border-gray-300 text-gray-600 hover:border-blue-300 dark:border-gray-600 dark:text-gray-400 dark:hover:border-blue-500'
+                    "
+                    type="button"
+                    @click="modelRestrictionMode = 'whitelist'"
+                  >
+                    <i class="fas fa-check-circle mr-2" />
+                    模型白名单
+                  </button>
+                  <button
+                    class="flex-1 rounded-lg px-4 py-2 text-sm font-medium transition-all"
+                    :class="
+                      modelRestrictionMode === 'mapping'
+                        ? 'bg-purple-500 text-white shadow-md'
+                        : 'border border-gray-300 text-gray-600 hover:border-purple-300 dark:border-gray-600 dark:text-gray-400 dark:hover:border-purple-500'
+                    "
+                    type="button"
+                    @click="modelRestrictionMode = 'mapping'"
+                  >
+                    <i class="fas fa-random mr-2" />
+                    模型映射
+                  </button>
+                </div>
+                <div v-if="modelRestrictionMode === 'whitelist'">
+                  <div class="mb-3 rounded-lg bg-blue-50 p-3 dark:bg-blue-900/30">
+                    <p class="text-xs text-blue-700 dark:text-blue-400">
+                      <i class="fas fa-info-circle mr-1" />
+                      输入允许使用此账户的模型名称。留空表示支持所有模型。
+                    </p>
+                  </div>
+                  <div class="mb-3 space-y-2">
+                    <div
+                      v-for="(mapping, index) in modelMappings"
+                      :key="index"
+                      class="flex items-center gap-2"
+                    >
+                      <input
+                        v-model="mapping.from"
+                        class="form-input flex-1 border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200 dark:placeholder-gray-400"
+                        placeholder="模型名称，如 deepseek-chat"
+                        type="text"
+                        @input="mapping.to = mapping.from"
+                      />
+                      <button
+                        class="rounded-lg p-2 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/30"
+                        type="button"
+                        @click="removeModelMapping(index)"
+                      >
+                        <i class="fas fa-trash-alt" />
+                      </button>
+                    </div>
+                  </div>
+                  <button
+                    class="w-full rounded-lg border-2 border-dashed border-gray-300 px-4 py-2 text-gray-600 transition-colors hover:border-gray-400 hover:text-gray-700 dark:border-gray-600 dark:text-gray-400 dark:hover:border-gray-500 dark:hover:text-gray-300"
+                    type="button"
+                    @click="addModelMapping"
+                  >
+                    <i class="fas fa-plus mr-2" />
+                    添加模型
+                  </button>
+                </div>
+                <div v-else>
+                  <div class="mb-3 rounded-lg bg-purple-50 p-3 dark:bg-purple-900/30">
+                    <p class="text-xs text-purple-700 dark:text-purple-400">
+                      <i class="fas fa-info-circle mr-1" />
+                      配置模型映射关系。左侧是客户端请求的模型，右侧是实际发送给API的模型。
+                    </p>
+                  </div>
+                  <div class="mb-3 space-y-2">
+                    <div
+                      v-for="(mapping, index) in modelMappings"
+                      :key="index"
+                      class="flex items-center gap-2"
+                    >
+                      <input
+                        v-model="mapping.from"
+                        class="form-input flex-1 border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200 dark:placeholder-gray-400"
+                        placeholder="原始模型名称"
+                        type="text"
+                      />
+                      <i class="fas fa-arrow-right text-gray-400" />
+                      <input
+                        v-model="mapping.to"
+                        class="form-input flex-1 border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200 dark:placeholder-gray-400"
+                        placeholder="映射后模型名称"
+                        type="text"
+                      />
+                      <button
+                        class="rounded-lg p-2 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/30"
+                        type="button"
+                        @click="removeModelMapping(index)"
+                      >
+                        <i class="fas fa-trash-alt" />
+                      </button>
+                    </div>
+                  </div>
+                  <button
+                    class="w-full rounded-lg border-2 border-dashed border-gray-300 px-4 py-2 text-gray-600 transition-colors hover:border-gray-400 hover:text-gray-700 dark:border-gray-600 dark:text-gray-400 dark:hover:border-gray-500 dark:hover:text-gray-300"
+                    type="button"
+                    @click="addModelMapping"
+                  >
+                    <i class="fas fa-plus mr-2" />
+                    添加模型映射
+                  </button>
+                </div>
+              </div>
             </div>
 
             <!-- MiniMax API 配置 -->
@@ -2089,6 +2206,123 @@
               </div>
 
               <input v-model.number="form.rateLimitDuration" type="hidden" value="60" />
+
+              <!-- 模型映射配置 -->
+              <div>
+                <label class="mb-3 block text-sm font-semibold text-gray-700 dark:text-gray-300"
+                  >模型限制 (可选)</label
+                >
+                <div class="mb-4 flex gap-2">
+                  <button
+                    class="flex-1 rounded-lg px-4 py-2 text-sm font-medium transition-all"
+                    :class="
+                      modelRestrictionMode === 'whitelist'
+                        ? 'bg-blue-500 text-white shadow-md'
+                        : 'border border-gray-300 text-gray-600 hover:border-blue-300 dark:border-gray-600 dark:text-gray-400 dark:hover:border-blue-500'
+                    "
+                    type="button"
+                    @click="modelRestrictionMode = 'whitelist'"
+                  >
+                    <i class="fas fa-check-circle mr-2" />
+                    模型白名单
+                  </button>
+                  <button
+                    class="flex-1 rounded-lg px-4 py-2 text-sm font-medium transition-all"
+                    :class="
+                      modelRestrictionMode === 'mapping'
+                        ? 'bg-purple-500 text-white shadow-md'
+                        : 'border border-gray-300 text-gray-600 hover:border-purple-300 dark:border-gray-600 dark:text-gray-400 dark:hover:border-purple-500'
+                    "
+                    type="button"
+                    @click="modelRestrictionMode = 'mapping'"
+                  >
+                    <i class="fas fa-random mr-2" />
+                    模型映射
+                  </button>
+                </div>
+                <div v-if="modelRestrictionMode === 'whitelist'">
+                  <div class="mb-3 rounded-lg bg-blue-50 p-3 dark:bg-blue-900/30">
+                    <p class="text-xs text-blue-700 dark:text-blue-400">
+                      <i class="fas fa-info-circle mr-1" />
+                      输入允许使用此账户的模型名称。留空表示支持所有模型。
+                    </p>
+                  </div>
+                  <div class="mb-3 space-y-2">
+                    <div
+                      v-for="(mapping, index) in modelMappings"
+                      :key="index"
+                      class="flex items-center gap-2"
+                    >
+                      <input
+                        v-model="mapping.from"
+                        class="form-input flex-1 border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200 dark:placeholder-gray-400"
+                        placeholder="模型名称"
+                        type="text"
+                        @input="mapping.to = mapping.from"
+                      />
+                      <button
+                        class="rounded-lg p-2 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/30"
+                        type="button"
+                        @click="removeModelMapping(index)"
+                      >
+                        <i class="fas fa-trash-alt" />
+                      </button>
+                    </div>
+                  </div>
+                  <button
+                    class="w-full rounded-lg border-2 border-dashed border-gray-300 px-4 py-2 text-gray-600 transition-colors hover:border-gray-400 hover:text-gray-700 dark:border-gray-600 dark:text-gray-400 dark:hover:border-gray-500 dark:hover:text-gray-300"
+                    type="button"
+                    @click="addModelMapping"
+                  >
+                    <i class="fas fa-plus mr-2" />
+                    添加模型
+                  </button>
+                </div>
+                <div v-else>
+                  <div class="mb-3 rounded-lg bg-purple-50 p-3 dark:bg-purple-900/30">
+                    <p class="text-xs text-purple-700 dark:text-purple-400">
+                      <i class="fas fa-info-circle mr-1" />
+                      配置模型映射关系。左侧是客户端请求的模型，右侧是实际发送给API的模型。
+                    </p>
+                  </div>
+                  <div class="mb-3 space-y-2">
+                    <div
+                      v-for="(mapping, index) in modelMappings"
+                      :key="index"
+                      class="flex items-center gap-2"
+                    >
+                      <input
+                        v-model="mapping.from"
+                        class="form-input flex-1 border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200 dark:placeholder-gray-400"
+                        placeholder="原始模型名称"
+                        type="text"
+                      />
+                      <i class="fas fa-arrow-right text-gray-400" />
+                      <input
+                        v-model="mapping.to"
+                        class="form-input flex-1 border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200 dark:placeholder-gray-400"
+                        placeholder="映射后模型名称"
+                        type="text"
+                      />
+                      <button
+                        class="rounded-lg p-2 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/30"
+                        type="button"
+                        @click="removeModelMapping(index)"
+                      >
+                        <i class="fas fa-trash-alt" />
+                      </button>
+                    </div>
+                  </div>
+                  <button
+                    class="w-full rounded-lg border-2 border-dashed border-gray-300 px-4 py-2 text-gray-600 transition-colors hover:border-gray-400 hover:text-gray-700 dark:border-gray-600 dark:text-gray-400 dark:hover:border-gray-500 dark:hover:text-gray-300"
+                    type="button"
+                    @click="addModelMapping"
+                  >
+                    <i class="fas fa-plus mr-2" />
+                    添加模型映射
+                  </button>
+                </div>
+              </div>
             </div>
 
             <!-- GLM API 配置 -->
@@ -2138,6 +2372,123 @@
               </div>
 
               <input v-model.number="form.rateLimitDuration" type="hidden" value="60" />
+
+              <!-- 模型映射配置 -->
+              <div>
+                <label class="mb-3 block text-sm font-semibold text-gray-700 dark:text-gray-300"
+                  >模型限制 (可选)</label
+                >
+                <div class="mb-4 flex gap-2">
+                  <button
+                    class="flex-1 rounded-lg px-4 py-2 text-sm font-medium transition-all"
+                    :class="
+                      modelRestrictionMode === 'whitelist'
+                        ? 'bg-blue-500 text-white shadow-md'
+                        : 'border border-gray-300 text-gray-600 hover:border-blue-300 dark:border-gray-600 dark:text-gray-400 dark:hover:border-blue-500'
+                    "
+                    type="button"
+                    @click="modelRestrictionMode = 'whitelist'"
+                  >
+                    <i class="fas fa-check-circle mr-2" />
+                    模型白名单
+                  </button>
+                  <button
+                    class="flex-1 rounded-lg px-4 py-2 text-sm font-medium transition-all"
+                    :class="
+                      modelRestrictionMode === 'mapping'
+                        ? 'bg-purple-500 text-white shadow-md'
+                        : 'border border-gray-300 text-gray-600 hover:border-purple-300 dark:border-gray-600 dark:text-gray-400 dark:hover:border-purple-500'
+                    "
+                    type="button"
+                    @click="modelRestrictionMode = 'mapping'"
+                  >
+                    <i class="fas fa-random mr-2" />
+                    模型映射
+                  </button>
+                </div>
+                <div v-if="modelRestrictionMode === 'whitelist'">
+                  <div class="mb-3 rounded-lg bg-blue-50 p-3 dark:bg-blue-900/30">
+                    <p class="text-xs text-blue-700 dark:text-blue-400">
+                      <i class="fas fa-info-circle mr-1" />
+                      输入允许使用此账户的模型名称。留空表示支持所有模型。
+                    </p>
+                  </div>
+                  <div class="mb-3 space-y-2">
+                    <div
+                      v-for="(mapping, index) in modelMappings"
+                      :key="index"
+                      class="flex items-center gap-2"
+                    >
+                      <input
+                        v-model="mapping.from"
+                        class="form-input flex-1 border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200 dark:placeholder-gray-400"
+                        placeholder="模型名称"
+                        type="text"
+                        @input="mapping.to = mapping.from"
+                      />
+                      <button
+                        class="rounded-lg p-2 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/30"
+                        type="button"
+                        @click="removeModelMapping(index)"
+                      >
+                        <i class="fas fa-trash-alt" />
+                      </button>
+                    </div>
+                  </div>
+                  <button
+                    class="w-full rounded-lg border-2 border-dashed border-gray-300 px-4 py-2 text-gray-600 transition-colors hover:border-gray-400 hover:text-gray-700 dark:border-gray-600 dark:text-gray-400 dark:hover:border-gray-500 dark:hover:text-gray-300"
+                    type="button"
+                    @click="addModelMapping"
+                  >
+                    <i class="fas fa-plus mr-2" />
+                    添加模型
+                  </button>
+                </div>
+                <div v-else>
+                  <div class="mb-3 rounded-lg bg-purple-50 p-3 dark:bg-purple-900/30">
+                    <p class="text-xs text-purple-700 dark:text-purple-400">
+                      <i class="fas fa-info-circle mr-1" />
+                      配置模型映射关系。左侧是客户端请求的模型，右侧是实际发送给API的模型。
+                    </p>
+                  </div>
+                  <div class="mb-3 space-y-2">
+                    <div
+                      v-for="(mapping, index) in modelMappings"
+                      :key="index"
+                      class="flex items-center gap-2"
+                    >
+                      <input
+                        v-model="mapping.from"
+                        class="form-input flex-1 border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200 dark:placeholder-gray-400"
+                        placeholder="原始模型名称"
+                        type="text"
+                      />
+                      <i class="fas fa-arrow-right text-gray-400" />
+                      <input
+                        v-model="mapping.to"
+                        class="form-input flex-1 border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200 dark:placeholder-gray-400"
+                        placeholder="映射后模型名称"
+                        type="text"
+                      />
+                      <button
+                        class="rounded-lg p-2 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/30"
+                        type="button"
+                        @click="removeModelMapping(index)"
+                      >
+                        <i class="fas fa-trash-alt" />
+                      </button>
+                    </div>
+                  </div>
+                  <button
+                    class="w-full rounded-lg border-2 border-dashed border-gray-300 px-4 py-2 text-gray-600 transition-colors hover:border-gray-400 hover:text-gray-700 dark:border-gray-600 dark:text-gray-400 dark:hover:border-gray-500 dark:hover:text-gray-300"
+                    type="button"
+                    @click="addModelMapping"
+                  >
+                    <i class="fas fa-plus mr-2" />
+                    添加模型映射
+                  </button>
+                </div>
+              </div>
             </div>
 
             <!-- Kimi API 配置 -->
@@ -2187,6 +2538,123 @@
               </div>
 
               <input v-model.number="form.rateLimitDuration" type="hidden" value="60" />
+
+              <!-- 模型映射配置 -->
+              <div>
+                <label class="mb-3 block text-sm font-semibold text-gray-700 dark:text-gray-300"
+                  >模型限制 (可选)</label
+                >
+                <div class="mb-4 flex gap-2">
+                  <button
+                    class="flex-1 rounded-lg px-4 py-2 text-sm font-medium transition-all"
+                    :class="
+                      modelRestrictionMode === 'whitelist'
+                        ? 'bg-blue-500 text-white shadow-md'
+                        : 'border border-gray-300 text-gray-600 hover:border-blue-300 dark:border-gray-600 dark:text-gray-400 dark:hover:border-blue-500'
+                    "
+                    type="button"
+                    @click="modelRestrictionMode = 'whitelist'"
+                  >
+                    <i class="fas fa-check-circle mr-2" />
+                    模型白名单
+                  </button>
+                  <button
+                    class="flex-1 rounded-lg px-4 py-2 text-sm font-medium transition-all"
+                    :class="
+                      modelRestrictionMode === 'mapping'
+                        ? 'bg-purple-500 text-white shadow-md'
+                        : 'border border-gray-300 text-gray-600 hover:border-purple-300 dark:border-gray-600 dark:text-gray-400 dark:hover:border-purple-500'
+                    "
+                    type="button"
+                    @click="modelRestrictionMode = 'mapping'"
+                  >
+                    <i class="fas fa-random mr-2" />
+                    模型映射
+                  </button>
+                </div>
+                <div v-if="modelRestrictionMode === 'whitelist'">
+                  <div class="mb-3 rounded-lg bg-blue-50 p-3 dark:bg-blue-900/30">
+                    <p class="text-xs text-blue-700 dark:text-blue-400">
+                      <i class="fas fa-info-circle mr-1" />
+                      输入允许使用此账户的模型名称。留空表示支持所有模型。
+                    </p>
+                  </div>
+                  <div class="mb-3 space-y-2">
+                    <div
+                      v-for="(mapping, index) in modelMappings"
+                      :key="index"
+                      class="flex items-center gap-2"
+                    >
+                      <input
+                        v-model="mapping.from"
+                        class="form-input flex-1 border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200 dark:placeholder-gray-400"
+                        placeholder="模型名称"
+                        type="text"
+                        @input="mapping.to = mapping.from"
+                      />
+                      <button
+                        class="rounded-lg p-2 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/30"
+                        type="button"
+                        @click="removeModelMapping(index)"
+                      >
+                        <i class="fas fa-trash-alt" />
+                      </button>
+                    </div>
+                  </div>
+                  <button
+                    class="w-full rounded-lg border-2 border-dashed border-gray-300 px-4 py-2 text-gray-600 transition-colors hover:border-gray-400 hover:text-gray-700 dark:border-gray-600 dark:text-gray-400 dark:hover:border-gray-500 dark:hover:text-gray-300"
+                    type="button"
+                    @click="addModelMapping"
+                  >
+                    <i class="fas fa-plus mr-2" />
+                    添加模型
+                  </button>
+                </div>
+                <div v-else>
+                  <div class="mb-3 rounded-lg bg-purple-50 p-3 dark:bg-purple-900/30">
+                    <p class="text-xs text-purple-700 dark:text-purple-400">
+                      <i class="fas fa-info-circle mr-1" />
+                      配置模型映射关系。左侧是客户端请求的模型，右侧是实际发送给API的模型。
+                    </p>
+                  </div>
+                  <div class="mb-3 space-y-2">
+                    <div
+                      v-for="(mapping, index) in modelMappings"
+                      :key="index"
+                      class="flex items-center gap-2"
+                    >
+                      <input
+                        v-model="mapping.from"
+                        class="form-input flex-1 border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200 dark:placeholder-gray-400"
+                        placeholder="原始模型名称"
+                        type="text"
+                      />
+                      <i class="fas fa-arrow-right text-gray-400" />
+                      <input
+                        v-model="mapping.to"
+                        class="form-input flex-1 border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200 dark:placeholder-gray-400"
+                        placeholder="映射后模型名称"
+                        type="text"
+                      />
+                      <button
+                        class="rounded-lg p-2 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/30"
+                        type="button"
+                        @click="removeModelMapping(index)"
+                      >
+                        <i class="fas fa-trash-alt" />
+                      </button>
+                    </div>
+                  </div>
+                  <button
+                    class="w-full rounded-lg border-2 border-dashed border-gray-300 px-4 py-2 text-gray-600 transition-colors hover:border-gray-400 hover:text-gray-700 dark:border-gray-600 dark:text-gray-400 dark:hover:border-gray-500 dark:hover:text-gray-300"
+                    type="button"
+                    @click="addModelMapping"
+                  >
+                    <i class="fas fa-plus mr-2" />
+                    添加模型映射
+                  </button>
+                </div>
+              </div>
             </div>
 
             <!-- Gemini API 配置 -->
@@ -4091,6 +4559,123 @@
                 />
               </div>
             </div>
+
+            <!-- 模型映射配置 -->
+            <div>
+              <label class="mb-3 block text-sm font-semibold text-gray-700 dark:text-gray-300"
+                >模型限制 (可选)</label
+              >
+              <div class="mb-4 flex gap-2">
+                <button
+                  class="flex-1 rounded-lg px-4 py-2 text-sm font-medium transition-all"
+                  :class="
+                    modelRestrictionMode === 'whitelist'
+                      ? 'bg-blue-500 text-white shadow-md'
+                      : 'border border-gray-300 text-gray-600 hover:border-blue-300 dark:border-gray-600 dark:text-gray-400 dark:hover:border-blue-500'
+                  "
+                  type="button"
+                  @click="modelRestrictionMode = 'whitelist'"
+                >
+                  <i class="fas fa-check-circle mr-2" />
+                  模型白名单
+                </button>
+                <button
+                  class="flex-1 rounded-lg px-4 py-2 text-sm font-medium transition-all"
+                  :class="
+                    modelRestrictionMode === 'mapping'
+                      ? 'bg-purple-500 text-white shadow-md'
+                      : 'border border-gray-300 text-gray-600 hover:border-purple-300 dark:border-gray-600 dark:text-gray-400 dark:hover:border-purple-500'
+                  "
+                  type="button"
+                  @click="modelRestrictionMode = 'mapping'"
+                >
+                  <i class="fas fa-random mr-2" />
+                  模型映射
+                </button>
+              </div>
+              <div v-if="modelRestrictionMode === 'whitelist'">
+                <div class="mb-3 rounded-lg bg-blue-50 p-3 dark:bg-blue-900/30">
+                  <p class="text-xs text-blue-700 dark:text-blue-400">
+                    <i class="fas fa-info-circle mr-1" />
+                    输入允许使用此账户的模型名称。留空表示支持所有模型。
+                  </p>
+                </div>
+                <div class="mb-3 space-y-2">
+                  <div
+                    v-for="(mapping, index) in modelMappings"
+                    :key="index"
+                    class="flex items-center gap-2"
+                  >
+                    <input
+                      v-model="mapping.from"
+                      class="form-input flex-1 border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200"
+                      placeholder="模型名称"
+                      type="text"
+                      @input="mapping.to = mapping.from"
+                    />
+                    <button
+                      class="rounded-lg p-2 text-red-500 transition-colors hover:bg-red-50 dark:hover:bg-red-900/20"
+                      type="button"
+                      @click="removeModelMapping(index)"
+                    >
+                      <i class="fas fa-trash" />
+                    </button>
+                  </div>
+                </div>
+                <button
+                  class="w-full rounded-lg border-2 border-dashed border-gray-300 px-4 py-2 text-gray-600 transition-colors hover:border-gray-400 hover:text-gray-700 dark:border-gray-600 dark:text-gray-400 dark:hover:border-gray-500"
+                  type="button"
+                  @click="addModelMapping"
+                >
+                  <i class="fas fa-plus mr-2" />
+                  添加模型
+                </button>
+              </div>
+              <div v-else>
+                <div class="mb-3 rounded-lg bg-purple-50 p-3 dark:bg-purple-900/30">
+                  <p class="text-xs text-purple-700 dark:text-purple-400">
+                    <i class="fas fa-info-circle mr-1" />
+                    配置模型映射关系。左侧是客户端请求的模型，右侧是实际发送给API的模型。
+                  </p>
+                </div>
+                <div class="mb-3 space-y-2">
+                  <div
+                    v-for="(mapping, index) in modelMappings"
+                    :key="index"
+                    class="flex items-center gap-2"
+                  >
+                    <input
+                      v-model="mapping.from"
+                      class="form-input flex-1 border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200"
+                      placeholder="原始模型名称"
+                      type="text"
+                    />
+                    <i class="fas fa-arrow-right text-gray-400 dark:text-gray-500" />
+                    <input
+                      v-model="mapping.to"
+                      class="form-input flex-1 border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200"
+                      placeholder="映射后的模型名称"
+                      type="text"
+                    />
+                    <button
+                      class="rounded-lg p-2 text-red-500 transition-colors hover:bg-red-50 dark:hover:bg-red-900/20"
+                      type="button"
+                      @click="removeModelMapping(index)"
+                    >
+                      <i class="fas fa-trash" />
+                    </button>
+                  </div>
+                </div>
+                <button
+                  class="w-full rounded-lg border-2 border-dashed border-gray-300 px-4 py-2 text-gray-600 transition-colors hover:border-gray-400 hover:text-gray-700 dark:border-gray-600 dark:text-gray-400 dark:hover:border-gray-500"
+                  type="button"
+                  @click="addModelMapping"
+                >
+                  <i class="fas fa-plus mr-2" />
+                  添加模型映射
+                </button>
+              </div>
+            </div>
           </div>
 
           <!-- MiniMax 特定字段（编辑模式）-->
@@ -4155,6 +4740,123 @@
                   class="form-input w-full border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200"
                   type="time"
                 />
+              </div>
+            </div>
+
+            <!-- 模型映射配置 -->
+            <div>
+              <label class="mb-3 block text-sm font-semibold text-gray-700 dark:text-gray-300"
+                >模型限制 (可选)</label
+              >
+              <div class="mb-4 flex gap-2">
+                <button
+                  class="flex-1 rounded-lg px-4 py-2 text-sm font-medium transition-all"
+                  :class="
+                    modelRestrictionMode === 'whitelist'
+                      ? 'bg-blue-500 text-white shadow-md'
+                      : 'border border-gray-300 text-gray-600 hover:border-blue-300 dark:border-gray-600 dark:text-gray-400 dark:hover:border-blue-500'
+                  "
+                  type="button"
+                  @click="modelRestrictionMode = 'whitelist'"
+                >
+                  <i class="fas fa-check-circle mr-2" />
+                  模型白名单
+                </button>
+                <button
+                  class="flex-1 rounded-lg px-4 py-2 text-sm font-medium transition-all"
+                  :class="
+                    modelRestrictionMode === 'mapping'
+                      ? 'bg-purple-500 text-white shadow-md'
+                      : 'border border-gray-300 text-gray-600 hover:border-purple-300 dark:border-gray-600 dark:text-gray-400 dark:hover:border-purple-500'
+                  "
+                  type="button"
+                  @click="modelRestrictionMode = 'mapping'"
+                >
+                  <i class="fas fa-random mr-2" />
+                  模型映射
+                </button>
+              </div>
+              <div v-if="modelRestrictionMode === 'whitelist'">
+                <div class="mb-3 rounded-lg bg-blue-50 p-3 dark:bg-blue-900/30">
+                  <p class="text-xs text-blue-700 dark:text-blue-400">
+                    <i class="fas fa-info-circle mr-1" />
+                    输入允许使用此账户的模型名称。留空表示支持所有模型。
+                  </p>
+                </div>
+                <div class="mb-3 space-y-2">
+                  <div
+                    v-for="(mapping, index) in modelMappings"
+                    :key="index"
+                    class="flex items-center gap-2"
+                  >
+                    <input
+                      v-model="mapping.from"
+                      class="form-input flex-1 border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200"
+                      placeholder="模型名称"
+                      type="text"
+                      @input="mapping.to = mapping.from"
+                    />
+                    <button
+                      class="rounded-lg p-2 text-red-500 transition-colors hover:bg-red-50 dark:hover:bg-red-900/20"
+                      type="button"
+                      @click="removeModelMapping(index)"
+                    >
+                      <i class="fas fa-trash" />
+                    </button>
+                  </div>
+                </div>
+                <button
+                  class="w-full rounded-lg border-2 border-dashed border-gray-300 px-4 py-2 text-gray-600 transition-colors hover:border-gray-400 hover:text-gray-700 dark:border-gray-600 dark:text-gray-400 dark:hover:border-gray-500"
+                  type="button"
+                  @click="addModelMapping"
+                >
+                  <i class="fas fa-plus mr-2" />
+                  添加模型
+                </button>
+              </div>
+              <div v-else>
+                <div class="mb-3 rounded-lg bg-purple-50 p-3 dark:bg-purple-900/30">
+                  <p class="text-xs text-purple-700 dark:text-purple-400">
+                    <i class="fas fa-info-circle mr-1" />
+                    配置模型映射关系。左侧是客户端请求的模型，右侧是实际发送给API的模型。
+                  </p>
+                </div>
+                <div class="mb-3 space-y-2">
+                  <div
+                    v-for="(mapping, index) in modelMappings"
+                    :key="index"
+                    class="flex items-center gap-2"
+                  >
+                    <input
+                      v-model="mapping.from"
+                      class="form-input flex-1 border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200"
+                      placeholder="原始模型名称"
+                      type="text"
+                    />
+                    <i class="fas fa-arrow-right text-gray-400 dark:text-gray-500" />
+                    <input
+                      v-model="mapping.to"
+                      class="form-input flex-1 border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200"
+                      placeholder="映射后的模型名称"
+                      type="text"
+                    />
+                    <button
+                      class="rounded-lg p-2 text-red-500 transition-colors hover:bg-red-50 dark:hover:bg-red-900/20"
+                      type="button"
+                      @click="removeModelMapping(index)"
+                    >
+                      <i class="fas fa-trash" />
+                    </button>
+                  </div>
+                </div>
+                <button
+                  class="w-full rounded-lg border-2 border-dashed border-gray-300 px-4 py-2 text-gray-600 transition-colors hover:border-gray-400 hover:text-gray-700 dark:border-gray-600 dark:text-gray-400 dark:hover:border-gray-500"
+                  type="button"
+                  @click="addModelMapping"
+                >
+                  <i class="fas fa-plus mr-2" />
+                  添加模型映射
+                </button>
               </div>
             </div>
           </div>
@@ -4223,6 +4925,123 @@
                 />
               </div>
             </div>
+
+            <!-- 模型映射配置 -->
+            <div>
+              <label class="mb-3 block text-sm font-semibold text-gray-700 dark:text-gray-300"
+                >模型限制 (可选)</label
+              >
+              <div class="mb-4 flex gap-2">
+                <button
+                  class="flex-1 rounded-lg px-4 py-2 text-sm font-medium transition-all"
+                  :class="
+                    modelRestrictionMode === 'whitelist'
+                      ? 'bg-blue-500 text-white shadow-md'
+                      : 'border border-gray-300 text-gray-600 hover:border-blue-300 dark:border-gray-600 dark:text-gray-400 dark:hover:border-blue-500'
+                  "
+                  type="button"
+                  @click="modelRestrictionMode = 'whitelist'"
+                >
+                  <i class="fas fa-check-circle mr-2" />
+                  模型白名单
+                </button>
+                <button
+                  class="flex-1 rounded-lg px-4 py-2 text-sm font-medium transition-all"
+                  :class="
+                    modelRestrictionMode === 'mapping'
+                      ? 'bg-purple-500 text-white shadow-md'
+                      : 'border border-gray-300 text-gray-600 hover:border-purple-300 dark:border-gray-600 dark:text-gray-400 dark:hover:border-purple-500'
+                  "
+                  type="button"
+                  @click="modelRestrictionMode = 'mapping'"
+                >
+                  <i class="fas fa-random mr-2" />
+                  模型映射
+                </button>
+              </div>
+              <div v-if="modelRestrictionMode === 'whitelist'">
+                <div class="mb-3 rounded-lg bg-blue-50 p-3 dark:bg-blue-900/30">
+                  <p class="text-xs text-blue-700 dark:text-blue-400">
+                    <i class="fas fa-info-circle mr-1" />
+                    输入允许使用此账户的模型名称。留空表示支持所有模型。
+                  </p>
+                </div>
+                <div class="mb-3 space-y-2">
+                  <div
+                    v-for="(mapping, index) in modelMappings"
+                    :key="index"
+                    class="flex items-center gap-2"
+                  >
+                    <input
+                      v-model="mapping.from"
+                      class="form-input flex-1 border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200"
+                      placeholder="模型名称"
+                      type="text"
+                      @input="mapping.to = mapping.from"
+                    />
+                    <button
+                      class="rounded-lg p-2 text-red-500 transition-colors hover:bg-red-50 dark:hover:bg-red-900/20"
+                      type="button"
+                      @click="removeModelMapping(index)"
+                    >
+                      <i class="fas fa-trash" />
+                    </button>
+                  </div>
+                </div>
+                <button
+                  class="w-full rounded-lg border-2 border-dashed border-gray-300 px-4 py-2 text-gray-600 transition-colors hover:border-gray-400 hover:text-gray-700 dark:border-gray-600 dark:text-gray-400 dark:hover:border-gray-500"
+                  type="button"
+                  @click="addModelMapping"
+                >
+                  <i class="fas fa-plus mr-2" />
+                  添加模型
+                </button>
+              </div>
+              <div v-else>
+                <div class="mb-3 rounded-lg bg-purple-50 p-3 dark:bg-purple-900/30">
+                  <p class="text-xs text-purple-700 dark:text-purple-400">
+                    <i class="fas fa-info-circle mr-1" />
+                    配置模型映射关系。左侧是客户端请求的模型，右侧是实际发送给API的模型。
+                  </p>
+                </div>
+                <div class="mb-3 space-y-2">
+                  <div
+                    v-for="(mapping, index) in modelMappings"
+                    :key="index"
+                    class="flex items-center gap-2"
+                  >
+                    <input
+                      v-model="mapping.from"
+                      class="form-input flex-1 border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200"
+                      placeholder="原始模型名称"
+                      type="text"
+                    />
+                    <i class="fas fa-arrow-right text-gray-400 dark:text-gray-500" />
+                    <input
+                      v-model="mapping.to"
+                      class="form-input flex-1 border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200"
+                      placeholder="映射后的模型名称"
+                      type="text"
+                    />
+                    <button
+                      class="rounded-lg p-2 text-red-500 transition-colors hover:bg-red-50 dark:hover:bg-red-900/20"
+                      type="button"
+                      @click="removeModelMapping(index)"
+                    >
+                      <i class="fas fa-trash" />
+                    </button>
+                  </div>
+                </div>
+                <button
+                  class="w-full rounded-lg border-2 border-dashed border-gray-300 px-4 py-2 text-gray-600 transition-colors hover:border-gray-400 hover:text-gray-700 dark:border-gray-600 dark:text-gray-400 dark:hover:border-gray-500"
+                  type="button"
+                  @click="addModelMapping"
+                >
+                  <i class="fas fa-plus mr-2" />
+                  添加模型映射
+                </button>
+              </div>
+            </div>
           </div>
 
           <!-- Kimi 特定字段（编辑模式）-->
@@ -4287,6 +5106,123 @@
                   class="form-input w-full border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200"
                   type="time"
                 />
+              </div>
+            </div>
+
+            <!-- 模型映射配置 -->
+            <div>
+              <label class="mb-3 block text-sm font-semibold text-gray-700 dark:text-gray-300"
+                >模型限制 (可选)</label
+              >
+              <div class="mb-4 flex gap-2">
+                <button
+                  class="flex-1 rounded-lg px-4 py-2 text-sm font-medium transition-all"
+                  :class="
+                    modelRestrictionMode === 'whitelist'
+                      ? 'bg-blue-500 text-white shadow-md'
+                      : 'border border-gray-300 text-gray-600 hover:border-blue-300 dark:border-gray-600 dark:text-gray-400 dark:hover:border-blue-500'
+                  "
+                  type="button"
+                  @click="modelRestrictionMode = 'whitelist'"
+                >
+                  <i class="fas fa-check-circle mr-2" />
+                  模型白名单
+                </button>
+                <button
+                  class="flex-1 rounded-lg px-4 py-2 text-sm font-medium transition-all"
+                  :class="
+                    modelRestrictionMode === 'mapping'
+                      ? 'bg-purple-500 text-white shadow-md'
+                      : 'border border-gray-300 text-gray-600 hover:border-purple-300 dark:border-gray-600 dark:text-gray-400 dark:hover:border-purple-500'
+                  "
+                  type="button"
+                  @click="modelRestrictionMode = 'mapping'"
+                >
+                  <i class="fas fa-random mr-2" />
+                  模型映射
+                </button>
+              </div>
+              <div v-if="modelRestrictionMode === 'whitelist'">
+                <div class="mb-3 rounded-lg bg-blue-50 p-3 dark:bg-blue-900/30">
+                  <p class="text-xs text-blue-700 dark:text-blue-400">
+                    <i class="fas fa-info-circle mr-1" />
+                    输入允许使用此账户的模型名称。留空表示支持所有模型。
+                  </p>
+                </div>
+                <div class="mb-3 space-y-2">
+                  <div
+                    v-for="(mapping, index) in modelMappings"
+                    :key="index"
+                    class="flex items-center gap-2"
+                  >
+                    <input
+                      v-model="mapping.from"
+                      class="form-input flex-1 border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200"
+                      placeholder="模型名称"
+                      type="text"
+                      @input="mapping.to = mapping.from"
+                    />
+                    <button
+                      class="rounded-lg p-2 text-red-500 transition-colors hover:bg-red-50 dark:hover:bg-red-900/20"
+                      type="button"
+                      @click="removeModelMapping(index)"
+                    >
+                      <i class="fas fa-trash" />
+                    </button>
+                  </div>
+                </div>
+                <button
+                  class="w-full rounded-lg border-2 border-dashed border-gray-300 px-4 py-2 text-gray-600 transition-colors hover:border-gray-400 hover:text-gray-700 dark:border-gray-600 dark:text-gray-400 dark:hover:border-gray-500"
+                  type="button"
+                  @click="addModelMapping"
+                >
+                  <i class="fas fa-plus mr-2" />
+                  添加模型
+                </button>
+              </div>
+              <div v-else>
+                <div class="mb-3 rounded-lg bg-purple-50 p-3 dark:bg-purple-900/30">
+                  <p class="text-xs text-purple-700 dark:text-purple-400">
+                    <i class="fas fa-info-circle mr-1" />
+                    配置模型映射关系。左侧是客户端请求的模型，右侧是实际发送给API的模型。
+                  </p>
+                </div>
+                <div class="mb-3 space-y-2">
+                  <div
+                    v-for="(mapping, index) in modelMappings"
+                    :key="index"
+                    class="flex items-center gap-2"
+                  >
+                    <input
+                      v-model="mapping.from"
+                      class="form-input flex-1 border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200"
+                      placeholder="原始模型名称"
+                      type="text"
+                    />
+                    <i class="fas fa-arrow-right text-gray-400 dark:text-gray-500" />
+                    <input
+                      v-model="mapping.to"
+                      class="form-input flex-1 border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200"
+                      placeholder="映射后的模型名称"
+                      type="text"
+                    />
+                    <button
+                      class="rounded-lg p-2 text-red-500 transition-colors hover:bg-red-50 dark:hover:bg-red-900/20"
+                      type="button"
+                      @click="removeModelMapping(index)"
+                    >
+                      <i class="fas fa-trash" />
+                    </button>
+                  </div>
+                </div>
+                <button
+                  class="w-full rounded-lg border-2 border-dashed border-gray-300 px-4 py-2 text-gray-600 transition-colors hover:border-gray-400 hover:text-gray-700 dark:border-gray-600 dark:text-gray-400 dark:hover:border-gray-500"
+                  type="button"
+                  @click="addModelMapping"
+                >
+                  <i class="fas fa-plus mr-2" />
+                  添加模型映射
+                </button>
               </div>
             </div>
           </div>
@@ -4681,7 +5617,9 @@
               form.platform !== 'azure_openai' &&
               form.platform !== 'openai-responses' &&
               form.platform !== 'deepseek' &&
-              form.platform !== 'minimax'
+              form.platform !== 'minimax' &&
+              form.platform !== 'glm' &&
+              form.platform !== 'kimi'
             "
             class="rounded-lg border border-amber-200 bg-amber-50 p-4 dark:border-amber-700 dark:bg-amber-900/30"
           >
@@ -6361,6 +7299,13 @@ const createAccount = async () => {
       data.rateLimitDuration = form.value.rateLimitDuration || 60
       data.dailyQuota = form.value.dailyQuota || 0
       data.quotaResetTime = form.value.quotaResetTime || '00:00'
+      data.supportedModels = (() => {
+        const m = {}
+        modelMappings.value.forEach((item) => {
+          if (item.from && item.to) m[item.from] = item.to
+        })
+        return m
+      })()
     } else if (form.value.platform === 'minimax') {
       data.baseApi = form.value.baseApi
       data.apiKey = form.value.apiKey
@@ -6368,6 +7313,13 @@ const createAccount = async () => {
       data.rateLimitDuration = form.value.rateLimitDuration || 60
       data.dailyQuota = form.value.dailyQuota || 0
       data.quotaResetTime = form.value.quotaResetTime || '00:00'
+      data.supportedModels = (() => {
+        const m = {}
+        modelMappings.value.forEach((item) => {
+          if (item.from && item.to) m[item.from] = item.to
+        })
+        return m
+      })()
     } else if (form.value.platform === 'glm') {
       data.baseApi = form.value.baseApi
       data.apiKey = form.value.apiKey
@@ -6375,6 +7327,13 @@ const createAccount = async () => {
       data.rateLimitDuration = form.value.rateLimitDuration || 60
       data.dailyQuota = form.value.dailyQuota || 0
       data.quotaResetTime = form.value.quotaResetTime || '00:00'
+      data.supportedModels = (() => {
+        const m = {}
+        modelMappings.value.forEach((item) => {
+          if (item.from && item.to) m[item.from] = item.to
+        })
+        return m
+      })()
     } else if (form.value.platform === 'kimi') {
       data.baseApi = form.value.baseApi
       data.apiKey = form.value.apiKey
@@ -6382,6 +7341,13 @@ const createAccount = async () => {
       data.rateLimitDuration = form.value.rateLimitDuration || 60
       data.dailyQuota = form.value.dailyQuota || 0
       data.quotaResetTime = form.value.quotaResetTime || '00:00'
+      data.supportedModels = (() => {
+        const m = {}
+        modelMappings.value.forEach((item) => {
+          if (item.from && item.to) m[item.from] = item.to
+        })
+        return m
+      })()
     } else if (form.value.platform === 'gemini-antigravity') {
       // Antigravity OAuth - set oauthProvider, submission happens below
       data.oauthProvider = 'antigravity'
@@ -6759,6 +7725,13 @@ const updateAccount = async () => {
       data.rateLimitDuration = form.value.rateLimitDuration || 60
       data.dailyQuota = form.value.dailyQuota || 0
       data.quotaResetTime = form.value.quotaResetTime || '00:00'
+      data.supportedModels = (() => {
+        const m = {}
+        modelMappings.value.forEach((item) => {
+          if (item.from && item.to) m[item.from] = item.to
+        })
+        return m
+      })()
     }
 
     if (props.account.platform === 'minimax') {
@@ -6770,6 +7743,13 @@ const updateAccount = async () => {
       data.rateLimitDuration = form.value.rateLimitDuration || 60
       data.dailyQuota = form.value.dailyQuota || 0
       data.quotaResetTime = form.value.quotaResetTime || '00:00'
+      data.supportedModels = (() => {
+        const m = {}
+        modelMappings.value.forEach((item) => {
+          if (item.from && item.to) m[item.from] = item.to
+        })
+        return m
+      })()
     }
 
     if (props.account.platform === 'glm') {
@@ -6781,6 +7761,13 @@ const updateAccount = async () => {
       data.rateLimitDuration = form.value.rateLimitDuration || 60
       data.dailyQuota = form.value.dailyQuota || 0
       data.quotaResetTime = form.value.quotaResetTime || '00:00'
+      data.supportedModels = (() => {
+        const m = {}
+        modelMappings.value.forEach((item) => {
+          if (item.from && item.to) m[item.from] = item.to
+        })
+        return m
+      })()
     }
 
     if (props.account.platform === 'kimi') {
@@ -6792,6 +7779,13 @@ const updateAccount = async () => {
       data.rateLimitDuration = form.value.rateLimitDuration || 60
       data.dailyQuota = form.value.dailyQuota || 0
       data.quotaResetTime = form.value.quotaResetTime || '00:00'
+      data.supportedModels = (() => {
+        const m = {}
+        modelMappings.value.forEach((item) => {
+          if (item.from && item.to) m[item.from] = item.to
+        })
+        return m
+      })()
     }
 
     // Bedrock 特定更新
@@ -7088,6 +8082,10 @@ watch(
     } else if (newPlatform === 'deepseek') {
       form.value.addType = 'apikey'
     } else if (newPlatform === 'minimax') {
+      form.value.addType = 'apikey'
+    } else if (newPlatform === 'kimi') {
+      form.value.addType = 'apikey'
+    } else if (newPlatform === 'glm') {
       form.value.addType = 'apikey'
     } else if (newPlatform === 'claude') {
       // 切换到 Claude 时，使用 oauth 作为默认方式

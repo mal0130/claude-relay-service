@@ -151,6 +151,16 @@ class UnifiedDeepSeekScheduler {
 
     if (
       requestedModel &&
+      account.supportedModels &&
+      typeof account.supportedModels === 'object' &&
+      !Array.isArray(account.supportedModels) &&
+      Object.keys(account.supportedModels).length > 0
+    ) {
+      return deepseekAccountService.isModelSupported(account.supportedModels, requestedModel)
+    }
+
+    if (
+      requestedModel &&
       Array.isArray(account.supportedModels) &&
       account.supportedModels.length
     ) {

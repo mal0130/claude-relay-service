@@ -47,6 +47,21 @@ const DEEPSEEK_MODELS = [
   { value: 'deepseek-reasoner', label: 'DeepSeek Reasoner (兼容)' }
 ]
 
+const GLM_MODELS = [
+  { value: 'glm-4-flash', label: 'GLM-4 Flash' },
+  { value: 'glm-4-plus', label: 'GLM-4 Plus' },
+  { value: 'glm-4-long', label: 'GLM-4 Long' },
+  { value: 'glm-4-air', label: 'GLM-4 Air' },
+  { value: 'glm-z1-flash', label: 'GLM-Z1 Flash' }
+]
+
+const KIMI_MODELS = [
+  { value: 'moonshot-v1-8k', label: 'Moonshot V1 8K' },
+  { value: 'moonshot-v1-32k', label: 'Moonshot V1 32K' },
+  { value: 'moonshot-v1-128k', label: 'Moonshot V1 128K' },
+  { value: 'kimi-latest', label: 'Kimi Latest' }
+]
+
 const BEDROCK_MODELS = [
   { value: 'us.anthropic.claude-opus-4-6-20250610-v1:0', label: 'Claude Opus 4.6' },
   { value: 'us.anthropic.claude-sonnet-4-5-20250929-v1:0', label: 'Claude Sonnet 4.5' },
@@ -72,6 +87,8 @@ const PLATFORM_TEST_MODELS = {
   'openai-responses': OPENAI_MODELS,
   'azure-openai': [],
   deepseek: DEEPSEEK_MODELS,
+  glm: GLM_MODELS,
+  kimi: KIMI_MODELS,
   droid: CLAUDE_MODELS,
   ccr: CLAUDE_MODELS
 }
@@ -81,6 +98,8 @@ module.exports = {
   GEMINI_MODELS,
   OPENAI_MODELS,
   DEEPSEEK_MODELS,
+  GLM_MODELS,
+  KIMI_MODELS,
   BEDROCK_MODELS,
   OTHER_MODELS,
   PLATFORM_TEST_MODELS,

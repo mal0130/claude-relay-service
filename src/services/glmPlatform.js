@@ -31,7 +31,17 @@ function normalizeBaseApi(baseApi = GLM_DEFAULT_BASE_API) {
 }
 
 function buildChatCompletionsUrl(baseApi) {
-  return `${normalizeBaseApi(baseApi)}${GLM_PLATFORM.chatPath}`
+  const normalized = normalizeBaseApi(baseApi)
+
+  if (normalized.endsWith('/chat/completions')) {
+    return normalized
+  }
+
+  if (normalized.endsWith('/v4') || normalized.endsWith('/v1')) {
+    return `${normalized}${GLM_PLATFORM.chatPath}`
+  }
+
+  return `${normalized}/v1/chat/completions`
 }
 
 function buildAnthropicMessagesUrl(baseApi) {

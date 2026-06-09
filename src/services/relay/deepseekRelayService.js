@@ -85,7 +85,13 @@ class DeepSeekRelayService {
       }
 
       const targetUrl = buildChatCompletionsUrl(account.baseApi)
-      const body = this._buildRequestBody(req.body || {})
+      const mappedModel =
+        account.supportedModels &&
+        typeof account.supportedModels === 'object' &&
+        !Array.isArray(account.supportedModels)
+          ? deepseekAccountService.getMappedModel(account.supportedModels, requestedModel)
+          : requestedModel
+      const body = this._buildRequestBody(req.body || {}, mappedModel)
       const isStream = body.stream === true
       const abortController = new AbortController()
 
@@ -202,7 +208,13 @@ class DeepSeekRelayService {
       }
 
       const targetUrl = buildAnthropicMessagesUrl(account.baseApi)
-      const body = this._buildAnthropicRequestBody(req.body || {})
+      const mappedModel =
+        account.supportedModels &&
+        typeof account.supportedModels === 'object' &&
+        !Array.isArray(account.supportedModels)
+          ? deepseekAccountService.getMappedModel(account.supportedModels, requestedModel)
+          : requestedModel
+      const body = this._buildAnthropicRequestBody(req.body || {}, mappedModel)
       const isStream = body.stream === true
       const abortController = new AbortController()
 
@@ -269,9 +281,9 @@ class DeepSeekRelayService {
     }
   }
 
-  _buildRequestBody(body) {
+  _buildRequestBody(body, mappedModel) {
     const normalized = { ...body }
-    normalized.model = this._normalizeRequestModel(normalized.model)
+    normalized.model = mappedModel || this._normalizeRequestModel(normalized.model)
 
     if (normalized.stream === true) {
       normalized.stream_options = {
@@ -283,9 +295,9 @@ class DeepSeekRelayService {
     return normalized
   }
 
-  _buildAnthropicRequestBody(body) {
+  _buildAnthropicRequestBody(body, mappedModel) {
     const normalized = { ...body }
-    normalized.model = this._normalizeRequestModel(normalized.model)
+    normalized.model = mappedModel || this._normalizeRequestModel(normalized.model)
 
     return normalized
   }

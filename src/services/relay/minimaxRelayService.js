@@ -83,7 +83,13 @@ class MiniMaxRelayService {
       }
 
       const targetUrl = buildChatCompletionsUrl(account.baseApi)
-      const body = this._buildRequestBody(req.body || {})
+      const mappedModel =
+        account.supportedModels &&
+        typeof account.supportedModels === 'object' &&
+        !Array.isArray(account.supportedModels)
+          ? minimaxAccountService.getMappedModel(account.supportedModels, requestedModel)
+          : requestedModel
+      const body = this._buildRequestBody(req.body || {}, mappedModel)
       const isStream = body.stream === true
       const abortController = new AbortController()
 
@@ -200,7 +206,13 @@ class MiniMaxRelayService {
       }
 
       const targetUrl = buildAnthropicMessagesUrl(account.baseApi)
-      const body = this._buildAnthropicRequestBody(req.body || {})
+      const mappedModel =
+        account.supportedModels &&
+        typeof account.supportedModels === 'object' &&
+        !Array.isArray(account.supportedModels)
+          ? minimaxAccountService.getMappedModel(account.supportedModels, requestedModel)
+          : requestedModel
+      const body = this._buildAnthropicRequestBody(req.body || {}, mappedModel)
       const isStream = body.stream === true
       const abortController = new AbortController()
 
@@ -267,9 +279,9 @@ class MiniMaxRelayService {
     }
   }
 
-  _buildRequestBody(body) {
+  _buildRequestBody(body, mappedModel) {
     const normalized = { ...body }
-    normalized.model = this._normalizeRequestModel(normalized.model)
+    normalized.model = mappedModel || this._normalizeRequestModel(normalized.model)
 
     if (normalized.stream === true) {
       normalized.stream_options = {
@@ -281,9 +293,9 @@ class MiniMaxRelayService {
     return normalized
   }
 
-  _buildAnthropicRequestBody(body) {
+  _buildAnthropicRequestBody(body, mappedModel) {
     const normalized = { ...body }
-    normalized.model = this._normalizeRequestModel(normalized.model)
+    normalized.model = mappedModel || this._normalizeRequestModel(normalized.model)
 
     return normalized
   }
@@ -725,8 +737,11 @@ class MiniMaxRelayService {
       stream,
       statusCode,
       protocol = 'openai',
-      assistantContent
+      assistantContent,
+      requestedModel
     } = options
+    // 计费使用请求模型（用户配置的），避免上游返回免费模型导致费用为0
+    const billingModel = requestedModel || model
     const resolvedRawSessionId =
       req.headers['session_id'] ||
       req.headers['x-session-id'] ||
@@ -752,7 +767,7 @@ class MiniMaxRelayService {
     const costs = await apiKeyService.recordUsageWithDetails(
       req.apiKey.id,
       normalizedUsage,
-      model,
+      billingModel,
       accountId,
       'minimax',
       usageExtra,
@@ -773,7 +788,7 @@ class MiniMaxRelayService {
         cacheCreateTokens: normalizedUsage.cache_creation_input_tokens,
         cacheReadTokens: normalizedUsage.cache_read_input_tokens
       },
-      model,
+      billingModel,
       req.apiKey.id,
       'minimax',
       costs
