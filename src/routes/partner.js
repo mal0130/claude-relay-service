@@ -8,6 +8,8 @@ const accountGroupService = require('../services/accountGroupService')
 const openaiResponsesAccountService = require('../services/account/openaiResponsesAccountService')
 const deepseekAccountService = require('../services/account/deepseekAccountService')
 const minimaxAccountService = require('../services/account/minimaxAccountService')
+const glmAccountService = require('../services/account/glmAccountService')
+const kimiAccountService = require('../services/account/kimiAccountService')
 const config = require('../../config/config')
 
 // Helper: Find API Key by ID or Name
@@ -325,6 +327,26 @@ async function resolveMiniMaxBinding(minimaxAccountId) {
   })
 }
 
+async function resolveGlmBinding(glmAccountId) {
+  return resolveSharedPlatformBinding(glmAccountId, {
+    platform: 'glm',
+    service: glmAccountService,
+    requiredMessage: 'GLM account ID is required',
+    groupNotFoundMessage: 'GLM account group not found or invalid',
+    accountNotFoundMessage: 'GLM account not found or inactive'
+  })
+}
+
+async function resolveKimiBinding(kimiAccountId) {
+  return resolveSharedPlatformBinding(kimiAccountId, {
+    platform: 'kimi',
+    service: kimiAccountService,
+    requiredMessage: 'Kimi account ID is required',
+    groupNotFoundMessage: 'Kimi account group not found or invalid',
+    accountNotFoundMessage: 'Kimi account not found or inactive'
+  })
+}
+
 function normalizePermissionList(permissions) {
   if (!permissions) {
     return []
@@ -399,7 +421,13 @@ function normalizeAccountBindings(accountBindings) {
   return {}
 }
 
-function buildAccountBindings(currentBindings = {}, deepseekBinding = null, minimaxBinding = null) {
+function buildAccountBindings(
+  currentBindings = {},
+  deepseekBinding = null,
+  minimaxBinding = null,
+  glmBinding = null,
+  kimiBinding = null
+) {
   const accountBindings = { ...normalizeAccountBindings(currentBindings) }
 
   if (deepseekBinding) {
@@ -410,10 +438,26 @@ function buildAccountBindings(currentBindings = {}, deepseekBinding = null, mini
     accountBindings.minimax = minimaxBinding
   }
 
+  if (glmBinding) {
+    accountBindings.glm = glmBinding
+  }
+
+  if (kimiBinding) {
+    accountBindings.kimi = kimiBinding
+  }
+
   return accountBindings
 }
 
-function buildServiceRates(currentRates = {}, claudeRate, openaiRate, deepseekRate, minimaxRate) {
+function buildServiceRates(
+  currentRates = {},
+  claudeRate,
+  openaiRate,
+  deepseekRate,
+  minimaxRate,
+  glmRate,
+  kimiRate
+) {
   const serviceRates = { ...normalizeServiceRates(currentRates) }
 
   if (claudeRate !== undefined && claudeRate !== null && claudeRate !== '') {
@@ -430,6 +474,14 @@ function buildServiceRates(currentRates = {}, claudeRate, openaiRate, deepseekRa
 
   if (minimaxRate !== undefined && minimaxRate !== null && minimaxRate !== '') {
     serviceRates.minimax = Number(minimaxRate)
+  }
+
+  if (glmRate !== undefined && glmRate !== null && glmRate !== '') {
+    serviceRates.glm = Number(glmRate)
+  }
+
+  if (kimiRate !== undefined && kimiRate !== null && kimiRate !== '') {
+    serviceRates.kimi = Number(kimiRate)
   }
 
   return serviceRates
@@ -995,9 +1047,15 @@ router.post('/api-key/create', authenticatePartner, async (req, res) => {
       claude_account_id,
       openai_account_id,
       deepseek_account_id,
+      minimax_account_id,
+      glm_account_id,
+      kimi_account_id,
       claude_rate,
       openai_rate,
       deepseek_rate,
+      minimax_rate,
+      glm_rate,
+      kimi_rate,
       rate,
       rateLimits,
       expiresAt,
@@ -1114,6 +1172,33 @@ router.post('/api-key/create', authenticatePartner, async (req, res) => {
       })
     }
 
+    const minimaxRateError = validateRate(minimax_rate, 'minimax_rate')
+    if (minimaxRateError) {
+      return res.status(400).json({
+        code: 1001,
+        msg: minimaxRateError,
+        data: null
+      })
+    }
+
+    const glmRateError = validateRate(glm_rate, 'glm_rate')
+    if (glmRateError) {
+      return res.status(400).json({
+        code: 1001,
+        msg: glmRateError,
+        data: null
+      })
+    }
+
+    const kimiRateError = validateRate(kimi_rate, 'kimi_rate')
+    if (kimiRateError) {
+      return res.status(400).json({
+        code: 1001,
+        msg: kimiRateError,
+        data: null
+      })
+    }
+
     if (rateLimits !== undefined && rateLimits !== null && rateLimits !== '') {
       if (!Array.isArray(rateLimits)) {
         return res.status(400).json({
@@ -1224,12 +1309,40 @@ router.post('/api-key/create', authenticatePartner, async (req, res) => {
       }
     }
 
+    let glmBinding = null
+    if (glm_account_id) {
+      try {
+        glmBinding = await resolveGlmBinding(glm_account_id)
+      } catch (error) {
+        return res.status(400).json({
+          code: 1001,
+          msg: error.message,
+          data: null
+        })
+      }
+    }
+
+    let kimiBinding = null
+    if (kimi_account_id) {
+      try {
+        kimiBinding = await resolveKimiBinding(kimi_account_id)
+      } catch (error) {
+        return res.status(400).json({
+          code: 1001,
+          msg: error.message,
+          data: null
+        })
+      }
+    }
+
     const createServiceRates = buildServiceRates(
       {},
       resolvedClaudeRate,
       openai_rate,
       deepseek_rate,
-      minimax_rate
+      minimax_rate,
+      glm_rate,
+      kimi_rate
     )
 
     const permissions = ['claude']
@@ -1241,6 +1354,12 @@ router.post('/api-key/create', authenticatePartner, async (req, res) => {
     }
     if (minimax_account_id) {
       permissions.push('minimax')
+    }
+    if (glm_account_id) {
+      permissions.push('glm')
+    }
+    if (kimi_account_id) {
+      permissions.push('kimi')
     }
 
     // 准备创建参数
@@ -1258,8 +1377,14 @@ router.post('/api-key/create', authenticatePartner, async (req, res) => {
       createParams.openaiAccountId = openai_account_id
     }
 
-    if (deepseekBinding || minimaxBinding) {
-      createParams.accountBindings = buildAccountBindings({}, deepseekBinding, minimaxBinding)
+    if (deepseekBinding || minimaxBinding || glmBinding || kimiBinding) {
+      createParams.accountBindings = buildAccountBindings(
+        {},
+        deepseekBinding,
+        minimaxBinding,
+        glmBinding,
+        kimiBinding
+      )
     }
 
     if (Object.keys(createServiceRates).length > 0) {
@@ -1350,10 +1475,14 @@ router.post('/enterprise/key/batch-create', authenticatePartner, async (req, res
           openai_account_id,
           deepseek_account_id,
           minimax_account_id,
+          glm_account_id,
+          kimi_account_id,
           claude_rate,
           openai_rate,
           deepseek_rate,
           minimax_rate,
+          glm_rate,
+          kimi_rate,
           rate,
           rateLimits,
           expiresAt,
@@ -1446,6 +1575,16 @@ router.post('/enterprise/key/batch-create', authenticatePartner, async (req, res
           throw new Error(minimaxRateError)
         }
 
+        const glmRateError = validateRate(glm_rate, 'glm_rate')
+        if (glmRateError) {
+          throw new Error(glmRateError)
+        }
+
+        const kimiRateError = validateRate(kimi_rate, 'kimi_rate')
+        if (kimiRateError) {
+          throw new Error(kimiRateError)
+        }
+
         if (rateLimits !== undefined && rateLimits !== null && rateLimits !== '') {
           if (!Array.isArray(rateLimits)) {
             throw new Error('rateLimits must be an array')
@@ -1504,12 +1643,24 @@ router.post('/enterprise/key/batch-create', authenticatePartner, async (req, res
           minimaxBinding = await resolveMiniMaxBinding(minimax_account_id)
         }
 
+        let glmBinding = null
+        if (glm_account_id) {
+          glmBinding = await resolveGlmBinding(glm_account_id)
+        }
+
+        let kimiBinding = null
+        if (kimi_account_id) {
+          kimiBinding = await resolveKimiBinding(kimi_account_id)
+        }
+
         const createServiceRates = buildServiceRates(
           {},
           resolvedClaudeRate,
           openai_rate,
           deepseek_rate,
-          minimax_rate
+          minimax_rate,
+          glm_rate,
+          kimi_rate
         )
 
         const permissions = ['claude']
@@ -1521,6 +1672,12 @@ router.post('/enterprise/key/batch-create', authenticatePartner, async (req, res
         }
         if (minimax_account_id) {
           permissions.push('minimax')
+        }
+        if (glm_account_id) {
+          permissions.push('glm')
+        }
+        if (kimi_account_id) {
+          permissions.push('kimi')
         }
 
         const createParams = {
@@ -1541,8 +1698,14 @@ router.post('/enterprise/key/batch-create', authenticatePartner, async (req, res
           createParams.openaiAccountId = openai_account_id
         }
 
-        if (deepseekBinding || minimaxBinding) {
-          createParams.accountBindings = buildAccountBindings({}, deepseekBinding, minimaxBinding)
+        if (deepseekBinding || minimaxBinding || glmBinding || kimiBinding) {
+          createParams.accountBindings = buildAccountBindings(
+            {},
+            deepseekBinding,
+            minimaxBinding,
+            glmBinding,
+            kimiBinding
+          )
         }
 
         if (Object.keys(createServiceRates).length > 0) {
@@ -1676,10 +1839,14 @@ router.post('/api-key/:keyId/update', authenticatePartner, async (req, res) => {
       openai_account_id,
       deepseek_account_id,
       minimax_account_id,
+      glm_account_id,
+      kimi_account_id,
       claude_rate,
       openai_rate,
       deepseek_rate,
       minimax_rate,
+      glm_rate,
+      kimi_rate,
       rate,
       rateLimits,
       expiresAt,
@@ -1865,6 +2032,24 @@ router.post('/api-key/:keyId/update', authenticatePartner, async (req, res) => {
       })
     }
 
+    const glmRateError = validateRate(glm_rate, 'glm_rate')
+    if (glmRateError) {
+      return res.status(400).json({
+        code: 1001,
+        msg: glmRateError,
+        data: null
+      })
+    }
+
+    const kimiRateError = validateRate(kimi_rate, 'kimi_rate')
+    if (kimiRateError) {
+      return res.status(400).json({
+        code: 1001,
+        msg: kimiRateError,
+        data: null
+      })
+    }
+
     logger.info(`🔄 Partner updating API Key: ${keyId} (${keyData.name})`)
 
     const updates = {}
@@ -1928,11 +2113,39 @@ router.post('/api-key/:keyId/update', authenticatePartner, async (req, res) => {
       }
     }
 
-    if (deepseekBinding || minimaxBinding) {
+    let glmBinding = null
+    if (glm_account_id) {
+      try {
+        glmBinding = await resolveGlmBinding(glm_account_id)
+      } catch (error) {
+        return res.status(400).json({
+          code: 1001,
+          msg: error.message,
+          data: null
+        })
+      }
+    }
+
+    let kimiBinding = null
+    if (kimi_account_id) {
+      try {
+        kimiBinding = await resolveKimiBinding(kimi_account_id)
+      } catch (error) {
+        return res.status(400).json({
+          code: 1001,
+          msg: error.message,
+          data: null
+        })
+      }
+    }
+
+    if (deepseekBinding || minimaxBinding || glmBinding || kimiBinding) {
       updates.accountBindings = buildAccountBindings(
         keyData.accountBindings || {},
         deepseekBinding,
-        minimaxBinding
+        minimaxBinding,
+        glmBinding,
+        kimiBinding
       )
     }
 
@@ -1940,21 +2153,32 @@ router.post('/api-key/:keyId/update', authenticatePartner, async (req, res) => {
       resolvedClaudeRate !== undefined ||
       openai_rate !== undefined ||
       deepseek_rate !== undefined ||
-      minimax_rate !== undefined
+      minimax_rate !== undefined ||
+      glm_rate !== undefined ||
+      kimi_rate !== undefined
     ) {
       const serviceRates = buildServiceRates(
         keyData.serviceRates || {},
         resolvedClaudeRate,
         openai_rate,
         deepseek_rate,
-        minimax_rate
+        minimax_rate,
+        glm_rate,
+        kimi_rate
       )
       if (Object.keys(serviceRates).length > 0) {
         updates.serviceRates = serviceRates
       }
     }
 
-    if (claude_account_id || openai_account_id || deepseek_account_id || minimax_account_id) {
+    if (
+      claude_account_id ||
+      openai_account_id ||
+      deepseek_account_id ||
+      minimax_account_id ||
+      glm_account_id ||
+      kimi_account_id
+    ) {
       const permissions = new Set(normalizePermissionList(keyData.permissions))
       permissions.add('claude')
       if (openai_account_id) {
@@ -1965,6 +2189,12 @@ router.post('/api-key/:keyId/update', authenticatePartner, async (req, res) => {
       }
       if (minimax_account_id) {
         permissions.add('minimax')
+      }
+      if (glm_account_id) {
+        permissions.add('glm')
+      }
+      if (kimi_account_id) {
+        permissions.add('kimi')
       }
       updates.permissions = Array.from(permissions)
     }
@@ -2164,7 +2394,9 @@ router.post('/api-key/update-config', authenticatePartner, async (req, res) => {
       claude_account_id,
       openai_account_id,
       deepseek_account_id,
-      minimax_account_id
+      minimax_account_id,
+      glm_account_id,
+      kimi_account_id
     } = req.body
 
     // 参数验证
@@ -2236,6 +2468,24 @@ router.post('/api-key/update-config', authenticatePartner, async (req, res) => {
           data: null
         })
       }
+
+      const glmRateError = validateRate(keyConfig.glm_rate, `configs[${index}].glm_rate`)
+      if (glmRateError) {
+        return res.status(400).json({
+          code: 1001,
+          msg: glmRateError,
+          data: null
+        })
+      }
+
+      const kimiRateError = validateRate(keyConfig.kimi_rate, `configs[${index}].kimi_rate`)
+      if (kimiRateError) {
+        return res.status(400).json({
+          code: 1001,
+          msg: kimiRateError,
+          data: null
+        })
+      }
     }
 
     let claudeBindingUpdates = null
@@ -2285,6 +2535,32 @@ router.post('/api-key/update-config', authenticatePartner, async (req, res) => {
       }
     }
 
+    let glmBinding = null
+    if (glm_account_id) {
+      try {
+        glmBinding = await resolveGlmBinding(glm_account_id)
+      } catch (error) {
+        return res.status(400).json({
+          code: 1001,
+          msg: error.message,
+          data: null
+        })
+      }
+    }
+
+    let kimiBinding = null
+    if (kimi_account_id) {
+      try {
+        kimiBinding = await resolveKimiBinding(kimi_account_id)
+      } catch (error) {
+        return res.status(400).json({
+          code: 1001,
+          msg: error.message,
+          data: null
+        })
+      }
+    }
+
     logger.info(`🔧 Partner updating API Key configs: count=${configs.length}`)
 
     const failed = []
@@ -2312,7 +2588,9 @@ router.post('/api-key/update-config', authenticatePartner, async (req, res) => {
           resolvedClaudeRate,
           keyConfig.openai_rate,
           keyConfig.deepseek_rate,
-          keyConfig.minimax_rate
+          keyConfig.minimax_rate,
+          keyConfig.glm_rate,
+          keyConfig.kimi_rate
         )
 
         if (Object.keys(serviceRates).length > 0) {
@@ -2327,15 +2605,24 @@ router.post('/api-key/update-config', authenticatePartner, async (req, res) => {
           updates.openaiAccountId = openai_account_id
         }
 
-        if (deepseekBinding || minimaxBinding) {
+        if (deepseekBinding || minimaxBinding || glmBinding || kimiBinding) {
           updates.accountBindings = buildAccountBindings(
             apiKey.accountBindings || {},
             deepseekBinding,
-            minimaxBinding
+            minimaxBinding,
+            glmBinding,
+            kimiBinding
           )
         }
 
-        if (claudeBindingUpdates || openai_account_id || deepseekBinding || minimaxBinding) {
+        if (
+          claudeBindingUpdates ||
+          openai_account_id ||
+          deepseekBinding ||
+          minimaxBinding ||
+          glmBinding ||
+          kimiBinding
+        ) {
           const permissions = new Set(normalizePermissionList(apiKey.permissions))
           permissions.add('claude')
           if (openai_account_id) {
@@ -2346,6 +2633,12 @@ router.post('/api-key/update-config', authenticatePartner, async (req, res) => {
           }
           if (minimaxBinding) {
             permissions.add('minimax')
+          }
+          if (glmBinding) {
+            permissions.add('glm')
+          }
+          if (kimiBinding) {
+            permissions.add('kimi')
           }
           updates.permissions = Array.from(permissions)
         }

@@ -12,7 +12,9 @@
  * 3. 添加 FoxCode 账户（如果还没有）
  * 4. 可选：配置 PARTNER_TEST_DEEPSEEK_ACCOUNT_ID 测试 DeepSeek 账号绑定
  * 5. 可选：配置 PARTNER_TEST_MINIMAX_ACCOUNT_ID 测试 MiniMax 账号绑定
- * 6. 运行测试：node tests/partnerApi.simple.test.js
+ * 6. 可选：配置 PARTNER_TEST_GLM_ACCOUNT_ID 测试 GLM 账号绑定
+ * 7. 可选：配置 PARTNER_TEST_KIMI_ACCOUNT_ID 测试 Kimi 账号绑定
+ * 8. 运行测试：node tests/partnerApi.simple.test.js
  */
 
 const crypto = require('crypto')
@@ -31,6 +33,8 @@ const DEEPSEEK_ACCOUNT_ID =
   process.env.PARTNER_TEST_DEEPSEEK_ACCOUNT_ID || process.env.DEEPSEEK_ACCOUNT_ID || ''
 const MINIMAX_ACCOUNT_ID =
   process.env.PARTNER_TEST_MINIMAX_ACCOUNT_ID || process.env.MINIMAX_ACCOUNT_ID || ''
+const GLM_ACCOUNT_ID = process.env.PARTNER_TEST_GLM_ACCOUNT_ID || process.env.GLM_ACCOUNT_ID || ''
+const KIMI_ACCOUNT_ID = process.env.PARTNER_TEST_KIMI_ACCOUNT_ID || process.env.KIMI_ACCOUNT_ID || ''
 
 // 测试统计
 let totalTests = 0
@@ -497,7 +501,21 @@ async function testQueryApiKeyDetail() {
     assert(Array.isArray(keyData.rateLimits), 'rateLimits 应为数组')
     assert(Array.isArray(keyData.tags), 'tags 应为数组')
     assert(typeof keyData.serviceRates === 'object', 'serviceRates 应为对象')
+    assert(typeof keyData.accountBindings === 'object', 'accountBindings 应为对象')
     assert(keyData.packMode === 'personal', 'packMode 应为 personal')
+
+    if (DEEPSEEK_ACCOUNT_ID) {
+      assert(
+        keyData.accountBindings.deepseek?.accountId === DEEPSEEK_ACCOUNT_ID,
+        'DeepSeek accountBindings 应写入 accountBindings.deepseek.accountId'
+      )
+      assert(
+        keyData.permissions.includes('deepseek'),
+        '绑定 DeepSeek 后 permissions 应包含 deepseek'
+      )
+    }
+
+    assert(keyData.serviceRates.deepseek === 1.2, 'DeepSeek 倍率应写入 serviceRates.deepseek')
   })
 }
 
@@ -622,6 +640,122 @@ async function testUpdateApiKeyMiniMaxConfig() {
 }
 
 /**
+ * 测试 7.565: 更新 API Key - GLM 倍率与账号绑定
+ */
+async function testUpdateApiKeyGlmConfig() {
+  await test('测试 7.565: 更新 API Key - GLM 倍率与账号绑定', async () => {
+    if (!createdApiKeyId) {
+      console.log('  跳过：需要先创建 API Key')
+      return
+    }
+
+    const params = {
+      glm_rate: 1.7
+    }
+
+    if (GLM_ACCOUNT_ID) {
+      params.glm_account_id = GLM_ACCOUNT_ID
+    }
+
+    const signature = generateSignature(params)
+
+    const response = await axios.post(
+      `${API_BASE_URL}/partner/api-key/${createdApiKeyId}/update`,
+      { ...params, sign: signature },
+      { headers: { 'Content-Type': 'application/json' } }
+    )
+
+    assert(response.status === 200, 'HTTP 状态码应为 200')
+    assert(response.data.code === 0, '响应 code 应为 0')
+    assert(response.data.msg === 'success', '响应 msg 应为 success')
+    assert(response.data.data.keyId === createdApiKeyId, 'keyId 应匹配')
+
+    const detailParams = { key_ids: [createdApiKeyId] }
+    const detailSignature = generateSignature(detailParams)
+    const detailResponse = await axios.post(
+      `${API_BASE_URL}/partner/api-key/detail`,
+      { ...detailParams, sign: detailSignature },
+      { headers: { 'Content-Type': 'application/json' } }
+    )
+    const keyData = detailResponse.data.data[createdApiKeyId]
+
+    assert(keyData.serviceRates.glm === 1.7, 'GLM 倍率应写入 serviceRates.glm')
+    assert(keyData.permissions.includes('glm'), '更新 GLM 后 permissions 应包含 glm')
+    if (GLM_ACCOUNT_ID) {
+      assert(
+        keyData.accountBindings.glm?.accountId === GLM_ACCOUNT_ID,
+        'GLM 绑定应写入 accountBindings.glm.accountId'
+      )
+    }
+
+    console.log(`  GLM 倍率更新为: ${params.glm_rate}`)
+    if (GLM_ACCOUNT_ID) {
+      console.log(`  GLM 绑定更新为: ${GLM_ACCOUNT_ID}`)
+    } else {
+      console.log(`  未配置 PARTNER_TEST_GLM_ACCOUNT_ID，仅测试 GLM 倍率更新`)
+    }
+  })
+}
+
+/**
+ * 测试 7.57: 更新 API Key - Kimi 倍率与账号绑定
+ */
+async function testUpdateApiKeyKimiConfig() {
+  await test('测试 7.57: 更新 API Key - Kimi 倍率与账号绑定', async () => {
+    if (!createdApiKeyId) {
+      console.log('  跳过：需要先创建 API Key')
+      return
+    }
+
+    const params = {
+      kimi_rate: 1.8
+    }
+
+    if (KIMI_ACCOUNT_ID) {
+      params.kimi_account_id = KIMI_ACCOUNT_ID
+    }
+
+    const signature = generateSignature(params)
+
+    const response = await axios.post(
+      `${API_BASE_URL}/partner/api-key/${createdApiKeyId}/update`,
+      { ...params, sign: signature },
+      { headers: { 'Content-Type': 'application/json' } }
+    )
+
+    assert(response.status === 200, 'HTTP 状态码应为 200')
+    assert(response.data.code === 0, '响应 code 应为 0')
+    assert(response.data.msg === 'success', '响应 msg 应为 success')
+    assert(response.data.data.keyId === createdApiKeyId, 'keyId 应匹配')
+
+    const detailParams = { key_ids: [createdApiKeyId] }
+    const detailSignature = generateSignature(detailParams)
+    const detailResponse = await axios.post(
+      `${API_BASE_URL}/partner/api-key/detail`,
+      { ...detailParams, sign: detailSignature },
+      { headers: { 'Content-Type': 'application/json' } }
+    )
+    const keyData = detailResponse.data.data[createdApiKeyId]
+
+    assert(keyData.serviceRates.kimi === 1.8, 'Kimi 倍率应写入 serviceRates.kimi')
+    assert(keyData.permissions.includes('kimi'), '更新 Kimi 后 permissions 应包含 kimi')
+    if (KIMI_ACCOUNT_ID) {
+      assert(
+        keyData.accountBindings.kimi?.accountId === KIMI_ACCOUNT_ID,
+        'Kimi 绑定应写入 accountBindings.kimi.accountId'
+      )
+    }
+
+    console.log(`  Kimi 倍率更新为: ${params.kimi_rate}`)
+    if (KIMI_ACCOUNT_ID) {
+      console.log(`  Kimi 绑定更新为: ${KIMI_ACCOUNT_ID}`)
+    } else {
+      console.log(`  未配置 PARTNER_TEST_KIMI_ACCOUNT_ID，仅测试 Kimi 倍率更新`)
+    }
+  })
+}
+
+/**
  * 测试 7.56: 更新 API Key - MiniMax 账号不存在
  */
 async function testUpdateApiKeyInvalidMiniMaxAccount() {
@@ -655,7 +789,7 @@ async function testUpdateApiKeyInvalidMiniMaxAccount() {
  * 测试 7.57: 更新 API Key - MiniMax 倍率格式错误
  */
 async function testUpdateApiKeyInvalidMiniMaxRate() {
-  await test('测试 7.57: 更新 API Key - MiniMax 倍率格式错误', async () => {
+  await test('测试 7.575: 更新 API Key - MiniMax 倍率格式错误', async () => {
     if (!createdApiKeyId) {
       console.log('  跳过：需要先创建 API Key')
       return
@@ -682,10 +816,130 @@ async function testUpdateApiKeyInvalidMiniMaxRate() {
 }
 
 /**
- * 测试 7.58: 批量更新 API Key 配置 - MiniMax 倍率与账号绑定
+ * 测试 7.576: 更新 API Key - GLM 账号不存在
  */
-async function testBatchUpdateConfigMiniMaxConfig() {
-  await test('测试 7.58: 批量更新 API Key 配置 - MiniMax 倍率与账号绑定', async () => {
+async function testUpdateApiKeyInvalidGlmAccount() {
+  await test('测试 7.576: 更新 API Key - GLM 账号不存在', async () => {
+    if (!createdApiKeyId) {
+      console.log('  跳过：需要先创建 API Key')
+      return
+    }
+
+    const params = {
+      glm_account_id: 'non-existent-glm-account-id'
+    }
+    const signature = generateSignature(params)
+
+    try {
+      await axios.post(
+        `${API_BASE_URL}/partner/api-key/${createdApiKeyId}/update`,
+        { ...params, sign: signature },
+        { headers: { 'Content-Type': 'application/json' } }
+      )
+      assert(false, '应该抛出错误')
+    } catch (error) {
+      assert(error.response.status === 400, 'HTTP 状态码应为 400')
+      assert(error.response.data.code === 1001, '错误码应为 1001')
+      assert(error.response.data.msg.includes('GLM account'), '错误信息应包含 GLM account')
+    }
+  })
+}
+
+/**
+ * 测试 7.577: 更新 API Key - GLM 倍率格式错误
+ */
+async function testUpdateApiKeyInvalidGlmRate() {
+  await test('测试 7.577: 更新 API Key - GLM 倍率格式错误', async () => {
+    if (!createdApiKeyId) {
+      console.log('  跳过：需要先创建 API Key')
+      return
+    }
+
+    const params = {
+      glm_rate: 1.23
+    }
+    const signature = generateSignature(params)
+
+    try {
+      await axios.post(
+        `${API_BASE_URL}/partner/api-key/${createdApiKeyId}/update`,
+        { ...params, sign: signature },
+        { headers: { 'Content-Type': 'application/json' } }
+      )
+      assert(false, '应该抛出错误')
+    } catch (error) {
+      assert(error.response.status === 400, 'HTTP 状态码应为 400')
+      assert(error.response.data.code === 1001, '错误码应为 1001')
+      assert(error.response.data.msg.includes('glm_rate'), '错误信息应包含 glm_rate')
+    }
+  })
+}
+
+/**
+ * 测试 7.578: 更新 API Key - Kimi 账号不存在
+ */
+async function testUpdateApiKeyInvalidKimiAccount() {
+  await test('测试 7.578: 更新 API Key - Kimi 账号不存在', async () => {
+    if (!createdApiKeyId) {
+      console.log('  跳过：需要先创建 API Key')
+      return
+    }
+
+    const params = {
+      kimi_account_id: 'non-existent-kimi-account-id'
+    }
+    const signature = generateSignature(params)
+
+    try {
+      await axios.post(
+        `${API_BASE_URL}/partner/api-key/${createdApiKeyId}/update`,
+        { ...params, sign: signature },
+        { headers: { 'Content-Type': 'application/json' } }
+      )
+      assert(false, '应该抛出错误')
+    } catch (error) {
+      assert(error.response.status === 400, 'HTTP 状态码应为 400')
+      assert(error.response.data.code === 1001, '错误码应为 1001')
+      assert(error.response.data.msg.includes('Kimi account'), '错误信息应包含 Kimi account')
+    }
+  })
+}
+
+/**
+ * 测试 7.579: 更新 API Key - Kimi 倍率格式错误
+ */
+async function testUpdateApiKeyInvalidKimiRate() {
+  await test('测试 7.579: 更新 API Key - Kimi 倍率格式错误', async () => {
+    if (!createdApiKeyId) {
+      console.log('  跳过：需要先创建 API Key')
+      return
+    }
+
+    const params = {
+      kimi_rate: 1.23
+    }
+    const signature = generateSignature(params)
+
+    try {
+      await axios.post(
+        `${API_BASE_URL}/partner/api-key/${createdApiKeyId}/update`,
+        { ...params, sign: signature },
+        { headers: { 'Content-Type': 'application/json' } }
+      )
+      assert(false, '应该抛出错误')
+    } catch (error) {
+      assert(error.response.status === 400, 'HTTP 状态码应为 400')
+      assert(error.response.data.code === 1001, '错误码应为 1001')
+      assert(error.response.data.msg.includes('kimi_rate'), '错误信息应包含 kimi_rate')
+    }
+  })
+}
+
+/**
+ * 测试 7.58: 批量更新 API Key 配置 - GLM 倍率与账号绑定
+ */
+async function testBatchUpdateConfigGlmConfig() {
+  await test('测试 7.58: 批量更新 API Key 配置 - GLM 倍率与账号绑定', async () => {
     if (!createdApiKeyId) {
       console.log('  跳过：需要先创建 API Key')
       return
@@ -695,13 +949,13 @@ async function testBatchUpdateConfigMiniMaxConfig() {
       configs: [
         {
           key_id: createdApiKeyId,
-          minimax_rate: 1.6
+          glm_rate: 1.9
         }
       ]
     }
 
-    if (MINIMAX_ACCOUNT_ID) {
-      params.minimax_account_id = MINIMAX_ACCOUNT_ID
+    if (GLM_ACCOUNT_ID) {
+      params.glm_account_id = GLM_ACCOUNT_ID
     }
 
     const signature = generateSignature(params)
@@ -719,20 +973,139 @@ async function testBatchUpdateConfigMiniMaxConfig() {
     assert(response.data.data.success === 1, '成功数应为 1')
     assert(response.data.data.failed === 0, '失败数应为 0')
 
-    console.log(`  批量更新 MiniMax 倍率为: ${params.configs[0].minimax_rate}`)
-    if (MINIMAX_ACCOUNT_ID) {
-      console.log(`  批量更新 MiniMax 绑定为: ${MINIMAX_ACCOUNT_ID}`)
-    } else {
-      console.log(`  未配置 PARTNER_TEST_MINIMAX_ACCOUNT_ID，仅测试批量 MiniMax 倍率更新`)
+    const detailParams = { key_ids: [createdApiKeyId] }
+    const detailSignature = generateSignature(detailParams)
+    const detailResponse = await axios.post(
+      `${API_BASE_URL}/partner/api-key/detail`,
+      { ...detailParams, sign: detailSignature },
+      { headers: { 'Content-Type': 'application/json' } }
+    )
+    const keyData = detailResponse.data.data[createdApiKeyId]
+
+    assert(keyData.serviceRates.glm === 1.9, '批量更新后 GLM 倍率应写入 serviceRates.glm')
+    if (GLM_ACCOUNT_ID) {
+      assert(
+        keyData.accountBindings.glm?.accountId === GLM_ACCOUNT_ID,
+        '批量更新后 GLM 绑定应写入 accountBindings.glm.accountId'
+      )
     }
   })
 }
 
 /**
- * 测试 7.59: 创建 API Key - MiniMax 倍率格式错误
+ * 测试 7.585: 批量更新 API Key 配置 - Kimi 倍率与账号绑定
+ */
+async function testBatchUpdateConfigKimiConfig() {
+  await test('测试 7.585: 批量更新 API Key 配置 - Kimi 倍率与账号绑定', async () => {
+    if (!createdApiKeyId) {
+      console.log('  跳过：需要先创建 API Key')
+      return
+    }
+
+    const params = {
+      configs: [
+        {
+          key_id: createdApiKeyId,
+          kimi_rate: 2.0
+        }
+      ]
+    }
+
+    if (KIMI_ACCOUNT_ID) {
+      params.kimi_account_id = KIMI_ACCOUNT_ID
+    }
+
+    const signature = generateSignature(params)
+
+    const response = await axios.post(
+      `${API_BASE_URL}/partner/api-key/update-config`,
+      { ...params, sign: signature },
+      { headers: { 'Content-Type': 'application/json' } }
+    )
+
+    assert(response.status === 200, 'HTTP 状态码应为 200')
+    assert(response.data.code === 0, '响应 code 应为 0')
+    assert(response.data.msg === 'success', '响应 msg 应为 success')
+    assert(response.data.data.total === 1, '处理总数应为 1')
+    assert(response.data.data.success === 1, '成功数应为 1')
+    assert(response.data.data.failed === 0, '失败数应为 0')
+
+    const detailParams = { key_ids: [createdApiKeyId] }
+    const detailSignature = generateSignature(detailParams)
+    const detailResponse = await axios.post(
+      `${API_BASE_URL}/partner/api-key/detail`,
+      { ...detailParams, sign: detailSignature },
+      { headers: { 'Content-Type': 'application/json' } }
+    )
+    const keyData = detailResponse.data.data[createdApiKeyId]
+
+    assert(keyData.serviceRates.kimi === 2.0, '批量更新后 Kimi 倍率应写入 serviceRates.kimi')
+    if (KIMI_ACCOUNT_ID) {
+      assert(
+        keyData.accountBindings.kimi?.accountId === KIMI_ACCOUNT_ID,
+        '批量更新后 Kimi 绑定应写入 accountBindings.kimi.accountId'
+      )
+    }
+  })
+}
+
+/**
+ * 测试 7.59: 创建 API Key - GLM 倍率格式错误
+ */
+async function testCreateApiKeyInvalidGlmRate() {
+  await test('测试 7.59: 创建 API Key - GLM 倍率格式错误', async () => {
+    const params = {
+      name: `TestApp_InvalidGlmRate_${Date.now()}`,
+      glm_rate: 1.23
+    }
+    const signature = generateSignature(params)
+
+    try {
+      await axios.post(
+        `${API_BASE_URL}/partner/api-key/create`,
+        { ...params, sign: signature },
+        { headers: { 'Content-Type': 'application/json' } }
+      )
+      assert(false, '应该抛出错误')
+    } catch (error) {
+      assert(error.response.status === 400, 'HTTP 状态码应为 400')
+      assert(error.response.data.code === 1001, '错误码应为 1001')
+      assert(error.response.data.msg.includes('glm_rate'), '错误信息应包含 glm_rate')
+    }
+  })
+}
+
+/**
+ * 测试 7.595: 创建 API Key - Kimi 倍率格式错误
+ */
+async function testCreateApiKeyInvalidKimiRate() {
+  await test('测试 7.595: 创建 API Key - Kimi 倍率格式错误', async () => {
+    const params = {
+      name: `TestApp_InvalidKimiRate_${Date.now()}`,
+      kimi_rate: 1.23
+    }
+    const signature = generateSignature(params)
+
+    try {
+      await axios.post(
+        `${API_BASE_URL}/partner/api-key/create`,
+        { ...params, sign: signature },
+        { headers: { 'Content-Type': 'application/json' } }
+      )
+      assert(false, '应该抛出错误')
+    } catch (error) {
+      assert(error.response.status === 400, 'HTTP 状态码应为 400')
+      assert(error.response.data.code === 1001, '错误码应为 1001')
+      assert(error.response.data.msg.includes('kimi_rate'), '错误信息应包含 kimi_rate')
+    }
+  })
+}
+
+/**
+ * 测试 7.596: 创建 API Key - MiniMax 倍率格式错误
  */
 async function testCreateApiKeyInvalidMiniMaxRate() {
-  await test('测试 7.59: 创建 API Key - MiniMax 倍率格式错误', async () => {
+  await test('测试 7.596: 创建 API Key - MiniMax 倍率格式错误', async () => {
     const params = {
       name: `TestApp_InvalidMiniMaxRate_${Date.now()}`,
       minimax_rate: 1.23
@@ -751,6 +1124,56 @@ async function testCreateApiKeyInvalidMiniMaxRate() {
       assert(error.response.data.code === 1001, '错误码应为 1001')
       assert(error.response.data.msg.includes('minimax_rate'), '错误信息应包含 minimax_rate')
     }
+  })
+}
+
+/**
+ * 测试 7.597: 创建 API Key - Kimi 与 GLM 分组写入
+ */
+async function testCreateApiKeyWithGlmAndKimiBindings() {
+  await test('测试 7.597: 创建 API Key - Kimi 与 GLM 分组写入', async () => {
+    if (!GLM_ACCOUNT_ID || !KIMI_ACCOUNT_ID) {
+      console.log('  跳过：需要同时配置 PARTNER_TEST_GLM_ACCOUNT_ID 和 PARTNER_TEST_KIMI_ACCOUNT_ID')
+      return
+    }
+
+    const params = {
+      name: `TestApp_GlmKimi_${Date.now()}`,
+      glm_rate: 1.4,
+      kimi_rate: 1.5,
+      glm_account_id: GLM_ACCOUNT_ID,
+      kimi_account_id: KIMI_ACCOUNT_ID
+    }
+    const signature = generateSignature(params)
+
+    const createResponse = await axios.post(
+      `${API_BASE_URL}/partner/api-key/create`,
+      { ...params, sign: signature },
+      { headers: { 'Content-Type': 'application/json' } }
+    )
+
+    assert(createResponse.status === 200, 'HTTP 状态码应为 200')
+    assert(createResponse.data.code === 0, '响应 code 应为 0')
+
+    const keyId = createResponse.data.data.keyId
+    const detailParams = { key_ids: [keyId] }
+    const detailSignature = generateSignature(detailParams)
+    const detailResponse = await axios.post(
+      `${API_BASE_URL}/partner/api-key/detail`,
+      { ...detailParams, sign: detailSignature },
+      { headers: { 'Content-Type': 'application/json' } }
+    )
+    const keyData = detailResponse.data.data[keyId]
+
+    assert(keyData.accountBindings.glm?.accountId === GLM_ACCOUNT_ID, 'GLM 应写入独立 accountBindings 分组')
+    assert(
+      keyData.accountBindings.kimi?.accountId === KIMI_ACCOUNT_ID,
+      'Kimi 应写入独立 accountBindings 分组'
+    )
+    assert(keyData.serviceRates.glm === 1.4, 'GLM 倍率应写入 serviceRates.glm')
+    assert(keyData.serviceRates.kimi === 1.5, 'Kimi 倍率应写入 serviceRates.kimi')
+    assert(keyData.permissions.includes('glm'), 'permissions 应包含 glm')
+    assert(keyData.permissions.includes('kimi'), 'permissions 应包含 kimi')
   })
 }
 
@@ -830,6 +1253,53 @@ async function testBatchUpdateConfigDeepSeekConfig() {
       console.log(`  批量更新 DeepSeek 绑定为: ${DEEPSEEK_ACCOUNT_ID}`)
     } else {
       console.log(`  未配置 PARTNER_TEST_DEEPSEEK_ACCOUNT_ID，仅测试批量 DeepSeek 倍率更新`)
+    }
+  })
+}
+
+/**
+ * 测试 7.58: 批量更新 API Key 配置 - MiniMax 倍率与账号绑定
+ */
+async function testBatchUpdateConfigMiniMaxConfig() {
+  await test('测试 7.58: 批量更新 API Key 配置 - MiniMax 倍率与账号绑定', async () => {
+    if (!createdApiKeyId) {
+      console.log('  跳过：需要先创建 API Key')
+      return
+    }
+
+    const params = {
+      configs: [
+        {
+          key_id: createdApiKeyId,
+          minimax_rate: 1.6
+        }
+      ]
+    }
+
+    if (MINIMAX_ACCOUNT_ID) {
+      params.minimax_account_id = MINIMAX_ACCOUNT_ID
+    }
+
+    const signature = generateSignature(params)
+
+    const response = await axios.post(
+      `${API_BASE_URL}/partner/api-key/update-config`,
+      { ...params, sign: signature },
+      { headers: { 'Content-Type': 'application/json' } }
+    )
+
+    assert(response.status === 200, 'HTTP 状态码应为 200')
+    assert(response.data.code === 0, '响应 code 应为 0')
+    assert(response.data.msg === 'success', '响应 msg 应为 success')
+    assert(response.data.data.total === 1, '处理总数应为 1')
+    assert(response.data.data.success === 1, '成功数应为 1')
+    assert(response.data.data.failed === 0, '失败数应为 0')
+
+    console.log(`  批量更新 MiniMax 倍率为: ${params.configs[0].minimax_rate}`)
+    if (MINIMAX_ACCOUNT_ID) {
+      console.log(`  批量更新 MiniMax 绑定为: ${MINIMAX_ACCOUNT_ID}`)
+    } else {
+      console.log(`  未配置 PARTNER_TEST_MINIMAX_ACCOUNT_ID，仅测试批量 MiniMax 倍率更新`)
     }
   })
 }
@@ -1031,12 +1501,23 @@ async function main() {
     await testUpdateApiKeyExpiration()
     await testUpdateApiKeyDeepSeekConfig()
     await testUpdateApiKeyMiniMaxConfig()
+    await testUpdateApiKeyGlmConfig()
+    await testUpdateApiKeyKimiConfig()
     await testUpdateApiKeyInvalidMiniMaxAccount()
     await testUpdateApiKeyInvalidMiniMaxRate()
+    await testUpdateApiKeyInvalidGlmAccount()
+    await testUpdateApiKeyInvalidGlmRate()
+    await testUpdateApiKeyInvalidKimiAccount()
+    await testUpdateApiKeyInvalidKimiRate()
     await testCreateApiKeyInvalidMiniMaxRate()
+    await testCreateApiKeyInvalidGlmRate()
+    await testCreateApiKeyInvalidKimiRate()
+    await testCreateApiKeyWithGlmAndKimiBindings()
     await testUpdateApiKeyInvalidDeepSeekAccount()
     await testBatchUpdateConfigDeepSeekConfig()
     await testBatchUpdateConfigMiniMaxConfig()
+    await testBatchUpdateConfigGlmConfig()
+    await testBatchUpdateConfigKimiConfig()
     await testEnterpriseBatchCreate()
     await testEnterpriseBatchCreatePartialFailure()
     await testEnterpriseSetMembers()
