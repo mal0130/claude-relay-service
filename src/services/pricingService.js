@@ -62,9 +62,11 @@ const MINIMAX_FALLBACK_USD_PER_MTOK = {
   m2: { cacheRead: 0.03, cacheCreate: 0.375, input: 0.3, output: 1.2 }
 }
 const usdPerMillionToUsdPerToken = (usdPerMillionTokens) => usdPerMillionTokens / 1_000_000
+const glmCnyPerMillionToUsdPerMillion = (cnyPerMillionTokens) =>
+  cnyPerMillionTokens / GLM_CNY_PER_USD
 
-const GLM_PRICING_SOURCE =
-  process.env.GLM_PRICING_URL || 'https://docs.z.ai/guides/overview/pricing'
+const GLM_PRICING_SOURCE = process.env.GLM_PRICING_URL || 'https://open.bigmodel.cn/pricing'
+const GLM_CNY_PER_USD = 7
 
 const KIMI_PRICING_SOURCE_K26 =
   process.env.KIMI_PRICING_URL_K26 || 'https://platform.kimi.ai/docs/pricing/chat-k26'
@@ -383,184 +385,292 @@ class PricingService {
     }
   }
 
+  _createGlmPricingEntryFromCny(options) {
+    const { inputCnyPerMillion, outputCnyPerMillion, cacheReadCnyPerMillion = 0, ...rest } = options
+
+    return this._createGlmPricingEntry({
+      ...rest,
+      inputUsdPerMillion: glmCnyPerMillionToUsdPerMillion(inputCnyPerMillion),
+      outputUsdPerMillion: glmCnyPerMillionToUsdPerMillion(outputCnyPerMillion),
+      cacheReadUsdPerMillion: glmCnyPerMillionToUsdPerMillion(cacheReadCnyPerMillion)
+    })
+  }
+
+  _createGlmTieredPricingEntry(options) {
+    const {
+      tiers,
+      source = GLM_PRICING_SOURCE,
+      now = new Date(),
+      pricingSourceName = 'glm_builtin_fallback',
+      baseEntry = {}
+    } = options
+    const firstTier = Array.isArray(tiers) && tiers.length > 0 ? tiers[0] : null
+
+    if (!firstTier) {
+      throw new Error('GLM tiered pricing requires at least one tier')
+    }
+
+    const entry = this._createGlmPricingEntryFromCny({
+      inputCnyPerMillion: firstTier.input,
+      outputCnyPerMillion: firstTier.output,
+      cacheReadCnyPerMillion: firstTier.cacheRead || 0,
+      source,
+      now,
+      pricingSourceName,
+      baseEntry
+    })
+
+    entry.provider_specific_entry = {
+      pricing_in_cny: {
+        exchange_rate: GLM_CNY_PER_USD,
+        tiers: tiers.map((tier) => ({
+          ...tier,
+          input_usd_per_million: glmCnyPerMillionToUsdPerMillion(tier.input),
+          output_usd_per_million: glmCnyPerMillionToUsdPerMillion(tier.output),
+          cache_read_usd_per_million: glmCnyPerMillionToUsdPerMillion(tier.cacheRead || 0)
+        }))
+      }
+    }
+
+    return entry
+  }
+
+  _createGlmFlatPricingEntryFromCny(options) {
+    const { inputCnyPerMillion, outputCnyPerMillion, cacheReadCnyPerMillion = 0, ...rest } = options
+
+    const entry = this._createGlmPricingEntryFromCny({
+      inputCnyPerMillion,
+      outputCnyPerMillion,
+      cacheReadCnyPerMillion,
+      ...rest
+    })
+
+    entry.provider_specific_entry = {
+      pricing_in_cny: {
+        exchange_rate: GLM_CNY_PER_USD,
+        input_per_million: inputCnyPerMillion,
+        output_per_million: outputCnyPerMillion,
+        cache_read_per_million: cacheReadCnyPerMillion
+      }
+    }
+
+    return entry
+  }
+
   getGlmFallbackPricing(now = new Date()) {
     const source = GLM_PRICING_SOURCE
     return {
-      'glm-5.1': this._createGlmPricingEntry({
-        inputUsdPerMillion: 1.4,
-        cacheReadUsdPerMillion: 0.26,
-        outputUsdPerMillion: 4.4,
+      'glm-5.1': this._createGlmTieredPricingEntry({
+        tiers: [
+          { condition: 'input < 32k', input: 6, cacheRead: 1.3, output: 24 },
+          { condition: 'input >= 32k', input: 8, cacheRead: 2, output: 28 }
+        ],
         source,
         now
       }),
-      'glm-5-turbo': this._createGlmPricingEntry({
-        inputUsdPerMillion: 1.2,
-        cacheReadUsdPerMillion: 0.24,
-        outputUsdPerMillion: 4.0,
+      'glm-5-turbo': this._createGlmTieredPricingEntry({
+        tiers: [
+          { condition: 'input < 32k', input: 5, cacheRead: 1.2, output: 22 },
+          { condition: 'input >= 32k', input: 7, cacheRead: 1.8, output: 26 }
+        ],
         source,
         now
       }),
-      'glm-5': this._createGlmPricingEntry({
-        inputUsdPerMillion: 1.0,
-        cacheReadUsdPerMillion: 0.2,
-        outputUsdPerMillion: 3.2,
+      'glm-5': this._createGlmTieredPricingEntry({
+        tiers: [
+          { condition: 'input < 32k', input: 4, cacheRead: 1, output: 18 },
+          { condition: 'input >= 32k', input: 6, cacheRead: 1.5, output: 22 }
+        ],
         source,
         now
       }),
-      'glm-4.7-flashx': this._createGlmPricingEntry({
-        inputUsdPerMillion: 0.07,
-        cacheReadUsdPerMillion: 0.01,
-        outputUsdPerMillion: 0.4,
+      'glm-4.7-flashx': this._createGlmFlatPricingEntryFromCny({
+        inputCnyPerMillion: 0.5,
+        cacheReadCnyPerMillion: 0.1,
+        outputCnyPerMillion: 3,
         source,
         now
       }),
-      'glm-4.7-flash': this._createGlmPricingEntry({
-        inputUsdPerMillion: 0,
-        cacheReadUsdPerMillion: 0,
-        outputUsdPerMillion: 0,
+      'glm-4.7-flash': this._createGlmFlatPricingEntryFromCny({
+        inputCnyPerMillion: 0,
+        cacheReadCnyPerMillion: 0,
+        outputCnyPerMillion: 0,
         source,
         now
       }),
-      'glm-4.7': this._createGlmPricingEntry({
-        inputUsdPerMillion: 0.6,
-        cacheReadUsdPerMillion: 0.11,
-        outputUsdPerMillion: 2.2,
+      'glm-5v-turbo': this._createGlmTieredPricingEntry({
+        tiers: [
+          { condition: 'input < 32k', input: 5, cacheRead: 1.2, output: 22 },
+          { condition: 'input >= 32k', input: 7, cacheRead: 1.8, output: 26 }
+        ],
         source,
         now
       }),
-      'glm-4.6v-flashx': this._createGlmPricingEntry({
-        inputUsdPerMillion: 0.07,
-        cacheReadUsdPerMillion: 0.01,
-        outputUsdPerMillion: 0.4,
+      'glm-4.7': this._createGlmTieredPricingEntry({
+        tiers: [
+          { condition: 'input < 32k && output < 0.2k', input: 2, cacheRead: 0.4, output: 8 },
+          { condition: 'input < 32k && output >= 0.2k', input: 3, cacheRead: 0.6, output: 14 },
+          { condition: '32k <= input < 200k', input: 4, cacheRead: 0.8, output: 16 }
+        ],
         source,
         now
       }),
-      'glm-4.6v': this._createGlmPricingEntry({
-        inputUsdPerMillion: 0.6,
-        cacheReadUsdPerMillion: 0.11,
-        outputUsdPerMillion: 2.2,
+      'glm-4.6v-flashx': this._createGlmTieredPricingEntry({
+        tiers: [
+          { condition: 'input < 32k', input: 0.15, cacheRead: 0.03, output: 1.5 },
+          { condition: '32k <= input < 128k', input: 0.3, cacheRead: 0.03, output: 3 }
+        ],
         source,
         now
       }),
-      'glm-4.6': this._createGlmPricingEntry({
-        inputUsdPerMillion: 0.6,
-        cacheReadUsdPerMillion: 0.11,
-        outputUsdPerMillion: 2.2,
+      'glm-4.6v-flash': this._createGlmFlatPricingEntryFromCny({
+        inputCnyPerMillion: 0,
+        cacheReadCnyPerMillion: 0,
+        outputCnyPerMillion: 0,
         source,
         now
       }),
-      'glm-4.5-flash': this._createGlmPricingEntry({
-        inputUsdPerMillion: 0,
-        cacheReadUsdPerMillion: 0,
-        outputUsdPerMillion: 0,
+      'glm-4.6v': this._createGlmTieredPricingEntry({
+        tiers: [
+          { condition: 'input < 32k', input: 1, cacheRead: 0.2, output: 3 },
+          { condition: '32k <= input < 128k', input: 2, cacheRead: 0.4, output: 6 }
+        ],
         source,
         now
       }),
-      'glm-4.5-airx': this._createGlmPricingEntry({
-        inputUsdPerMillion: 1.1,
-        cacheReadUsdPerMillion: 0.22,
-        outputUsdPerMillion: 4.5,
+      'glm-4.6': this._createGlmFlatPricingEntryFromCny({
+        inputCnyPerMillion: 1,
+        cacheReadCnyPerMillion: 0.2,
+        outputCnyPerMillion: 3,
         source,
         now
       }),
-      'glm-4.5-air': this._createGlmPricingEntry({
-        inputUsdPerMillion: 0.2,
-        cacheReadUsdPerMillion: 0.03,
-        outputUsdPerMillion: 1.1,
+      'glm-4.5-flash': this._createGlmFlatPricingEntryFromCny({
+        inputCnyPerMillion: 0,
+        cacheReadCnyPerMillion: 0,
+        outputCnyPerMillion: 0,
         source,
         now
       }),
-      'glm-4.5v': this._createGlmPricingEntry({
-        inputUsdPerMillion: 0.6,
-        cacheReadUsdPerMillion: 0.11,
-        outputUsdPerMillion: 2.2,
+      'glm-4.5-airx': this._createGlmFlatPricingEntryFromCny({
+        inputCnyPerMillion: 1.1,
+        cacheReadCnyPerMillion: 0.22,
+        outputCnyPerMillion: 4.5,
         source,
         now
       }),
-      'glm-4.5-x': this._createGlmPricingEntry({
-        inputUsdPerMillion: 2.2,
-        cacheReadUsdPerMillion: 0.45,
-        outputUsdPerMillion: 8.9,
+      'glm-4.5-air': this._createGlmTieredPricingEntry({
+        tiers: [
+          { condition: 'input < 32k && output < 0.2k', input: 0.8, cacheRead: 0.16, output: 2 },
+          { condition: 'input < 32k && output >= 0.2k', input: 0.8, cacheRead: 0.16, output: 6 },
+          { condition: '32k <= input < 128k', input: 1.2, cacheRead: 0.24, output: 8 }
+        ],
         source,
         now
       }),
-      'glm-4.5': this._createGlmPricingEntry({
-        inputUsdPerMillion: 0.6,
-        cacheReadUsdPerMillion: 0.11,
-        outputUsdPerMillion: 2.2,
+      'glm-4.5v': this._createGlmTieredPricingEntry({
+        tiers: [
+          { condition: 'input < 32k', input: 2, cacheRead: 0.4, output: 6 },
+          { condition: '32k <= input < 64k', input: 4, cacheRead: 0.8, output: 12 }
+        ],
         source,
         now
       }),
-      'glm-4-32b-0414-128k': this._createGlmPricingEntry({
-        inputUsdPerMillion: 0.1,
-        cacheReadUsdPerMillion: 0,
-        outputUsdPerMillion: 0.1,
+      'glm-4.5-x': this._createGlmFlatPricingEntryFromCny({
+        inputCnyPerMillion: 2.2,
+        cacheReadCnyPerMillion: 0.45,
+        outputCnyPerMillion: 8.9,
         source,
         now
       }),
-      'glm-4-flash': this._createGlmPricingEntry({
-        inputUsdPerMillion: 0,
-        outputUsdPerMillion: 0,
+      'glm-4.5': this._createGlmFlatPricingEntryFromCny({
+        inputCnyPerMillion: 1,
+        cacheReadCnyPerMillion: 0.2,
+        outputCnyPerMillion: 3,
         source,
         now
       }),
-      'glm-4-flash-250414': this._createGlmPricingEntry({
-        inputUsdPerMillion: 0,
-        outputUsdPerMillion: 0,
+      'glm-4-32b-0414-128k': this._createGlmFlatPricingEntryFromCny({
+        inputCnyPerMillion: 0.1,
+        cacheReadCnyPerMillion: 0,
+        outputCnyPerMillion: 0.1,
         source,
         now
       }),
-      'glm-4-plus': this._createGlmPricingEntry({
-        inputUsdPerMillion: 7,
-        outputUsdPerMillion: 7,
+      'glm-4-flash': this._createGlmFlatPricingEntryFromCny({
+        inputCnyPerMillion: 0,
+        cacheReadCnyPerMillion: 0,
+        outputCnyPerMillion: 0,
         source,
         now
       }),
-      'glm-4': this._createGlmPricingEntry({
-        inputUsdPerMillion: 14,
-        outputUsdPerMillion: 14,
+      'glm-4-flash-250414': this._createGlmFlatPricingEntryFromCny({
+        inputCnyPerMillion: 0,
+        cacheReadCnyPerMillion: 0,
+        outputCnyPerMillion: 0,
         source,
         now
       }),
-      'glm-4-long': this._createGlmPricingEntry({
-        inputUsdPerMillion: 1,
-        outputUsdPerMillion: 1,
+      'glm-4-plus': this._createGlmFlatPricingEntryFromCny({
+        inputCnyPerMillion: 50,
+        cacheReadCnyPerMillion: 0,
+        outputCnyPerMillion: 50,
         source,
         now
       }),
-      'glm-4-air': this._createGlmPricingEntry({
-        inputUsdPerMillion: 1,
-        outputUsdPerMillion: 1,
+      'glm-4': this._createGlmFlatPricingEntryFromCny({
+        inputCnyPerMillion: 100,
+        cacheReadCnyPerMillion: 0,
+        outputCnyPerMillion: 100,
         source,
         now
       }),
-      'glm-4-airx': this._createGlmPricingEntry({
-        inputUsdPerMillion: 10,
-        outputUsdPerMillion: 10,
+      'glm-4-long': this._createGlmFlatPricingEntryFromCny({
+        inputCnyPerMillion: 1,
+        cacheReadCnyPerMillion: 0,
+        outputCnyPerMillion: 1,
         source,
         now
       }),
-      'glm-z1-flash': this._createGlmPricingEntry({
-        inputUsdPerMillion: 0,
-        outputUsdPerMillion: 0,
+      'glm-4-air': this._createGlmFlatPricingEntryFromCny({
+        inputCnyPerMillion: 0.5,
+        cacheReadCnyPerMillion: 0,
+        outputCnyPerMillion: 0.5,
         source,
         now
       }),
-      'glm-z1': this._createGlmPricingEntry({
-        inputUsdPerMillion: 20,
-        outputUsdPerMillion: 20,
+      'glm-4-airx': this._createGlmFlatPricingEntryFromCny({
+        inputCnyPerMillion: 10,
+        cacheReadCnyPerMillion: 0,
+        outputCnyPerMillion: 10,
         source,
         now
       }),
-      'glm-z1-air': this._createGlmPricingEntry({
-        inputUsdPerMillion: 3.5,
-        outputUsdPerMillion: 3.5,
+      'glm-z1-flash': this._createGlmFlatPricingEntryFromCny({
+        inputCnyPerMillion: 0,
+        cacheReadCnyPerMillion: 0,
+        outputCnyPerMillion: 0,
         source,
         now
       }),
-      'glm-z1-airx': this._createGlmPricingEntry({
-        inputUsdPerMillion: 10,
-        outputUsdPerMillion: 10,
+      'glm-z1': this._createGlmFlatPricingEntryFromCny({
+        inputCnyPerMillion: 20,
+        cacheReadCnyPerMillion: 0,
+        outputCnyPerMillion: 20,
+        source,
+        now
+      }),
+      'glm-z1-air': this._createGlmFlatPricingEntryFromCny({
+        inputCnyPerMillion: 3.5,
+        cacheReadCnyPerMillion: 0,
+        outputCnyPerMillion: 3.5,
+        source,
+        now
+      }),
+      'glm-z1-airx': this._createGlmFlatPricingEntryFromCny({
+        inputCnyPerMillion: 10,
+        cacheReadCnyPerMillion: 0,
+        outputCnyPerMillion: 10,
         source,
         now
       })
