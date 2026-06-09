@@ -964,7 +964,7 @@ const handleResponses = async (req, res) => {
             const friendly = {
               error: {
                 message:
-                  '因官方模型算力受限，请求失败，可重新发起对话，或切换其他渠道使用。',
+                  '因模型官方服务算力受限，请求失败，可重新发起对话，或切换其他渠道使用。',
                 type: 'server_error',
                 code: 'server_is_overloaded'
               }
