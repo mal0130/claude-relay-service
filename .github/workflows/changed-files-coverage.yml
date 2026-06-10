@@ -1,0 +1,171 @@
+name: Changed Files Coverage
+
+on:
+  push:
+  pull_request:
+    types: [opened, synchronize, reopened]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+
+jobs:
+  changed-files-coverage:
+    runs-on: ubuntu-latest
+    name: Generate changed-file coverage
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci --prefer-offline --no-audit
+
+      - name: Prepare runtime config
+        run: |
+          if [ ! -f config/config.js ] && [ -f config/config.example.js ]; then
+            cp config/config.example.js config/config.js
+          fi
+
+      - name: Get changed backend source files
+        id: changed-files
+        uses: tj-actions/changed-files@v44
+        with:
+          files: |
+            src/**/*.js
+            config/**/*.js
+            cli/**/*.js
+            scripts/**/*.js
+          files_ignore: |
+            **/*.test.js
+            **/*.spec.js
+            scripts/test-*.js
+            tests/**
+            node_modules/**
+            coverage/**
+            logs/**
+            web/admin-spa/**
+
+      - name: Run Jest coverage for changed files
+        id: coverage
+        shell: bash
+        run: |
+          mkdir -p coverage
+
+          COVERAGE_ARGS=()
+          SOURCE_FILES=()
+
+          for file in ${{ steps.changed-files.outputs.all_changed_files }}; do
+            if [ -f "$file" ]; then
+              COVERAGE_ARGS+=("--collectCoverageFrom=$file")
+              SOURCE_FILES+=("$file")
+            fi
+          done
+
+          if [ "${#SOURCE_FILES[@]}" -eq 0 ]; then
+            {
+              echo "# Changed Files Coverage"
+              echo
+              echo "No changed backend source files were found in this commit/PR."
+            } > coverage/changed-files-coverage.md
+            echo "has_changed_source=false" >> "$GITHUB_OUTPUT"
+            cat coverage/changed-files-coverage.md >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          printf '%s\n' "${SOURCE_FILES[@]}" > coverage/changed-source-files.txt
+          echo "has_changed_source=true" >> "$GITHUB_OUTPUT"
+
+          set +e
+          npm test -- \
+            --coverage \
+            --coverageReporters=json-summary \
+            --coverageReporters=lcov \
+            --coverageReporters=html \
+            --coverageReporters=text-summary \
+            "${COVERAGE_ARGS[@]}" 2>&1 | tee coverage/jest-output.txt
+          JEST_EXIT_CODE=${PIPESTATUS[0]}
+          set -e
+
+          echo "jest_exit_code=$JEST_EXIT_CODE" >> "$GITHUB_OUTPUT"
+
+          JEST_EXIT_CODE="$JEST_EXIT_CODE" node <<'NODE'
+          const fs = require('fs')
+          const path = require('path')
+
+          const summaryPath = 'coverage/coverage-summary.json'
+          const changedPath = 'coverage/changed-source-files.txt'
+          const jestExitCode = process.env.JEST_EXIT_CODE || 'unknown'
+          const changedFiles = fs
+            .readFileSync(changedPath, 'utf8')
+            .split(/\r?\n/)
+            .filter(Boolean)
+
+          const pct = (metric) =>
+            metric && typeof metric.pct === 'number' ? `${metric.pct.toFixed(2)}%` : 'n/a'
+
+          const rel = (file) => {
+            const relativePath = path.relative(process.cwd(), file)
+            return relativePath && !relativePath.startsWith('..') ? relativePath : file
+          }
+
+          let markdown = '# Changed Files Coverage\n\n'
+          markdown += `Jest exit code: ${jestExitCode} (non-blocking)\n\n`
+          markdown += `Changed backend source files: ${changedFiles.length}\n\n`
+
+          if (!fs.existsSync(summaryPath)) {
+            markdown += 'Coverage summary was not generated. Check `jest-output.txt` in the artifact.\n'
+            fs.writeFileSync('coverage/changed-files-coverage.md', markdown)
+            process.exit(0)
+          }
+
+          const summary = JSON.parse(fs.readFileSync(summaryPath, 'utf8'))
+          const total = summary.total
+
+          if (total) {
+            markdown += '| Scope | Statements | Branches | Functions | Lines |\n'
+            markdown += '| --- | ---: | ---: | ---: | ---: |\n'
+            markdown += `| Total changed files | ${pct(total.statements)} | ${pct(total.branches)} | ${pct(total.functions)} | ${pct(total.lines)} |\n\n`
+          }
+
+          markdown += '| File | Statements | Branches | Functions | Lines |\n'
+          markdown += '| --- | ---: | ---: | ---: | ---: |\n'
+
+          for (const [file, metrics] of Object.entries(summary)) {
+            if (file === 'total') {
+              continue
+            }
+            markdown += `| \`${rel(file)}\` | ${pct(metrics.statements)} | ${pct(metrics.branches)} | ${pct(metrics.functions)} | ${pct(metrics.lines)} |\n`
+          }
+
+          markdown += '\nArtifacts include the Markdown summary, Jest output, LCOV data, JSON summary, and HTML report.\n'
+          fs.writeFileSync('coverage/changed-files-coverage.md', markdown)
+          NODE
+
+          cat coverage/changed-files-coverage.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload coverage artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: changed-files-coverage-${{ github.run_number }}-${{ github.sha }}
+          path: |
+            coverage/changed-files-coverage.md
+            coverage/changed-source-files.txt
+            coverage/jest-output.txt
+            coverage/coverage-summary.json
+            coverage/lcov.info
+            coverage/lcov-report/**
+          if-no-files-found: warn
+          retention-days: 14

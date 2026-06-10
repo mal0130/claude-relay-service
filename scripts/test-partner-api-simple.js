@@ -14,7 +14,7 @@
  * 5. 可选：配置 PARTNER_TEST_MINIMAX_ACCOUNT_ID 测试 MiniMax 账号绑定
  * 6. 可选：配置 PARTNER_TEST_GLM_ACCOUNT_ID 测试 GLM 账号绑定
  * 7. 可选：配置 PARTNER_TEST_KIMI_ACCOUNT_ID 测试 Kimi 账号绑定
- * 8. 运行测试：node tests/partnerApi.simple.test.js
+ * 8. 运行脚本：node scripts/test-partner-api-simple.js
  */
 
 const crypto = require('crypto')
@@ -22,7 +22,7 @@ const axios = require('axios')
 
 if (typeof global.describe === 'function' && typeof global.it === 'function') {
   describe('partnerApi.simple manual script', () => {
-    it.skip('runs manually with node tests/partnerApi.simple.test.js', () => {})
+    it.skip('runs manually with node tests/partnerApi.simple.test.js', () => { })
   })
 }
 
