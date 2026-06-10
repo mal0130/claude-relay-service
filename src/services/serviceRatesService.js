@@ -29,7 +29,9 @@ class ServiceRatesService {
         azure: 1.0,
         ccr: 1.0,
         deepseek: 1.0,
-        minimax: 1.0
+        minimax: 1.0,
+        glm: 1.0,
+        kimi: 1.0
       },
       updatedAt: null,
       updatedBy: null
@@ -181,6 +183,14 @@ class ServiceRatesService {
       return 'deepseek'
     }
 
+    if (modelLower.includes('glm') || modelLower.includes('z-ai/')) {
+      return 'glm'
+    }
+
+    if (modelLower.includes('kimi') || modelLower.includes('moonshot')) {
+      return 'kimi'
+    }
+
     if (modelLower.includes('minimax')) {
       return 'minimax'
     }
@@ -238,7 +248,9 @@ class ServiceRatesService {
       'azure-openai': 'azure',
       droid: 'droid',
       deepseek: 'deepseek',
-      minimax: 'minimax'
+      minimax: 'minimax',
+      glm: 'glm',
+      kimi: 'kimi'
     }
 
     return mapping[accountType] || null
