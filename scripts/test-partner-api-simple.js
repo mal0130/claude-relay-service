@@ -11,7 +11,7 @@
  * 2. 配置环境变量：export PARTNER_API_SECRET=test-secret-key-12345
  * 3. 添加 FoxCode 账户（如果还没有）
  * 4. 可选：配置 PARTNER_TEST_DEEPSEEK_ACCOUNT_ID 测试 DeepSeek 账号绑定
- * 5. 运行测试：node tests/partnerApi.simple.test.js
+ * 5. 运行脚本：node scripts/test-partner-api-simple.js
  */
 
 const crypto = require('crypto')
