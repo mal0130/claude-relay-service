@@ -12,7 +12,7 @@
     "source_zh": "https://api-docs.deepseek.com/zh-cn/quick_start/pricing",
     "pricing_currency": "USD",
     "pricing_source": "deepseek_official_docs",
-    "pricing_updated_at": "2026-06-10T04:03:11.819Z",
+    "pricing_updated_at": "2026-06-10T08:33:39.649Z",
     "supported_endpoints": [
       "/v1/chat/completions"
     ],
@@ -40,7 +40,7 @@
     "source_zh": "https://api-docs.deepseek.com/zh-cn/quick_start/pricing",
     "pricing_currency": "USD",
     "pricing_source": "deepseek_official_docs",
-    "pricing_updated_at": "2026-06-10T04:03:11.819Z",
+    "pricing_updated_at": "2026-06-10T08:33:39.649Z",
     "supported_endpoints": [
       "/v1/chat/completions"
     ],
@@ -274,6 +274,7 @@
     "supports_prompt_caching": true,
     "supports_reasoning": true,
     "supports_response_schema": true,
+    "supports_sampling_params": false,
     "supports_tool_choice": true,
     "supports_vision": true,
     "supports_xhigh_reasoning_effort": true,
@@ -620,6 +621,7 @@
     "supports_prompt_caching": true,
     "supports_reasoning": true,
     "supports_response_schema": true,
+    "supports_sampling_params": false,
     "supports_tool_choice": true,
     "supports_vision": true,
     "supports_xhigh_reasoning_effort": true
@@ -654,6 +656,7 @@
     "supports_prompt_caching": true,
     "supports_reasoning": true,
     "supports_response_schema": true,
+    "supports_sampling_params": false,
     "supports_tool_choice": true,
     "supports_vision": true,
     "supports_xhigh_reasoning_effort": true
@@ -688,6 +691,7 @@
     "supports_prompt_caching": true,
     "supports_reasoning": true,
     "supports_response_schema": true,
+    "supports_sampling_params": false,
     "supports_tool_choice": true,
     "supports_vision": true,
     "supports_xhigh_reasoning_effort": true
