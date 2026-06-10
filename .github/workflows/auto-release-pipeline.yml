@@ -10,6 +10,9 @@ permissions:
   contents: write
   packages: write
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+
 jobs:
   release-pipeline:
     runs-on: ubuntu-latest
