@@ -2396,11 +2396,11 @@ class PricingService {
       }
     }
 
-    // 尝试模糊匹配（处理版本号等变化）
-    const normalizedModel = modelName.toLowerCase().replace(/[_-]/g, '')
+    // 尝试模糊匹配（处理版本号等变化，包括点号与连字符互换如 4.6 vs 4-6）
+    const normalizedModel = modelName.toLowerCase().replace(/[_.\-]/g, '')
 
     for (const [key, value] of Object.entries(this.pricingData)) {
-      const normalizedKey = key.toLowerCase().replace(/[_-]/g, '')
+      const normalizedKey = key.toLowerCase().replace(/[_.\-]/g, '')
       if (normalizedKey.includes(normalizedModel) || normalizedModel.includes(normalizedKey)) {
         logger.debug(`💰 Found pricing for ${modelName} using fuzzy match: ${key}`)
         return value
