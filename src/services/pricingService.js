@@ -381,7 +381,112 @@ class PricingService {
       pricing_source: pricingSourceName,
       pricing_updated_at: new Date(now).toISOString(),
       supported_endpoints: ['/v1/chat/completions'],
-      supports_function_calling: true
+      supports_function_calling: true,
+      ...(baseEntry.provider_specific_entry
+        ? { provider_specific_entry: baseEntry.provider_specific_entry }
+        : {})
+    }
+  }
+
+  _matchesGlmTierCondition(condition, usageContext) {
+    const normalized = String(condition || '')
+      .trim()
+      .toLowerCase()
+      .replace(/\s+/g, ' ')
+    const inputInK = usageContext.totalInputTokens / 1000
+    const outputInK = usageContext.outputTokens / 1000
+
+    if (!normalized) {
+      return false
+    }
+
+    if (normalized === 'input < 32k') {
+      return usageContext.totalInputTokens < 32000
+    }
+    if (normalized === 'input >= 32k') {
+      return usageContext.totalInputTokens >= 32000
+    }
+    if (normalized === '32k <= input < 200k') {
+      return usageContext.totalInputTokens >= 32000 && usageContext.totalInputTokens < 200000
+    }
+    if (normalized === '32k <= input < 128k') {
+      return usageContext.totalInputTokens >= 32000 && usageContext.totalInputTokens < 128000
+    }
+    if (normalized === '32k <= input < 64k') {
+      return usageContext.totalInputTokens >= 32000 && usageContext.totalInputTokens < 64000
+    }
+    if (normalized === 'input < 32k && output < 0.2k') {
+      return usageContext.totalInputTokens < 32000 && outputInK < 0.2
+    }
+    if (normalized === 'input < 32k && output >= 0.2k') {
+      return usageContext.totalInputTokens < 32000 && outputInK >= 0.2
+    }
+
+    const genericCondition = normalized
+      .replace(/input/g, String(inputInK))
+      .replace(/output/g, String(outputInK))
+      .replace(/([0-9]+(?:\.[0-9]+)?)k/g, (_, value) => String(Number(value)))
+      .replace(/&&/g, ' && ')
+
+    if (!/^[0-9.\s<>=&-]+$/.test(genericCondition)) {
+      return false
+    }
+
+    return genericCondition
+      .split('&&')
+      .map((segment) => segment.trim())
+      .filter(Boolean)
+      .every((segment) => {
+        const chainedMatch = segment.match(/^([0-9.]+)\s*(<=|<)\s*([0-9.]+)\s*(<=|<)\s*([0-9.]+)$/)
+        if (chainedMatch) {
+          const [, left, op1, middle, op2, right] = chainedMatch
+          const leftNum = Number(left)
+          const middleNum = Number(middle)
+          const rightNum = Number(right)
+          const leftPass = op1 === '<=' ? leftNum <= middleNum : leftNum < middleNum
+          const rightPass = op2 === '<=' ? middleNum <= rightNum : middleNum < rightNum
+          return leftPass && rightPass
+        }
+
+        const simpleMatch = segment.match(/^([0-9.]+)\s*(<=|>=|<|>)\s*([0-9.]+)$/)
+        if (!simpleMatch) {
+          return false
+        }
+
+        const [, left, operator, right] = simpleMatch
+        const leftNum = Number(left)
+        const rightNum = Number(right)
+        if (operator === '<') {
+          return leftNum < rightNum
+        }
+        if (operator === '<=') {
+          return leftNum <= rightNum
+        }
+        if (operator === '>') {
+          return leftNum > rightNum
+        }
+        return leftNum >= rightNum
+      })
+  }
+
+  _resolveGlmTieredPricing(pricing, usageContext) {
+    const tiers = pricing?.provider_specific_entry?.pricing_in_cny?.tiers
+    if (!Array.isArray(tiers) || tiers.length === 0) {
+      return null
+    }
+
+    const matchedTier = tiers.find((tier) =>
+      this._matchesGlmTierCondition(tier.condition, usageContext)
+    )
+
+    if (!matchedTier) {
+      return null
+    }
+
+    return {
+      input: usdPerMillionToUsdPerToken(matchedTier.input_usd_per_million || 0),
+      output: usdPerMillionToUsdPerToken(matchedTier.output_usd_per_million || 0),
+      cacheRead: usdPerMillionToUsdPerToken(matchedTier.cache_read_usd_per_million || 0)
     }
   }
 
@@ -1259,7 +1364,7 @@ class PricingService {
       now,
       maxInputTokens: MINIMAX_CONTEXT_TOKENS_M3,
       supportsReasoning: true,
-      pricingSource: 'minimax_official_docs',
+      pricingSourceName: 'minimax_official_docs',
       pricingCurrency: 'USD',
       providerSpecificEntry: priority
         ? {
@@ -1288,7 +1393,7 @@ class PricingService {
       source,
       now,
       supportsReasoning: true,
-      pricingSource: 'minimax_official_docs',
+      pricingSourceName: 'minimax_official_docs',
       pricingCurrency: 'USD'
     })
     const m2_7Highspeed = this._createMiniMaxPricingEntry({
@@ -1299,7 +1404,7 @@ class PricingService {
       source,
       now,
       supportsReasoning: true,
-      pricingSource: 'minimax_official_docs',
+      pricingSourceName: 'minimax_official_docs',
       pricingCurrency: 'USD'
     })
     const m2_5 = this._createMiniMaxPricingEntry({
@@ -1310,7 +1415,7 @@ class PricingService {
       source,
       now,
       supportsReasoning: true,
-      pricingSource: 'minimax_official_docs',
+      pricingSourceName: 'minimax_official_docs',
       pricingCurrency: 'USD'
     })
     const m2_5Highspeed = this._createMiniMaxPricingEntry({
@@ -1321,7 +1426,7 @@ class PricingService {
       source,
       now,
       supportsReasoning: true,
-      pricingSource: 'minimax_official_docs',
+      pricingSourceName: 'minimax_official_docs',
       pricingCurrency: 'USD'
     })
     const m2_1 = this._createMiniMaxPricingEntry({
@@ -1332,7 +1437,7 @@ class PricingService {
       source,
       now,
       supportsReasoning: true,
-      pricingSource: 'minimax_official_docs',
+      pricingSourceName: 'minimax_official_docs',
       pricingCurrency: 'USD'
     })
     const m2_1Highspeed = this._createMiniMaxPricingEntry({
@@ -1343,7 +1448,7 @@ class PricingService {
       source,
       now,
       supportsReasoning: true,
-      pricingSource: 'minimax_official_docs',
+      pricingSourceName: 'minimax_official_docs',
       pricingCurrency: 'USD'
     })
     const m2 = this._createMiniMaxPricingEntry({
@@ -1354,7 +1459,7 @@ class PricingService {
       source,
       now,
       supportsReasoning: true,
-      pricingSource: 'minimax_official_docs',
+      pricingSourceName: 'minimax_official_docs',
       pricingCurrency: 'USD'
     })
 
@@ -1530,12 +1635,45 @@ class PricingService {
   }
 
   _hasCompleteGlmPricing(pricingData) {
-    return !!(
-      pricingData?.['glm-5.1'] ||
-      pricingData?.['glm-4.5'] ||
-      pricingData?.['glm-4-plus'] ||
-      pricingData?.['glm-4-flash']
-    )
+    const fallbackPricing = this.getGlmFallbackPricing()
+    const requiredModels = ['glm-5.1', 'glm-5', 'glm-4.7', 'glm-4.5', 'glm-4-plus', 'glm-4-flash']
+
+    return requiredModels.every((modelName) => {
+      const currentEntry = pricingData?.[modelName]
+      if (!currentEntry) {
+        return false
+      }
+
+      const fallbackEntry = fallbackPricing[modelName]
+      return !this._shouldOverrideWithTieredGlmFallback(modelName, currentEntry, fallbackEntry)
+    })
+  }
+
+  _shouldOverrideWithTieredGlmFallback(_modelName, currentEntry, fallbackEntry) {
+    const fallbackHasTiers =
+      Array.isArray(fallbackEntry?.provider_specific_entry?.pricing_in_cny?.tiers) &&
+      fallbackEntry.provider_specific_entry.pricing_in_cny.tiers.length > 0
+    const currentHasTiers =
+      Array.isArray(currentEntry?.provider_specific_entry?.pricing_in_cny?.tiers) &&
+      currentEntry.provider_specific_entry.pricing_in_cny.tiers.length > 0
+
+    return fallbackHasTiers && !currentHasTiers
+  }
+
+  _mergeGlmFallbackPricing(currentPricingData = {}, fallbackPricing = {}) {
+    const merged = { ...currentPricingData }
+
+    for (const [modelName, fallbackEntry] of Object.entries(fallbackPricing)) {
+      const currentEntry = currentPricingData?.[modelName]
+      if (
+        !currentEntry ||
+        this._shouldOverrideWithTieredGlmFallback(modelName, currentEntry, fallbackEntry)
+      ) {
+        merged[modelName] = fallbackEntry
+      }
+    }
+
+    return merged
   }
 
   async enrichPricingDataWithGlm(pricingData, options = {}) {
@@ -1563,7 +1701,7 @@ class PricingService {
 
     glmPricing = this._preserveGlmPricingUpdatedAt(enriched, glmPricing)
 
-    return { ...enriched, ...glmPricing }
+    return this._mergeGlmFallbackPricing(enriched, glmPricing)
   }
 
   _hasCompleteKimiPricing(pricingData) {
@@ -2405,6 +2543,15 @@ class PricingService {
       typeof pricing?.litellm_provider === 'string' &&
       pricing.litellm_provider.toLowerCase() === 'minimax'
     const isMiniMaxM3 = isMiniMaxProvider && normalizedModelName === 'MiniMax-M3'
+    const isGlmProvider =
+      typeof pricing?.litellm_provider === 'string' &&
+      pricing.litellm_provider.toLowerCase() === 'glm'
+    const glmTieredPricing = isGlmProvider
+      ? this._resolveGlmTieredPricing(pricing, {
+          totalInputTokens,
+          outputTokens: usage.output_tokens || 0
+        })
+      : null
     // Per official Anthropic pricing: all Claude models have flat pricing with no 200K+ premium
     // https://platform.claude.com/docs/en/about-claude/pricing
     const ignores200kLongContextPricing =
@@ -2478,15 +2625,17 @@ class PricingService {
 
     // 确定实际使用的输入价格（普通或分层高档价格）
     // Claude 模型在 200K+ 场景下如果缺少官方字段，按 2 倍输入价兜底
-    let actualInputPrice = useLongContextPricing
-      ? hasInput200kPrice
-        ? pricing.input_cost_per_token_above_200k_tokens
-        : isClaudeModel
-          ? baseInputPrice * 2
+    let actualInputPrice = glmTieredPricing
+      ? glmTieredPricing.input
+      : useLongContextPricing
+        ? hasInput200kPrice
+          ? pricing.input_cost_per_token_above_200k_tokens
+          : isClaudeModel
+            ? baseInputPrice * 2
+            : baseInputPrice
+        : useMiniMax512kPricing && hasInput512kPrice
+          ? pricing.input_cost_per_token_above_512k_tokens
           : baseInputPrice
-      : useMiniMax512kPricing && hasInput512kPrice
-        ? pricing.input_cost_per_token_above_512k_tokens
-        : baseInputPrice
 
     const baseOutputPrice = pricing.output_cost_per_token || 0
     const hasOutput200kPrice =
@@ -2495,13 +2644,15 @@ class PricingService {
     const hasOutput512kPrice =
       pricing.output_cost_per_token_above_512k_tokens !== null &&
       pricing.output_cost_per_token_above_512k_tokens !== undefined
-    let actualOutputPrice = useLongContextPricing
-      ? hasOutput200kPrice
-        ? pricing.output_cost_per_token_above_200k_tokens
-        : baseOutputPrice
-      : useMiniMax512kPricing && hasOutput512kPrice
-        ? pricing.output_cost_per_token_above_512k_tokens
-        : baseOutputPrice
+    let actualOutputPrice = glmTieredPricing
+      ? glmTieredPricing.output
+      : useLongContextPricing
+        ? hasOutput200kPrice
+          ? pricing.output_cost_per_token_above_200k_tokens
+          : baseOutputPrice
+        : useMiniMax512kPricing && hasOutput512kPrice
+          ? pricing.output_cost_per_token_above_512k_tokens
+          : baseOutputPrice
 
     // 缓存价格：优先从 model_pricing.json 取，Claude 缺失时用倍率兜底
     let actualCacheCreatePrice = 0
@@ -2537,7 +2688,9 @@ class PricingService {
       actualEphemeral1hPrice = pricing.cache_creation_input_token_cost_above_1hr || 0
     } else {
       actualCacheCreatePrice = pricing.cache_creation_input_token_cost || 0
-      actualCacheReadPrice = pricing.cache_read_input_token_cost || 0
+      actualCacheReadPrice = glmTieredPricing
+        ? glmTieredPricing.cacheRead
+        : pricing.cache_read_input_token_cost || 0
       actualEphemeral1hPrice = pricing.cache_creation_input_token_cost_above_1hr || 0
     }
 

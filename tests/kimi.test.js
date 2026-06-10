@@ -1,0 +1,575 @@
+/**
+ * Kimi 平台功能测试
+ * 覆盖范围：kimiPlatform 工具函数、kimiAccountService 核心逻辑、kimiRelayService 辅助方法
+ */
+
+// ─────────────────────────────────────────────────────────────
+// kimiPlatform.js 测试
+// ─────────────────────────────────────────────────────────────
+describe('kimiPlatform', () => {
+  let platform
+
+  beforeEach(() => {
+    jest.resetModules()
+    platform = require('../src/services/kimiPlatform')
+  })
+
+  afterEach(() => {
+    jest.clearAllMocks()
+  })
+
+  describe('normalizeBaseApi', () => {
+    test('removes trailing slash', () => {
+      expect(platform.normalizeBaseApi('https://api.moonshot.cn/')).toBe(
+        'https://api.moonshot.cn'
+      )
+    })
+
+    test('returns default when empty', () => {
+      expect(platform.normalizeBaseApi('')).toBe(platform.KIMI_DEFAULT_BASE_API)
+    })
+
+    test('returns default when null', () => {
+      expect(platform.normalizeBaseApi(null)).toBe(platform.KIMI_DEFAULT_BASE_API)
+    })
+
+    test('keeps valid url unchanged', () => {
+      expect(platform.normalizeBaseApi('https://api.moonshot.cn')).toBe(
+        'https://api.moonshot.cn'
+      )
+    })
+  })
+
+  describe('buildChatCompletionsUrl', () => {
+    test('appends /chat/completions to /v1 base', () => {
+      expect(platform.buildChatCompletionsUrl('https://api.moonshot.cn/v1')).toBe(
+        'https://api.moonshot.cn/v1/chat/completions'
+      )
+    })
+
+    test('returns as-is when already ends with /chat/completions', () => {
+      const url = 'https://api.moonshot.cn/v1/chat/completions'
+      expect(platform.buildChatCompletionsUrl(url)).toBe(url)
+    })
+
+    test('handles base without /v1 suffix', () => {
+      const result = platform.buildChatCompletionsUrl('https://api.moonshot.cn')
+      expect(result).toBe('https://api.moonshot.cn/v1/chat/completions')
+    })
+  })
+
+  describe('buildAnthropicMessagesUrl', () => {
+    test('converts /v1 base to anthropic messages url', () => {
+      expect(platform.buildAnthropicMessagesUrl('https://api.moonshot.cn/v1')).toBe(
+        'https://api.moonshot.cn/anthropic/v1/messages'
+      )
+    })
+
+    test('returns as-is when already full anthropic path', () => {
+      const url = 'https://api.moonshot.cn/anthropic/v1/messages'
+      expect(platform.buildAnthropicMessagesUrl(url)).toBe(url)
+    })
+
+    test('appends /messages to /anthropic/v1', () => {
+      expect(platform.buildAnthropicMessagesUrl('https://api.moonshot.cn/anthropic/v1')).toBe(
+        'https://api.moonshot.cn/anthropic/v1/messages'
+      )
+    })
+
+    test('appends /v1/messages to /anthropic', () => {
+      expect(platform.buildAnthropicMessagesUrl('https://api.moonshot.cn/anthropic')).toBe(
+        'https://api.moonshot.cn/anthropic/v1/messages'
+      )
+    })
+
+    test('handles custom base without recognized suffix', () => {
+      const result = platform.buildAnthropicMessagesUrl('https://custom.api.com')
+      expect(result).toContain('/anthropic/v1/messages')
+    })
+  })
+
+  describe('isKimiModel', () => {
+    test('returns true for moonshot- prefixed model', () => {
+      expect(platform.isKimiModel('moonshot-v1-8k')).toBe(true)
+    })
+
+    test('returns true for kimi- prefixed model', () => {
+      expect(platform.isKimiModel('kimi-latest')).toBe(true)
+    })
+
+    test('returns true for moonshotai/ prefixed model', () => {
+      expect(platform.isKimiModel('moonshotai/moonshot-v1-8k')).toBe(true)
+    })
+
+    test('case-insensitive match', () => {
+      expect(platform.isKimiModel('Moonshot-V1-8K')).toBe(true)
+      expect(platform.isKimiModel('KIMI-latest')).toBe(true)
+    })
+
+    test('returns false for non-kimi model', () => {
+      expect(platform.isKimiModel('gpt-4')).toBe(false)
+    })
+
+    test('returns false for null/undefined', () => {
+      expect(platform.isKimiModel(null)).toBe(false)
+      expect(platform.isKimiModel(undefined)).toBe(false)
+    })
+  })
+
+  describe('normalizeKimiModel', () => {
+    test('maps kimi-latest alias to moonshot-v1-128k', () => {
+      expect(platform.normalizeKimiModel('kimi-latest')).toBe('moonshot-v1-128k')
+    })
+
+    test('returns model as-is when no alias', () => {
+      expect(platform.normalizeKimiModel('moonshot-v1-8k')).toBe('moonshot-v1-8k')
+    })
+
+    test('returns default model for empty input', () => {
+      expect(platform.normalizeKimiModel('')).toBe(platform.KIMI_DEFAULT_MODEL)
+    })
+
+    test('returns default model for null', () => {
+      expect(platform.normalizeKimiModel(null)).toBe(platform.KIMI_DEFAULT_MODEL)
+    })
+  })
+
+  describe('normalizeKimiUsage', () => {
+    test('maps prompt_tokens to input_tokens', () => {
+      const result = platform.normalizeKimiUsage({ prompt_tokens: 100, completion_tokens: 50 })
+      expect(result.input_tokens).toBe(100)
+      expect(result.output_tokens).toBe(50)
+    })
+
+    test('maps input_tokens / output_tokens fields', () => {
+      const result = platform.normalizeKimiUsage({ input_tokens: 200, output_tokens: 80 })
+      expect(result.input_tokens).toBe(200)
+      expect(result.output_tokens).toBe(80)
+    })
+
+    test('always returns zero cache tokens (Kimi no cache)', () => {
+      const result = platform.normalizeKimiUsage({
+        prompt_tokens: 100,
+        completion_tokens: 50,
+        prompt_cache_hit_tokens: 30
+      })
+      expect(result.cache_creation_input_tokens).toBe(0)
+      expect(result.cache_read_input_tokens).toBe(0)
+    })
+
+    test('returns zeros for empty usage', () => {
+      const result = platform.normalizeKimiUsage({})
+      expect(result.input_tokens).toBe(0)
+      expect(result.output_tokens).toBe(0)
+    })
+  })
+
+  describe('normalizeKimiAnthropicUsage', () => {
+    test('maps anthropic usage fields', () => {
+      const result = platform.normalizeKimiAnthropicUsage({
+        input_tokens: 100,
+        output_tokens: 50,
+        cache_creation_input_tokens: 10,
+        cache_read_input_tokens: 5
+      })
+      expect(result.input_tokens).toBe(100)
+      expect(result.output_tokens).toBe(50)
+      expect(result.cache_creation_input_tokens).toBe(10)
+      expect(result.cache_read_input_tokens).toBe(5)
+    })
+
+    test('sums ephemeral cache_creation tokens', () => {
+      const result = platform.normalizeKimiAnthropicUsage({
+        input_tokens: 100,
+        output_tokens: 50,
+        cache_creation: {
+          ephemeral_5m_input_tokens: 8,
+          ephemeral_1h_input_tokens: 12
+        }
+      })
+      expect(result.cache_creation_input_tokens).toBe(20)
+    })
+
+    test('prefers explicit cache_creation_input_tokens over sum', () => {
+      const result = platform.normalizeKimiAnthropicUsage({
+        input_tokens: 100,
+        output_tokens: 50,
+        cache_creation_input_tokens: 30,
+        cache_creation: { ephemeral_5m_input_tokens: 8, ephemeral_1h_input_tokens: 12 }
+      })
+      expect(result.cache_creation_input_tokens).toBe(30)
+    })
+
+    test('returns zeros for empty usage', () => {
+      const result = platform.normalizeKimiAnthropicUsage({})
+      expect(result.input_tokens).toBe(0)
+      expect(result.output_tokens).toBe(0)
+    })
+  })
+})
+
+// ─────────────────────────────────────────────────────────────
+// kimiAccountService.js 纯逻辑测试
+// ─────────────────────────────────────────────────────────────
+describe('KimiAccountService — pure logic', () => {
+  let service
+
+  beforeEach(() => {
+    jest.resetModules()
+
+    jest.doMock('../src/models/redis', () => ({
+      getClientSafe: jest.fn(() => ({
+        hset: jest.fn(async () => {}),
+        hgetall: jest.fn(async () => null),
+        sadd: jest.fn(async () => {}),
+        srem: jest.fn(async () => {}),
+        del: jest.fn(async () => {})
+      })),
+      addToIndex: jest.fn(async () => {}),
+      removeFromIndex: jest.fn(async () => {}),
+      getAllIdsByIndex: jest.fn(async () => []),
+      batchHgetallChunked: jest.fn(async () => []),
+      getDateStringInTimezone: jest.fn(() => '2026-06-10')
+    }))
+    jest.doMock('../src/utils/logger', () => ({
+      info: jest.fn(),
+      warn: jest.fn(),
+      error: jest.fn(),
+      success: jest.fn()
+    }))
+    jest.doMock('../src/utils/upstreamErrorHelper', () => ({
+      clearTempUnavailable: jest.fn(async () => {}),
+      recordErrorHistory: jest.fn(async () => {})
+    }))
+
+    service = require('../src/services/account/kimiAccountService')
+  })
+
+  afterEach(() => {
+    jest.clearAllMocks()
+  })
+
+  describe('_processModelMapping', () => {
+    test('returns empty object for null input', () => {
+      expect(service._processModelMapping(null)).toEqual({})
+    })
+
+    test('returns empty object for empty array', () => {
+      expect(service._processModelMapping([])).toEqual({})
+    })
+
+    test('converts string array to identity mapping', () => {
+      expect(service._processModelMapping(['moonshot-v1-8k', 'moonshot-v1-128k'])).toEqual({
+        'moonshot-v1-8k': 'moonshot-v1-8k',
+        'moonshot-v1-128k': 'moonshot-v1-128k'
+      })
+    })
+
+    test('returns object as-is', () => {
+      const mapping = { 'kimi-latest': 'moonshot-v1-128k' }
+      expect(service._processModelMapping(mapping)).toEqual(mapping)
+    })
+  })
+
+  describe('isModelSupported', () => {
+    test('returns true when mapping is empty', () => {
+      expect(service.isModelSupported({}, 'moonshot-v1-8k')).toBe(true)
+    })
+
+    test('returns true for exact key match', () => {
+      expect(
+        service.isModelSupported({ 'moonshot-v1-8k': 'moonshot-v1-8k' }, 'moonshot-v1-8k')
+      ).toBe(true)
+    })
+
+    test('returns true for case-insensitive key match', () => {
+      expect(
+        service.isModelSupported({ 'MOONSHOT-V1-8K': 'moonshot-v1-8k' }, 'moonshot-v1-8k')
+      ).toBe(true)
+    })
+
+    test('returns false when model not in mapping', () => {
+      expect(
+        service.isModelSupported({ 'moonshot-v1-8k': 'moonshot-v1-8k' }, 'gpt-4')
+      ).toBe(false)
+    })
+  })
+
+  describe('getMappedModel', () => {
+    test('returns requestedModel when mapping is empty', () => {
+      expect(service.getMappedModel({}, 'moonshot-v1-8k')).toBe('moonshot-v1-8k')
+    })
+
+    test('returns mapped value for exact key match', () => {
+      expect(
+        service.getMappedModel({ 'kimi-latest': 'moonshot-v1-128k' }, 'kimi-latest')
+      ).toBe('moonshot-v1-128k')
+    })
+
+    test('returns original model when not found in mapping', () => {
+      expect(service.getMappedModel({ 'kimi-latest': 'moonshot-v1-128k' }, 'gpt-4')).toBe('gpt-4')
+    })
+  })
+
+  describe('createAccount — validation', () => {
+    test('throws when apiKey is missing', async () => {
+      await expect(service.createAccount({ name: 'Test Kimi' })).rejects.toThrow(
+        'API Key is required for Kimi account'
+      )
+    })
+
+    test('creates account and returns masked apiKey', async () => {
+      const redis = require('../src/models/redis')
+      redis.getClientSafe.mockReturnValue({
+        hset: jest.fn(async () => {}),
+        sadd: jest.fn(async () => {})
+      })
+
+      const result = await service.createAccount({ apiKey: 'kimi-test-key', name: 'Test Kimi' })
+      expect(result.apiKey).toBe('***')
+      expect(result.name).toBe('Test Kimi')
+      expect(result.platform).toBe('kimi')
+    })
+  })
+})
+
+// ─────────────────────────────────────────────────────────────
+// kimiRelayService.js 辅助方法单元测试
+// ─────────────────────────────────────────────────────────────
+describe('KimiRelayService — helper methods', () => {
+  let svc
+
+  beforeEach(() => {
+    jest.resetModules()
+
+    jest.doMock('axios', () => ({ post: jest.fn(), isCancel: jest.fn(() => false) }))
+    jest.doMock('../src/utils/proxyHelper', () => ({ createProxyAgent: jest.fn() }))
+    jest.doMock('../src/utils/logger', () => ({
+      info: jest.fn(),
+      warn: jest.fn(),
+      error: jest.fn()
+    }))
+    jest.doMock('../config/config', () => ({
+      requestTimeout: 600000,
+      logging: { truncate: true }
+    }))
+    jest.doMock('../src/utils/headerFilter', () => ({
+      filterForClaude: jest.fn((h) => h),
+      filterForOpenAI: jest.fn((h) => h)
+    }))
+    jest.doMock('../src/utils/sseParser', () => ({
+      IncrementalSSEParser: class {
+        feed() {
+          return []
+        }
+        getRemaining() {
+          return ''
+        }
+      }
+    }))
+    jest.doMock('../src/utils/rateLimitHelper', () => ({
+      updateRateLimitCounters: jest.fn(async () => {})
+    }))
+    jest.doMock('../src/utils/requestDetailHelper', () => ({
+      createRequestDetailMeta: jest.fn(() => ({})),
+      buildCompletionUsageSummary: jest.fn(() => ({})),
+      formatCompletionUsageLog: jest.fn(() => '')
+    }))
+    jest.doMock('../src/utils/userInputExtractor', () => ({
+      buildUsageMetadata: jest.fn(() => ({})),
+      buildInputMessagesBlock: jest.fn(() => null)
+    }))
+    jest.doMock('../src/services/apiKeyService', () => ({
+      hasPermission: jest.fn(() => true),
+      recordUsageWithDetails: jest.fn(async () => ({ realCost: 0 }))
+    }))
+    jest.doMock('../src/services/account/kimiAccountService', () => ({
+      getAccount: jest.fn(async () => null),
+      getMappedModel: jest.fn((mapping, model) => model),
+      updateUsageQuota: jest.fn(async () => {})
+    }))
+    jest.doMock('../src/services/scheduler/unifiedKimiScheduler', () => ({
+      selectAccountForApiKey: jest.fn(async () => ({ accountId: 'acc-kimi-1' })),
+      isAccountRateLimited: jest.fn(async () => false),
+      removeAccountRateLimit: jest.fn(async () => {}),
+      markAccountUnauthorized: jest.fn(async () => {}),
+      markAccountRateLimited: jest.fn(async () => {}),
+      clearSessionMapping: jest.fn(async () => {})
+    }))
+    jest.doMock('../src/utils/upstreamErrorHelper', () => ({
+      markTempUnavailable: jest.fn(async () => {})
+    }))
+
+    svc = require('../src/services/relay/kimiRelayService')
+  })
+
+  afterEach(() => {
+    jest.clearAllMocks()
+  })
+
+  describe('_normalizeRequestModel', () => {
+    test('returns model when provided', () => {
+      expect(svc._normalizeRequestModel('moonshot-v1-8k')).toBe('moonshot-v1-8k')
+    })
+
+    test('returns KIMI_DEFAULT_MODEL when null', () => {
+      const { KIMI_DEFAULT_MODEL } = require('../src/services/kimiPlatform')
+      expect(svc._normalizeRequestModel(null)).toBe(KIMI_DEFAULT_MODEL)
+    })
+  })
+
+  describe('_isModelRestricted', () => {
+    test('returns false when enableModelRestriction is false', () => {
+      expect(
+        svc._isModelRestricted(
+          { enableModelRestriction: false, restrictedModels: ['moonshot-v1-8k'] },
+          'moonshot-v1-8k'
+        )
+      ).toBe(false)
+    })
+
+    test('returns true when model is in restrictedModels', () => {
+      expect(
+        svc._isModelRestricted(
+          { enableModelRestriction: true, restrictedModels: ['moonshot-v1-8k'] },
+          'moonshot-v1-8k'
+        )
+      ).toBe(true)
+    })
+
+    test('returns false when model is not restricted', () => {
+      expect(
+        svc._isModelRestricted(
+          { enableModelRestriction: true, restrictedModels: ['moonshot-v1-128k'] },
+          'moonshot-v1-8k'
+        )
+      ).toBe(false)
+    })
+
+    test('returns falsy when apiKeyData is null', () => {
+      expect(svc._isModelRestricted(null, 'moonshot-v1-8k')).toBeFalsy()
+    })
+  })
+
+  describe('_buildRequestBody', () => {
+    test('sets mapped model on body', () => {
+      const result = svc._buildRequestBody(
+        { model: 'kimi-latest', messages: [] },
+        'moonshot-v1-128k'
+      )
+      expect(result.model).toBe('moonshot-v1-128k')
+    })
+
+    test('adds stream_options.include_usage for streaming', () => {
+      const result = svc._buildRequestBody(
+        { model: 'kimi-latest', messages: [], stream: true },
+        'moonshot-v1-128k'
+      )
+      expect(result.stream_options).toMatchObject({ include_usage: true })
+    })
+
+    test('does not add stream_options for non-streaming', () => {
+      const result = svc._buildRequestBody(
+        { model: 'kimi-latest', messages: [], stream: false },
+        'moonshot-v1-128k'
+      )
+      expect(result.stream_options).toBeUndefined()
+    })
+  })
+
+  describe('handleChatCompletions — permission check', () => {
+    test('returns 403 when missing kimi permission', async () => {
+      const apiKeyService = require('../src/services/apiKeyService')
+      apiKeyService.hasPermission.mockReturnValue(false)
+
+      const req = {
+        apiKey: { permissions: ['claude'] },
+        body: { model: 'moonshot-v1-8k' },
+        headers: {},
+        once: jest.fn(),
+        on: jest.fn()
+      }
+      const res = {
+        headersSent: false,
+        status: jest.fn().mockReturnThis(),
+        json: jest.fn().mockReturnThis()
+      }
+
+      await svc.handleChatCompletions(req, res)
+
+      expect(res.status).toHaveBeenCalledWith(403)
+      expect(res.json).toHaveBeenCalledWith(
+        expect.objectContaining({ error: expect.objectContaining({ code: 'permission_denied' }) })
+      )
+    })
+
+    test('returns 403 when model is restricted', async () => {
+      const apiKeyService = require('../src/services/apiKeyService')
+      apiKeyService.hasPermission.mockReturnValue(true)
+
+      const req = {
+        apiKey: {
+          permissions: ['kimi'],
+          enableModelRestriction: true,
+          restrictedModels: ['moonshot-v1-8k']
+        },
+        body: { model: 'moonshot-v1-8k' },
+        headers: {},
+        once: jest.fn(),
+        on: jest.fn()
+      }
+      const res = {
+        headersSent: false,
+        status: jest.fn().mockReturnThis(),
+        json: jest.fn().mockReturnThis()
+      }
+
+      await svc.handleChatCompletions(req, res)
+
+      expect(res.status).toHaveBeenCalledWith(403)
+      expect(res.json).toHaveBeenCalledWith(
+        expect.objectContaining({ error: expect.objectContaining({ code: 'model_not_allowed' }) })
+      )
+    })
+  })
+
+  describe('handleAnthropicMessages — permission check', () => {
+    test('returns 403 when missing kimi permission', async () => {
+      const apiKeyService = require('../src/services/apiKeyService')
+      apiKeyService.hasPermission.mockReturnValue(false)
+
+      const req = {
+        apiKey: { permissions: ['claude'] },
+        body: { model: 'moonshot-v1-8k', messages: [] },
+        headers: {},
+        once: jest.fn(),
+        on: jest.fn()
+      }
+      const res = {
+        headersSent: false,
+        status: jest.fn().mockReturnThis(),
+        json: jest.fn().mockReturnThis()
+      }
+
+      await svc.handleAnthropicMessages(req, res)
+
+      expect(res.status).toHaveBeenCalledWith(403)
+      expect(res.json).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'error',
+          error: expect.objectContaining({ type: 'permission_error' })
+        })
+      )
+    })
+  })
+
+  describe('_parseJsonSafe', () => {
+    test('parses valid JSON', () => {
+      expect(svc._parseJsonSafe('{"key":"val"}')).toEqual({ key: 'val' })
+    })
+
+    test('returns null for invalid JSON', () => {
+      expect(svc._parseJsonSafe('not-json')).toBeNull()
+    })
+  })
+})
