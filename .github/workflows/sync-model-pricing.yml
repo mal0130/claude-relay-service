@@ -2,7 +2,12 @@ name: 同步模型价格数据
 
 on:
   schedule:
-    - cron: '7,37 * * * *'
+    - cron: '7 * * * *'
+    - cron: '17 * * * *'
+    - cron: '27 * * * *'
+    - cron: '37 * * * *'
+    - cron: '47 * * * *'
+    - cron: '57 * * * *'
   workflow_dispatch: {}
 
 env:
