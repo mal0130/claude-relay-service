@@ -127,7 +127,9 @@ class GlmRelayService {
         requestConfig.responseType = 'stream'
       }
 
-      logger.info(`🎯 Forwarding GLM request to ${targetUrl}, model=${requestedModel}`)
+      logger.info(
+        `🎯 Forwarding GLM request to ${targetUrl}, requestedModel=${requestedModel}, mappedModel=${mappedModel}, requestBodyModel=${body.model}, accountId=${accountId}`
+      )
       upstreamResponse = await axios.post(targetUrl, body, requestConfig)
 
       if (isStream) {
@@ -341,7 +343,11 @@ class GlmRelayService {
         usageSummary: completionUsageSummary,
         model,
         requestedModel
-      })
+      }),
+      config.logging.truncate ? {} : { response: responseData }
+    )
+    logger.info(
+      `🧾 GLM completion models requestedModel=${requestedModel || 'unknown'} actualModel=${model || 'unknown'} billingModel=${requestedModel || model || 'unknown'} accountId=${accountId || 'unknown'}`
     )
     return res.status(upstreamResponse.status).json(responseData)
   }
@@ -369,6 +375,7 @@ class GlmRelayService {
     let capturedUsage = null
     let actualModel = requestedModel
     let completionUsageSummary = this._buildUsageSummary()
+    const streamResponseState = { choices: new Map() }
 
     upstreamResponse.data.on('data', (chunk) => {
       if (!res.destroyed) {
@@ -384,6 +391,7 @@ class GlmRelayService {
           if (event.data.usage) {
             capturedUsage = event.data.usage
           }
+          this._collectOpenAIStreamResponse(event.data, streamResponseState)
         }
       }
     })
@@ -393,8 +401,14 @@ class GlmRelayService {
         if (parser.getRemaining().trim()) {
           const events = parser.feed('\n\n')
           for (const event of events) {
-            if (event.type === 'data' && event.data?.usage) {
-              capturedUsage = event.data.usage
+            if (event.type === 'data' && event.data) {
+              if (event.data.model) {
+                actualModel = event.data.model
+              }
+              if (event.data.usage) {
+                capturedUsage = event.data.usage
+              }
+              this._collectOpenAIStreamResponse(event.data, streamResponseState)
             }
           }
         }
@@ -421,6 +435,11 @@ class GlmRelayService {
         logger.error('Failed to finalize GLM stream usage:', error)
       }
 
+      const responseForLog = this._buildOpenAIStreamResponse(
+        streamResponseState,
+        capturedUsage,
+        this._normalizeRequestModel(actualModel || requestedModel)
+      )
       logger.info(
         formatCompletionUsageLog({
           completionType: '流式完成',
@@ -429,7 +448,11 @@ class GlmRelayService {
           usageSummary: completionUsageSummary,
           model: this._normalizeRequestModel(actualModel || requestedModel),
           requestedModel
-        })
+        }),
+        this._buildResponseLogMeta(responseForLog)
+      )
+      logger.info(
+        `🧾 GLM completion models requestedModel=${requestedModel || 'unknown'} actualModel=${this._normalizeRequestModel(actualModel || requestedModel) || 'unknown'} billingModel=${requestedModel || this._normalizeRequestModel(actualModel || requestedModel) || 'unknown'} accountId=${accountId || 'unknown'}`
       )
       res.end()
     })
@@ -495,7 +518,8 @@ class GlmRelayService {
         usageSummary: completionUsageSummary,
         model,
         requestedModel
-      })
+      }),
+      config.logging.truncate ? {} : { response: responseData }
     )
     return res.status(upstreamResponse.status).json(responseData)
   }
@@ -528,6 +552,7 @@ class GlmRelayService {
     const streamedAssistantText = []
     const streamedThinkingText = []
     let completionUsageSummary = this._buildUsageSummary()
+    const anthropicResponseMeta = {}
 
     upstreamResponse.data.on('data', (chunk) => {
       if (!res.destroyed) {
@@ -547,6 +572,7 @@ class GlmRelayService {
             streamedAssistantText,
             streamedThinkingText
           )
+          this._collectAnthropicStreamResponseMeta(event.data, anthropicResponseMeta)
         }
       }
     })
@@ -598,6 +624,13 @@ class GlmRelayService {
         logger.error('Failed to finalize GLM Anthropic stream usage:', error)
       }
 
+      const responseForLog = this._buildAnthropicStreamResponse(
+        anthropicResponseMeta,
+        this._buildAnthropicAssistantContent(streamedAssistantText, streamedThinkingText),
+        capturedUsage,
+        this._normalizeRequestModel(actualModel || requestedModel)
+      )
+
       logger.info(
         formatCompletionUsageLog({
           completionType: '流式完成',
@@ -606,7 +639,8 @@ class GlmRelayService {
           usageSummary: completionUsageSummary,
           model: this._normalizeRequestModel(actualModel || requestedModel),
           requestedModel
-        })
+        }),
+        this._buildResponseLogMeta(responseForLog)
       )
       res.end()
     })
@@ -708,6 +742,216 @@ class GlmRelayService {
     return blocks.length > 0 ? blocks : undefined
   }
 
+  _buildResponseLogMeta(response) {
+    return config.logging.truncate || !response ? {} : { response }
+  }
+
+  _collectOpenAIStreamResponse(data, streamResponseState) {
+    if (!data || typeof data !== 'object' || !Array.isArray(data.choices)) {
+      return
+    }
+
+    if (data.id && !streamResponseState.id) {
+      streamResponseState.id = data.id
+    }
+    if (data.created && !streamResponseState.created) {
+      streamResponseState.created = data.created
+    }
+    if (data.model) {
+      streamResponseState.model = data.model
+    }
+    if (data.system_fingerprint) {
+      streamResponseState.system_fingerprint = data.system_fingerprint
+    }
+
+    for (const choice of data.choices) {
+      const choiceIndex = Number.isInteger(choice?.index) ? choice.index : 0
+      const currentChoice = streamResponseState.choices.get(choiceIndex) || {
+        index: choiceIndex,
+        message: { role: 'assistant', content: '' },
+        finish_reason: null
+      }
+
+      const delta = choice?.delta
+      if (delta?.role) {
+        currentChoice.message.role = delta.role
+      }
+      if (typeof delta?.content === 'string') {
+        currentChoice.message.content += delta.content
+      }
+      if (typeof delta?.reasoning_content === 'string') {
+        currentChoice.message.reasoning_content =
+          (currentChoice.message.reasoning_content || '') + delta.reasoning_content
+      }
+      if (typeof delta?.reasoning === 'string') {
+        currentChoice.message.reasoning = (currentChoice.message.reasoning || '') + delta.reasoning
+      }
+      if (typeof delta?.refusal === 'string') {
+        currentChoice.message.refusal = (currentChoice.message.refusal || '') + delta.refusal
+      }
+      if (Array.isArray(delta?.tool_calls) && delta.tool_calls.length > 0) {
+        currentChoice.message.tool_calls = this._mergeOpenAIStreamToolCalls(
+          currentChoice.message.tool_calls,
+          delta.tool_calls
+        )
+      }
+      if (choice?.finish_reason !== undefined) {
+        currentChoice.finish_reason = choice.finish_reason
+      }
+
+      streamResponseState.choices.set(choiceIndex, currentChoice)
+    }
+  }
+
+  _mergeOpenAIStreamToolCalls(currentToolCalls = [], deltaToolCalls = []) {
+    const mergedToolCalls = currentToolCalls.map((toolCall) => ({
+      ...toolCall,
+      function: toolCall.function ? { ...toolCall.function } : toolCall.function
+    }))
+
+    for (const toolCall of deltaToolCalls) {
+      const toolCallIndex = Number.isInteger(toolCall?.index)
+        ? toolCall.index
+        : mergedToolCalls.length
+      const currentToolCall = mergedToolCalls[toolCallIndex] || {
+        function: { arguments: '' }
+      }
+
+      if (toolCall?.id) {
+        currentToolCall.id = toolCall.id
+      }
+      if (toolCall?.type) {
+        currentToolCall.type = toolCall.type
+      }
+      if (toolCall?.function) {
+        currentToolCall.function = currentToolCall.function || { arguments: '' }
+        if (toolCall.function.name) {
+          currentToolCall.function.name = toolCall.function.name
+        }
+        if (typeof toolCall.function.arguments === 'string') {
+          currentToolCall.function.arguments =
+            (currentToolCall.function.arguments || '') + toolCall.function.arguments
+        }
+      }
+
+      mergedToolCalls[toolCallIndex] = currentToolCall
+    }
+
+    return mergedToolCalls.filter(Boolean)
+  }
+
+  _buildOpenAIStreamResponse(streamResponseState, usage, fallbackModel) {
+    const choices = Array.from(streamResponseState.choices.values())
+      .sort((left, right) => left.index - right.index)
+      .map((choice) => {
+        const message = {
+          role: choice.message.role || 'assistant'
+        }
+
+        if (choice.message.content) {
+          message.content = choice.message.content
+        }
+        if (choice.message.reasoning_content) {
+          message.reasoning_content = choice.message.reasoning_content
+        }
+        if (choice.message.reasoning) {
+          message.reasoning = choice.message.reasoning
+        }
+        if (choice.message.refusal) {
+          message.refusal = choice.message.refusal
+        }
+        if (Array.isArray(choice.message.tool_calls) && choice.message.tool_calls.length > 0) {
+          message.tool_calls = choice.message.tool_calls
+        }
+
+        return {
+          index: choice.index,
+          message,
+          finish_reason: choice.finish_reason ?? null
+        }
+      })
+
+    if (!streamResponseState.id && choices.length === 0 && !usage) {
+      return null
+    }
+
+    const response = {
+      id: streamResponseState.id,
+      object: 'chat.completion',
+      created: streamResponseState.created,
+      model: streamResponseState.model || fallbackModel,
+      choices
+    }
+
+    if (streamResponseState.system_fingerprint) {
+      response.system_fingerprint = streamResponseState.system_fingerprint
+    }
+    if (usage) {
+      response.usage = usage
+    }
+
+    return response
+  }
+
+  _collectAnthropicStreamResponseMeta(data, anthropicResponseMeta) {
+    if (!data || typeof data !== 'object') {
+      return
+    }
+
+    const message = data.message
+    if (message && typeof message === 'object') {
+      if (message.id) {
+        anthropicResponseMeta.id = message.id
+      }
+      if (message.type) {
+        anthropicResponseMeta.type = message.type
+      }
+      if (message.role) {
+        anthropicResponseMeta.role = message.role
+      }
+      if (message.model) {
+        anthropicResponseMeta.model = message.model
+      }
+      if (message.stop_reason !== undefined) {
+        anthropicResponseMeta.stop_reason = message.stop_reason
+      }
+      if (message.stop_sequence !== undefined) {
+        anthropicResponseMeta.stop_sequence = message.stop_sequence
+      }
+    }
+
+    if (data.delta && typeof data.delta === 'object') {
+      if (data.delta.stop_reason !== undefined) {
+        anthropicResponseMeta.stop_reason = data.delta.stop_reason
+      }
+      if (data.delta.stop_sequence !== undefined) {
+        anthropicResponseMeta.stop_sequence = data.delta.stop_sequence
+      }
+    }
+  }
+
+  _buildAnthropicStreamResponse(anthropicResponseMeta, content, usage, fallbackModel) {
+    if (!anthropicResponseMeta.id && !content && !usage) {
+      return null
+    }
+
+    const response = {
+      id: anthropicResponseMeta.id,
+      type: anthropicResponseMeta.type || 'message',
+      role: anthropicResponseMeta.role || 'assistant',
+      model: anthropicResponseMeta.model || fallbackModel,
+      content: content || [],
+      stop_reason: anthropicResponseMeta.stop_reason ?? null,
+      stop_sequence: anthropicResponseMeta.stop_sequence ?? null
+    }
+
+    if (usage) {
+      response.usage = usage
+    }
+
+    return response
+  }
+
   _isModelRestricted(apiKeyData, model) {
     return (
       apiKeyData?.enableModelRestriction &&
@@ -743,6 +987,9 @@ class GlmRelayService {
     } = options
     // 计费使用请求模型（用户配置的），避免上游返回免费模型导致费用为0
     const billingModel = requestedModel || model
+    logger.info(
+      `💰 GLM billing decision requestedModel=${requestedModel || 'unknown'} actualModel=${model || 'unknown'} billingModel=${billingModel || 'unknown'} stream=${stream === true}`
+    )
     const resolvedRawSessionId =
       req.headers['session_id'] ||
       req.headers['x-session-id'] ||

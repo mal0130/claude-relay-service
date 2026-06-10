@@ -67,7 +67,11 @@ function buildAnthropicMessagesUrl(baseApi) {
 }
 
 function isGlmModel(model) {
-  return typeof model === 'string' && model.toLowerCase().startsWith('glm-')
+  if (typeof model !== 'string') {
+    return false
+  }
+  const lower = model.toLowerCase()
+  return lower.startsWith('glm-') || lower.startsWith('z-ai/')
 }
 
 function normalizeGlmModel(model) {

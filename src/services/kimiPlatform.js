@@ -69,9 +69,12 @@ function buildAnthropicMessagesUrl(baseApi) {
 }
 
 function isKimiModel(model) {
+  if (typeof model !== 'string') {
+    return false
+  }
+  const lower = model.toLowerCase()
   return (
-    typeof model === 'string' &&
-    (model.toLowerCase().startsWith('moonshot-') || model.toLowerCase().startsWith('kimi-'))
+    lower.startsWith('moonshot-') || lower.startsWith('kimi-') || lower.startsWith('moonshotai/')
   )
 }
 
