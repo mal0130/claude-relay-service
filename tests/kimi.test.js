@@ -769,6 +769,243 @@ describe('KimiRelayService — helper methods', () => {
     })
   })
 
+  describe('internal response lifecycle helpers', () => {
+    const { EventEmitter } = require('events')
+
+    const createReq = () => {
+      const req = new EventEmitter()
+      req.apiKey = { id: 'key-1' }
+      req.headers = {}
+      req.body = {}
+      req.rateLimitInfo = {}
+      return req
+    }
+
+    const createRes = () => {
+      const res = new EventEmitter()
+      res.statusCode = 200
+      res.headersSent = false
+      res.destroyed = false
+      res.status = jest.fn((code) => {
+        res.statusCode = code
+        return res
+      })
+      res.json = jest.fn(() => res)
+      res.setHeader = jest.fn()
+      res.write = jest.fn()
+      res.end = jest.fn()
+      res.flushHeaders = jest.fn(() => {
+        res.headersSent = true
+      })
+      return res
+    }
+
+    const flushAsync = async () => {
+      await new Promise((resolve) => setImmediate(resolve))
+    }
+
+    test('_handleJsonResponse delegates upstream error payloads', async () => {
+      const req = createReq()
+      const res = createRes()
+      const upstreamResponse = {
+        status: 429,
+        data: { error: { message: 'rate limited' } }
+      }
+      const upstreamStatusSpy = jest
+        .spyOn(svc, '_handleUpstreamStatus')
+        .mockResolvedValue(undefined)
+
+      await svc._handleJsonResponse(req, res, {
+        upstreamResponse,
+        body: {},
+        accountId: 'acc-kimi-1',
+        requestedModel: 'moonshot-v1-8k',
+        sessionHash: 'session-hash',
+        startTime: Date.now()
+      })
+
+      expect(upstreamStatusSpy).toHaveBeenCalledWith(
+        429,
+        upstreamResponse.data,
+        'acc-kimi-1',
+        'session-hash'
+      )
+      expect(res.status).toHaveBeenCalledWith(429)
+      expect(res.json).toHaveBeenCalledWith(upstreamResponse.data)
+    })
+
+    test('_handleJsonResponse logs when usage is missing', async () => {
+      const logger = require('../src/utils/logger')
+      const req = createReq()
+      const res = createRes()
+      const recordUsageSpy = jest.spyOn(svc, '_recordUsage').mockResolvedValue({})
+      const upstreamResponse = {
+        status: 200,
+        data: { id: 'resp-1', model: 'moonshot-v1-8k', choices: [] }
+      }
+
+      await svc._handleJsonResponse(req, res, {
+        upstreamResponse,
+        body: { messages: [] },
+        accountId: 'acc-kimi-1',
+        requestedModel: 'moonshot-v1-8k',
+        sessionHash: 'session-hash',
+        startTime: Date.now()
+      })
+
+      expect(recordUsageSpy).not.toHaveBeenCalled()
+      expect(logger.warn).toHaveBeenCalledWith(
+        expect.stringContaining('Kimi non-stream response missing usage')
+      )
+      expect(res.status).toHaveBeenCalledWith(200)
+      expect(res.json).toHaveBeenCalledWith(upstreamResponse.data)
+    })
+
+    test('_handleStreamResponse records captured usage and clears rate limits on end', async () => {
+      const unifiedKimiScheduler = require('../src/services/scheduler/unifiedKimiScheduler')
+      const { IncrementalSSEParser } = require('../src/utils/sseParser')
+      const req = createReq()
+      const res = createRes()
+      const upstreamStream = new EventEmitter()
+      upstreamStream.destroy = jest.fn()
+      const recordUsageSpy = jest.spyOn(svc, '_recordUsage').mockResolvedValue({
+        totalInputTokens: 3
+      })
+
+      unifiedKimiScheduler.isAccountRateLimited.mockResolvedValue(true)
+      unifiedKimiScheduler.removeAccountRateLimit.mockResolvedValue(undefined)
+      jest.spyOn(IncrementalSSEParser.prototype, 'feed').mockReturnValue([
+        {
+          type: 'data',
+          data: {
+            id: 'chatcmpl-1',
+            created: 123,
+            model: 'moonshot-v1-8k',
+            usage: { prompt_tokens: 3, completion_tokens: 2 },
+            choices: [{ index: 0, delta: { content: 'hi' }, finish_reason: 'stop' }]
+          }
+        }
+      ])
+      jest.spyOn(IncrementalSSEParser.prototype, 'getRemaining').mockReturnValue('')
+
+      await svc._handleStreamResponse(req, res, {
+        upstreamResponse: { status: 200, data: upstreamStream },
+        body: { messages: [{ role: 'user', content: 'hi' }] },
+        accountId: 'acc-kimi-1',
+        requestedModel: 'moonshot-v1-8k',
+        sessionHash: 'session-hash',
+        startTime: Date.now()
+      })
+
+      upstreamStream.emit('data', Buffer.from('data: {"id":"chatcmpl-1"}\n\n'))
+      upstreamStream.emit('end')
+      await flushAsync()
+      req.emit('close')
+
+      expect(res.setHeader).toHaveBeenCalledWith('Content-Type', 'text/event-stream')
+      expect(res.write).toHaveBeenCalled()
+      expect(recordUsageSpy).toHaveBeenCalledWith(
+        req,
+        expect.objectContaining({
+          accountId: 'acc-kimi-1',
+          stream: true,
+          statusCode: 200
+        })
+      )
+      expect(unifiedKimiScheduler.removeAccountRateLimit).toHaveBeenCalledWith('acc-kimi-1')
+      expect(upstreamStream.destroy).toHaveBeenCalled()
+      expect(res.end).toHaveBeenCalled()
+    })
+
+    test('_handleAnthropicJsonResponse delegates upstream error payloads', async () => {
+      const req = createReq()
+      const res = createRes()
+      const upstreamResponse = {
+        status: 503,
+        data: { type: 'error', error: { message: 'busy' } }
+      }
+      const upstreamStatusSpy = jest
+        .spyOn(svc, '_handleUpstreamStatus')
+        .mockResolvedValue(undefined)
+
+      await svc._handleAnthropicJsonResponse(req, res, {
+        upstreamResponse,
+        body: {},
+        accountId: 'acc-kimi-1',
+        requestedModel: 'moonshot-v1-8k',
+        sessionHash: 'session-hash',
+        startTime: Date.now()
+      })
+
+      expect(upstreamStatusSpy).toHaveBeenCalledWith(
+        503,
+        upstreamResponse.data,
+        'acc-kimi-1',
+        'session-hash'
+      )
+      expect(res.status).toHaveBeenCalledWith(503)
+      expect(res.json).toHaveBeenCalledWith(upstreamResponse.data)
+    })
+
+    test('_handleAnthropicStreamResponse records assistant content and destroys the upstream stream on close', async () => {
+      const unifiedKimiScheduler = require('../src/services/scheduler/unifiedKimiScheduler')
+      const { IncrementalSSEParser } = require('../src/utils/sseParser')
+      const req = createReq()
+      const res = createRes()
+      const upstreamStream = new EventEmitter()
+      upstreamStream.destroy = jest.fn()
+      const recordUsageSpy = jest.spyOn(svc, '_recordUsage').mockResolvedValue({
+        totalInputTokens: 4
+      })
+
+      unifiedKimiScheduler.isAccountRateLimited.mockResolvedValue(true)
+      unifiedKimiScheduler.removeAccountRateLimit.mockResolvedValue(undefined)
+      jest.spyOn(IncrementalSSEParser.prototype, 'feed').mockReturnValue([
+        {
+          type: 'data',
+          data: {
+            id: 'msg-1',
+            message: {
+              model: 'moonshot-v1-8k',
+              usage: { input_tokens: 4, output_tokens: 6 }
+            },
+            delta: { thinking: 'hmm', text: 'done' }
+          }
+        }
+      ])
+      jest.spyOn(IncrementalSSEParser.prototype, 'getRemaining').mockReturnValue('')
+
+      await svc._handleAnthropicStreamResponse(req, res, {
+        upstreamResponse: { status: 200, data: upstreamStream },
+        body: { messages: [{ role: 'user', content: 'hi' }] },
+        accountId: 'acc-kimi-1',
+        requestedModel: 'moonshot-v1-8k',
+        sessionHash: 'session-hash',
+        startTime: Date.now()
+      })
+
+      upstreamStream.emit('data', Buffer.from('event: message\ndata: {"id":"msg-1"}\n\n'))
+      upstreamStream.emit('end')
+      await flushAsync()
+      req.emit('close')
+
+      expect(recordUsageSpy).toHaveBeenCalledWith(
+        req,
+        expect.objectContaining({
+          accountId: 'acc-kimi-1',
+          protocol: 'anthropic',
+          assistantContent: [
+            { type: 'thinking', thinking: 'hmm' },
+            { type: 'text', text: 'done' }
+          ]
+        })
+      )
+      expect(unifiedKimiScheduler.removeAccountRateLimit).toHaveBeenCalledWith('acc-kimi-1')
+      expect(upstreamStream.destroy).toHaveBeenCalled()
+      expect(res.end).toHaveBeenCalled()
+    })
+  })
+
   describe('_recordUsage and upstream error helpers', () => {
     test('records OpenAI usage with synthesized input block metadata', async () => {
       const apiKeyService = require('../src/services/apiKeyService')
