@@ -34,9 +34,7 @@ describe('deepseekPlatform', () => {
     })
 
     test('keeps valid url unchanged', () => {
-      expect(platform.normalizeBaseApi('https://api.deepseek.com')).toBe(
-        'https://api.deepseek.com'
-      )
+      expect(platform.normalizeBaseApi('https://api.deepseek.com')).toBe('https://api.deepseek.com')
     })
   })
 
@@ -343,9 +341,9 @@ describe('DeepSeekAccountService — pure logic', () => {
     })
 
     test('returns false when model not in mapping', () => {
-      expect(
-        service.isModelSupported({ 'deepseek-chat': 'deepseek-v4-flash' }, 'gpt-4')
-      ).toBe(false)
+      expect(service.isModelSupported({ 'deepseek-chat': 'deepseek-v4-flash' }, 'gpt-4')).toBe(
+        false
+      )
     })
   })
 
@@ -367,9 +365,9 @@ describe('DeepSeekAccountService — pure logic', () => {
     })
 
     test('returns original model when not found in mapping', () => {
-      expect(
-        service.getMappedModel({ 'deepseek-chat': 'deepseek-v4-flash' }, 'gpt-4')
-      ).toBe('gpt-4')
+      expect(service.getMappedModel({ 'deepseek-chat': 'deepseek-v4-flash' }, 'gpt-4')).toBe(
+        'gpt-4'
+      )
     })
 
     test('returns requestedModel when mapping is null', () => {
@@ -512,7 +510,10 @@ describe('DeepSeekRelayService — helper methods', () => {
 
     test('returns false when restrictedModels is empty', () => {
       expect(
-        svc._isModelRestricted({ enableModelRestriction: true, restrictedModels: [] }, 'deepseek-chat')
+        svc._isModelRestricted(
+          { enableModelRestriction: true, restrictedModels: [] },
+          'deepseek-chat'
+        )
       ).toBe(false)
     })
 
@@ -541,7 +542,10 @@ describe('DeepSeekRelayService — helper methods', () => {
 
   describe('_buildRequestBody', () => {
     test('sets mapped model on body', () => {
-      const result = svc._buildRequestBody({ model: 'deepseek-chat', messages: [] }, 'deepseek-v4-flash')
+      const result = svc._buildRequestBody(
+        { model: 'deepseek-chat', messages: [] },
+        'deepseek-v4-flash'
+      )
       expect(result.model).toBe('deepseek-v4-flash')
     })
 
@@ -685,6 +689,358 @@ describe('DeepSeekRelayService — helper methods', () => {
 
     test('handles array header values', () => {
       expect(svc._getHeaderValue({ 'x-custom': ['a', 'b'] }, 'x-custom')).toBe('a')
+    })
+  })
+
+  describe('handleChatCompletions — forwarding paths', () => {
+    test('forwards non-stream requests to json handler with mapped model', async () => {
+      const crypto = require('crypto')
+      const axios = require('axios')
+      const platform = require('../src/services/deepseekPlatform')
+      const deepseekAccountService = require('../src/services/account/deepseekAccountService')
+      const unifiedDeepSeekScheduler = require('../src/services/scheduler/unifiedDeepSeekScheduler')
+
+      deepseekAccountService.getAccount.mockResolvedValue({
+        id: 'acc-ds-1',
+        name: 'DeepSeek A',
+        apiKey: 'secret-key',
+        baseApi: 'https://api.deepseek.com/v1',
+        supportedModels: { 'deepseek-v4-flash': 'deepseek-v4-plus' },
+        proxy: null
+      })
+      deepseekAccountService.getMappedModel.mockReturnValue('deepseek-v4-plus')
+
+      const upstreamResponse = { status: 200, data: { ok: true } }
+      axios.post.mockResolvedValue(upstreamResponse)
+
+      const jsonHandlerSpy = jest
+        .spyOn(svc, '_handleJsonResponse')
+        .mockResolvedValue({ handled: 'json' })
+      const streamHandlerSpy = jest.spyOn(svc, '_handleStreamResponse').mockResolvedValue(null)
+
+      const req = {
+        apiKey: { id: 'key-1', permissions: ['deepseek'] },
+        body: { model: 'deepseek-chat', messages: [] },
+        headers: { 'x-session-id': 'sess-1' },
+        once: jest.fn(),
+        on: jest.fn()
+      }
+      const res = {
+        once: jest.fn(),
+        status: jest.fn().mockReturnThis(),
+        json: jest.fn().mockReturnThis()
+      }
+
+      const result = await svc.handleChatCompletions(req, res)
+      const sessionHash = crypto.createHash('sha256').update('sess-1').digest('hex')
+      const normalizedModel = svc._normalizeRequestModel('deepseek-chat')
+
+      expect(unifiedDeepSeekScheduler.selectAccountForApiKey).toHaveBeenCalledWith(
+        req.apiKey,
+        sessionHash,
+        normalizedModel
+      )
+      expect(axios.post).toHaveBeenCalledWith(
+        platform.buildChatCompletionsUrl('https://api.deepseek.com/v1'),
+        expect.objectContaining({ model: 'deepseek-v4-plus' }),
+        expect.objectContaining({
+          headers: expect.objectContaining({
+            Authorization: 'Bearer secret-key',
+            'Content-Type': 'application/json',
+            'accept-encoding': 'identity'
+          }),
+          timeout: 600000
+        })
+      )
+      expect(streamHandlerSpy).not.toHaveBeenCalled()
+      expect(jsonHandlerSpy).toHaveBeenCalledWith(
+        req,
+        res,
+        expect.objectContaining({
+          upstreamResponse,
+          accountId: 'acc-ds-1',
+          requestedModel: normalizedModel,
+          sessionHash
+        })
+      )
+      expect(result).toEqual({ handled: 'json' })
+    })
+
+    test('forwards stream requests to stream handler and configures proxy agent', async () => {
+      const crypto = require('crypto')
+      const axios = require('axios')
+      const proxyHelper = require('../src/utils/proxyHelper')
+      const deepseekAccountService = require('../src/services/account/deepseekAccountService')
+
+      const proxyAgent = { kind: 'agent' }
+      proxyHelper.createProxyAgent.mockReturnValue(proxyAgent)
+      deepseekAccountService.getAccount.mockResolvedValue({
+        id: 'acc-ds-1',
+        name: 'DeepSeek Stream',
+        apiKey: 'secret-key',
+        baseApi: 'https://api.deepseek.com/v1',
+        supportedModels: {},
+        proxy: { url: 'http://127.0.0.1:7890' }
+      })
+
+      const upstreamResponse = { status: 200, data: { on: jest.fn() } }
+      axios.post.mockResolvedValue(upstreamResponse)
+
+      const streamHandlerSpy = jest
+        .spyOn(svc, '_handleStreamResponse')
+        .mockResolvedValue({ handled: 'stream' })
+
+      const req = {
+        apiKey: { id: 'key-1', permissions: ['deepseek'] },
+        body: {
+          model: 'deepseek-chat',
+          messages: [],
+          stream: true,
+          stream_options: { foo: 'bar' }
+        },
+        headers: { session_id: 'sess-2' },
+        once: jest.fn(),
+        on: jest.fn()
+      }
+      const res = {
+        once: jest.fn(),
+        status: jest.fn().mockReturnThis(),
+        json: jest.fn().mockReturnThis()
+      }
+
+      const result = await svc.handleChatCompletions(req, res)
+      const sessionHash = crypto.createHash('sha256').update('sess-2').digest('hex')
+      const requestConfig = axios.post.mock.calls[0][2]
+      const normalizedModel = svc._normalizeRequestModel('deepseek-chat')
+
+      expect(requestConfig.responseType).toBe('stream')
+      expect(requestConfig.httpAgent).toBe(proxyAgent)
+      expect(requestConfig.httpsAgent).toBe(proxyAgent)
+      expect(streamHandlerSpy).toHaveBeenCalledWith(
+        req,
+        res,
+        expect.objectContaining({
+          upstreamResponse,
+          accountId: 'acc-ds-1',
+          requestedModel: normalizedModel,
+          sessionHash,
+          body: expect.objectContaining({
+            stream_options: expect.objectContaining({
+              foo: 'bar',
+              include_usage: true
+            })
+          })
+        })
+      )
+      expect(result).toEqual({ handled: 'stream' })
+    })
+  })
+
+  describe('handleAnthropicMessages — forwarding paths', () => {
+    test('forwards anthropic requests with x-api-key and default version header', async () => {
+      const axios = require('axios')
+      const platform = require('../src/services/deepseekPlatform')
+      const deepseekAccountService = require('../src/services/account/deepseekAccountService')
+
+      deepseekAccountService.getAccount.mockResolvedValue({
+        id: 'acc-ds-1',
+        name: 'DeepSeek Anthropic',
+        apiKey: 'anthropic-secret',
+        baseApi: 'https://api.deepseek.com/v1',
+        supportedModels: {},
+        proxy: null
+      })
+
+      const upstreamResponse = { status: 200, data: { ok: true } }
+      axios.post.mockResolvedValue(upstreamResponse)
+
+      const anthropicHandlerSpy = jest
+        .spyOn(svc, '_handleAnthropicJsonResponse')
+        .mockResolvedValue({ handled: 'anthropic' })
+
+      const req = {
+        apiKey: { id: 'key-1', permissions: ['deepseek'] },
+        body: { model: 'deepseek-chat', messages: [] },
+        headers: {},
+        once: jest.fn(),
+        on: jest.fn()
+      }
+      const res = {
+        once: jest.fn(),
+        status: jest.fn().mockReturnThis(),
+        json: jest.fn().mockReturnThis()
+      }
+
+      const result = await svc.handleAnthropicMessages(req, res)
+      const normalizedModel = svc._normalizeRequestModel('deepseek-chat')
+
+      expect(axios.post).toHaveBeenCalledWith(
+        platform.buildAnthropicMessagesUrl('https://api.deepseek.com/v1'),
+        expect.objectContaining({ model: normalizedModel }),
+        expect.objectContaining({
+          headers: expect.objectContaining({
+            'x-api-key': 'anthropic-secret',
+            'anthropic-version': '2023-06-01'
+          })
+        })
+      )
+      expect(anthropicHandlerSpy).toHaveBeenCalledWith(
+        req,
+        res,
+        expect.objectContaining({
+          upstreamResponse,
+          accountId: 'acc-ds-1',
+          requestedModel: normalizedModel
+        })
+      )
+      expect(result).toEqual({ handled: 'anthropic' })
+    })
+  })
+
+  describe('_recordUsage and upstream error helpers', () => {
+    test('records OpenAI usage with synthesized input block metadata', async () => {
+      const apiKeyService = require('../src/services/apiKeyService')
+      const deepseekAccountService = require('../src/services/account/deepseekAccountService')
+      const { updateRateLimitCounters } = require('../src/utils/rateLimitHelper')
+      const {
+        createRequestDetailMeta,
+        buildCompletionUsageSummary
+      } = require('../src/utils/requestDetailHelper')
+      const {
+        buildUsageMetadata,
+        buildInputMessagesBlock
+      } = require('../src/utils/userInputExtractor')
+
+      buildInputMessagesBlock.mockReturnValue({
+        type: 'input_messages',
+        messages: [{ role: 'user' }]
+      })
+      buildUsageMetadata.mockReturnValue({ meta: 'openai' })
+      createRequestDetailMeta.mockReturnValue({ detail: true })
+      buildCompletionUsageSummary.mockReturnValue({ totalInputTokens: 3, outputTokens: 2 })
+      apiKeyService.recordUsageWithDetails.mockResolvedValue({ realCost: 1.25 })
+
+      const req = {
+        apiKey: { id: 'key-1' },
+        headers: { 'x-session-id': 'raw-session' },
+        rateLimitInfo: { scope: 'test' }
+      }
+
+      const result = await svc._recordUsage(req, {
+        usage: { prompt_tokens: 3, completion_tokens: 2 },
+        body: { messages: [{ role: 'user', content: 'hi' }] },
+        model: 'deepseek-v4-flash',
+        accountId: 'acc-ds-1',
+        sessionHash: 'hashed-session',
+        stream: false,
+        statusCode: 200,
+        requestedModel: 'deepseek-v4-flash'
+      })
+
+      expect(buildInputMessagesBlock).toHaveBeenCalled()
+      expect(buildUsageMetadata).toHaveBeenCalledWith(
+        expect.objectContaining({
+          format: 'openai',
+          sessionId: 'hashed-session',
+          rawSessionId: 'raw-session',
+          assistantContent: [{ type: 'input_messages', messages: [{ role: 'user' }] }]
+        })
+      )
+      expect(apiKeyService.recordUsageWithDetails).toHaveBeenCalledWith(
+        'key-1',
+        expect.any(Object),
+        'deepseek-v4-flash',
+        'acc-ds-1',
+        'deepseek',
+        { meta: 'openai' },
+        { detail: true }
+      )
+      expect(deepseekAccountService.updateUsageQuota).toHaveBeenCalledWith('acc-ds-1', 1.25)
+      expect(updateRateLimitCounters).toHaveBeenCalled()
+      expect(result).toEqual({ totalInputTokens: 3, outputTokens: 2 })
+    })
+
+    test('records Anthropic usage with provided assistant content', async () => {
+      const apiKeyService = require('../src/services/apiKeyService')
+      const {
+        buildUsageMetadata,
+        buildInputMessagesBlock
+      } = require('../src/utils/userInputExtractor')
+
+      buildInputMessagesBlock.mockClear()
+      buildUsageMetadata.mockReturnValue({ meta: 'anthropic' })
+      apiKeyService.recordUsageWithDetails.mockResolvedValue({ realCost: 0 })
+
+      const req = {
+        apiKey: { id: 'key-1' },
+        headers: {},
+        rateLimitInfo: {}
+      }
+
+      await svc._recordUsage(req, {
+        usage: { input_tokens: 4, output_tokens: 5 },
+        body: { messages: [{ role: 'user', content: 'hi' }] },
+        model: 'deepseek-v4-flash',
+        accountId: 'acc-ds-1',
+        sessionHash: 'hashed-session',
+        stream: true,
+        statusCode: 200,
+        protocol: 'anthropic',
+        assistantContent: [{ type: 'text', text: 'done' }],
+        requestedModel: 'deepseek-v4-flash'
+      })
+
+      expect(buildInputMessagesBlock).not.toHaveBeenCalled()
+      expect(buildUsageMetadata).toHaveBeenCalledWith(
+        expect.objectContaining({
+          format: 'anthropic',
+          assistantContent: [{ type: 'text', text: 'done' }]
+        })
+      )
+    })
+
+    test('marks unauthorized, rate-limited and canceled upstream errors correctly', async () => {
+      const axios = require('axios')
+      const unifiedDeepSeekScheduler = require('../src/services/scheduler/unifiedDeepSeekScheduler')
+      const upstreamErrorHelper = require('../src/utils/upstreamErrorHelper')
+
+      await svc._handleUpstreamStatus(401, { error: 'bad auth' }, 'acc-ds-1', 'session-hash')
+      expect(unifiedDeepSeekScheduler.markAccountUnauthorized).toHaveBeenCalledWith(
+        'acc-ds-1',
+        'DeepSeek upstream auth failed (401)'
+      )
+      expect(unifiedDeepSeekScheduler.clearSessionMapping).toHaveBeenCalledWith('session-hash')
+
+      await svc._handleUpstreamStatus(429, { error: 'rate limited' }, 'acc-ds-1', 'session-hash')
+      expect(unifiedDeepSeekScheduler.markAccountRateLimited).toHaveBeenCalledWith(
+        'acc-ds-1',
+        'session-hash'
+      )
+
+      await svc._handleUpstreamStatus(529, { error: 'overloaded' }, 'acc-ds-1', 'session-hash')
+      expect(upstreamErrorHelper.markTempUnavailable).toHaveBeenCalledWith(
+        'acc-ds-1',
+        'deepseek',
+        529,
+        null,
+        { response: { error: 'overloaded' } }
+      )
+
+      axios.isCancel.mockReturnValue(true)
+      const req = {}
+      const res = {
+        headersSent: false,
+        status: jest.fn().mockReturnThis(),
+        json: jest.fn().mockReturnThis(),
+        end: jest.fn()
+      }
+
+      await svc._handleRequestError(req, res, new Error('canceled'), 'acc-ds-1', 'session-hash')
+
+      expect(res.status).toHaveBeenCalledWith(499)
+      expect(res.json).toHaveBeenCalledWith({
+        error: { message: 'Client closed request' }
+      })
     })
   })
 })

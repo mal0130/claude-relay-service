@@ -276,7 +276,10 @@ describe('UnifiedMiniMaxScheduler – _isAccountUsable with object supportedMode
   })
 
   it('returns true when supportedModels is empty object (no restriction)', async () => {
-    const result = await scheduler._isAccountUsable(makeAccount({ supportedModels: {} }), 'any-model')
+    const result = await scheduler._isAccountUsable(
+      makeAccount({ supportedModels: {} }),
+      'any-model'
+    )
     expect(result).toBe(true)
   })
 
@@ -293,7 +296,10 @@ describe('UnifiedMiniMaxScheduler – _isAccountUsable with object supportedMode
   })
 
   it('returns true when supportedModels is null (no restriction)', async () => {
-    const result = await scheduler._isAccountUsable(makeAccount({ supportedModels: null }), 'any-model')
+    const result = await scheduler._isAccountUsable(
+      makeAccount({ supportedModels: null }),
+      'any-model'
+    )
     expect(result).toBe(true)
   })
 
@@ -308,6 +314,139 @@ describe('UnifiedMiniMaxScheduler – _isAccountUsable with object supportedMode
       'any-model'
     )
     expect(result).toBe(false)
+  })
+})
+
+describe('UnifiedMiniMaxScheduler – sticky session and binding flows', () => {
+  let scheduler
+  let redis
+  let minimaxAccountService
+  let upstreamErrorHelper
+  let redisClient
+
+  beforeEach(() => {
+    jest.resetModules()
+    scheduler = require('../src/services/scheduler/unifiedMinimaxScheduler')
+    redis = require('../src/models/redis')
+    minimaxAccountService = require('../src/services/account/minimaxAccountService')
+    upstreamErrorHelper = require('../src/utils/upstreamErrorHelper')
+
+    redisClient = {
+      get: jest.fn(),
+      setex: jest.fn(),
+      expire: jest.fn(),
+      del: jest.fn(),
+      hgetall: jest.fn(),
+      hset: jest.fn(),
+      sadd: jest.fn(),
+      srem: jest.fn()
+    }
+    redis.getClientSafe.mockReturnValue(redisClient)
+    upstreamErrorHelper.isTempUnavailable.mockResolvedValue(false)
+  })
+
+  afterEach(() => {
+    jest.restoreAllMocks()
+  })
+
+  it('reuses sticky account when existing mapping is still available', async () => {
+    jest.spyOn(scheduler, '_getSessionMapping').mockResolvedValue({ accountId: 'acct-sticky' })
+    jest.spyOn(scheduler, '_isAccountAvailable').mockResolvedValue(true)
+    jest.spyOn(scheduler, '_extendSessionMappingTTL').mockResolvedValue(undefined)
+    const markAccountUsedSpy = jest
+      .spyOn(minimaxAccountService, 'markAccountUsed')
+      .mockResolvedValue(undefined)
+
+    const result = await scheduler.selectAccountForApiKey({ id: 'key-1' }, 'session-hash')
+
+    expect(result).toEqual({ accountId: 'acct-sticky', accountType: 'minimax' })
+    expect(scheduler._extendSessionMappingTTL).toHaveBeenCalledWith('session-hash')
+    expect(markAccountUsedSpy).toHaveBeenCalledWith('acct-sticky')
+  })
+
+  it('clears stale sticky mapping and selects a fresh account', async () => {
+    jest.spyOn(scheduler, '_getSessionMapping').mockResolvedValue({ accountId: 'acct-stale' })
+    jest.spyOn(scheduler, '_isAccountAvailable').mockResolvedValue(false)
+    jest.spyOn(scheduler, 'clearSessionMapping').mockResolvedValue(undefined)
+    jest
+      .spyOn(scheduler, '_getAllAvailableAccounts')
+      .mockResolvedValue([{ id: 'acct-new', name: 'MiniMax A', priority: 10 }])
+    jest.spyOn(scheduler, '_setSessionMapping').mockResolvedValue(undefined)
+    jest.spyOn(minimaxAccountService, 'markAccountUsed').mockResolvedValue(undefined)
+
+    const result = await scheduler.selectAccountForApiKey({ id: 'key-1' }, 'session-hash')
+
+    expect(scheduler.clearSessionMapping).toHaveBeenCalledWith('session-hash')
+    expect(scheduler._setSessionMapping).toHaveBeenCalledWith('session-hash', 'acct-new')
+    expect(result).toEqual({ accountId: 'acct-new', accountType: 'minimax' })
+  })
+
+  it('uses group binding when api key is bound to a group', async () => {
+    const selectAccountFromGroupSpy = jest
+      .spyOn(scheduler, 'selectAccountFromGroup')
+      .mockResolvedValue([{ id: 'acct-group-1' }])
+
+    const result = await scheduler._getAllAvailableAccounts(
+      {
+        accountBindings: {
+          minimax: {
+            groupId: 'group-1'
+          }
+        }
+      },
+      'MiniMax-Text-01'
+    )
+
+    expect(selectAccountFromGroupSpy).toHaveBeenCalledWith(
+      'group-1',
+      null,
+      'MiniMax-Text-01',
+      expect.objectContaining({
+        accountBindings: expect.any(Object)
+      }),
+      { returnCandidates: true }
+    )
+    expect(result).toEqual([{ id: 'acct-group-1' }])
+  })
+
+  it('clears legacy rate limit state when status is rateLimited but flag is missing', async () => {
+    jest.spyOn(minimaxAccountService, 'getAccount').mockResolvedValue({
+      id: 'acct-legacy',
+      status: 'rateLimited',
+      rateLimitStatus: ''
+    })
+    const setAccountRateLimitedSpy = jest
+      .spyOn(minimaxAccountService, 'setAccountRateLimited')
+      .mockResolvedValue(undefined)
+
+    const result = await scheduler.isAccountRateLimited('acct-legacy')
+
+    expect(result).toBe(false)
+    expect(setAccountRateLimitedSpy).toHaveBeenCalledWith('acct-legacy', false)
+  })
+
+  it('marks account rate limited and clears sticky mapping when session hash exists', async () => {
+    const setAccountRateLimitedSpy = jest
+      .spyOn(minimaxAccountService, 'setAccountRateLimited')
+      .mockResolvedValue(undefined)
+    jest.spyOn(scheduler, 'clearSessionMapping').mockResolvedValue(undefined)
+
+    await scheduler.markAccountRateLimited('acct-1', 'session-hash', 30)
+
+    expect(setAccountRateLimitedSpy).toHaveBeenCalledWith('acct-1', true, 30)
+    expect(scheduler.clearSessionMapping).toHaveBeenCalledWith('session-hash')
+  })
+
+  it('parses and clears redis-backed session mappings safely', async () => {
+    redisClient.get
+      .mockResolvedValueOnce('{"accountId":"acct-1"}')
+      .mockResolvedValueOnce('bad json')
+
+    await expect(scheduler._getSessionMapping('hash-1')).resolves.toEqual({ accountId: 'acct-1' })
+    await expect(scheduler._getSessionMapping('hash-2')).resolves.toBeNull()
+
+    await scheduler.clearSessionMapping('hash-3')
+    expect(redisClient.del).toHaveBeenCalledWith('minimax_session_mapping:hash-3')
   })
 })
 

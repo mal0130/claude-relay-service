@@ -560,4 +560,352 @@ describe('GlmRelayService — helper methods', () => {
       expect(svc._parseJsonSafe('bad json')).toBeNull()
     })
   })
+
+  describe('handleChatCompletions — forwarding paths', () => {
+    test('forwards non-stream requests to json handler with mapped model', async () => {
+      const crypto = require('crypto')
+      const axios = require('axios')
+      const platform = require('../src/services/glmPlatform')
+      const glmAccountService = require('../src/services/account/glmAccountService')
+      const unifiedGlmScheduler = require('../src/services/scheduler/unifiedGlmScheduler')
+
+      glmAccountService.getAccount.mockResolvedValue({
+        id: 'acc-glm-1',
+        name: 'GLM A',
+        apiKey: 'secret-key',
+        baseApi: 'https://open.bigmodel.cn/api/paas/v4',
+        supportedModels: { 'glm-4-flash': 'glm-4-plus' },
+        proxy: null
+      })
+      glmAccountService.getMappedModel.mockReturnValue('glm-4-plus')
+
+      const upstreamResponse = { status: 200, data: { ok: true } }
+      axios.post.mockResolvedValue(upstreamResponse)
+
+      const jsonHandlerSpy = jest
+        .spyOn(svc, '_handleJsonResponse')
+        .mockResolvedValue({ handled: 'json' })
+      const streamHandlerSpy = jest.spyOn(svc, '_handleStreamResponse').mockResolvedValue(null)
+
+      const req = {
+        apiKey: { id: 'key-1', permissions: ['glm'] },
+        body: { model: 'glm-4-flash', messages: [] },
+        headers: { 'x-session-id': 'sess-1', 'x-extra': '1' },
+        once: jest.fn(),
+        on: jest.fn()
+      }
+      const res = {
+        once: jest.fn(),
+        status: jest.fn().mockReturnThis(),
+        json: jest.fn().mockReturnThis()
+      }
+
+      const result = await svc.handleChatCompletions(req, res)
+      const sessionHash = crypto.createHash('sha256').update('sess-1').digest('hex')
+
+      expect(unifiedGlmScheduler.selectAccountForApiKey).toHaveBeenCalledWith(
+        req.apiKey,
+        sessionHash,
+        'glm-4-flash'
+      )
+      expect(axios.post).toHaveBeenCalledWith(
+        platform.buildChatCompletionsUrl('https://open.bigmodel.cn/api/paas/v4'),
+        expect.objectContaining({
+          model: 'glm-4-plus'
+        }),
+        expect.objectContaining({
+          headers: expect.objectContaining({
+            Authorization: 'Bearer secret-key',
+            'Content-Type': 'application/json',
+            'accept-encoding': 'identity'
+          }),
+          timeout: 600000
+        })
+      )
+      expect(streamHandlerSpy).not.toHaveBeenCalled()
+      expect(jsonHandlerSpy).toHaveBeenCalledWith(
+        req,
+        res,
+        expect.objectContaining({
+          upstreamResponse,
+          accountId: 'acc-glm-1',
+          requestedModel: 'glm-4-flash',
+          sessionHash
+        })
+      )
+      expect(result).toEqual({ handled: 'json' })
+    })
+
+    test('forwards stream requests to stream handler and configures proxy agent', async () => {
+      const crypto = require('crypto')
+      const axios = require('axios')
+      const proxyHelper = require('../src/utils/proxyHelper')
+      const glmAccountService = require('../src/services/account/glmAccountService')
+
+      const proxyAgent = { kind: 'agent' }
+      proxyHelper.createProxyAgent.mockReturnValue(proxyAgent)
+      glmAccountService.getAccount.mockResolvedValue({
+        id: 'acc-glm-1',
+        name: 'GLM Stream',
+        apiKey: 'secret-key',
+        baseApi: 'https://open.bigmodel.cn/api/paas/v4',
+        supportedModels: {},
+        proxy: { url: 'http://127.0.0.1:7890' }
+      })
+
+      const upstreamResponse = { status: 200, data: { on: jest.fn() } }
+      axios.post.mockResolvedValue(upstreamResponse)
+
+      const streamHandlerSpy = jest
+        .spyOn(svc, '_handleStreamResponse')
+        .mockResolvedValue({ handled: 'stream' })
+
+      const req = {
+        apiKey: { id: 'key-1', permissions: ['glm'] },
+        body: { model: 'glm-4-flash', messages: [], stream: true, stream_options: { foo: 'bar' } },
+        headers: { session_id: 'sess-2' },
+        once: jest.fn(),
+        on: jest.fn()
+      }
+      const res = {
+        once: jest.fn(),
+        status: jest.fn().mockReturnThis(),
+        json: jest.fn().mockReturnThis()
+      }
+
+      const result = await svc.handleChatCompletions(req, res)
+      const sessionHash = crypto.createHash('sha256').update('sess-2').digest('hex')
+      const requestConfig = axios.post.mock.calls[0][2]
+
+      expect(requestConfig.responseType).toBe('stream')
+      expect(requestConfig.httpAgent).toBe(proxyAgent)
+      expect(requestConfig.httpsAgent).toBe(proxyAgent)
+      expect(streamHandlerSpy).toHaveBeenCalledWith(
+        req,
+        res,
+        expect.objectContaining({
+          upstreamResponse,
+          accountId: 'acc-glm-1',
+          requestedModel: 'glm-4-flash',
+          sessionHash,
+          body: expect.objectContaining({
+            stream_options: expect.objectContaining({
+              foo: 'bar',
+              include_usage: true
+            })
+          })
+        })
+      )
+      expect(result).toEqual({ handled: 'stream' })
+    })
+  })
+
+  describe('handleAnthropicMessages — forwarding paths', () => {
+    test('forwards anthropic requests with x-api-key and default version header', async () => {
+      const axios = require('axios')
+      const platform = require('../src/services/glmPlatform')
+      const glmAccountService = require('../src/services/account/glmAccountService')
+
+      glmAccountService.getAccount.mockResolvedValue({
+        id: 'acc-glm-1',
+        name: 'GLM Anthropic',
+        apiKey: 'anthropic-secret',
+        baseApi: 'https://open.bigmodel.cn/api/paas/v4',
+        supportedModels: {},
+        proxy: null
+      })
+
+      const upstreamResponse = { status: 200, data: { ok: true } }
+      axios.post.mockResolvedValue(upstreamResponse)
+
+      const anthropicHandlerSpy = jest
+        .spyOn(svc, '_handleAnthropicJsonResponse')
+        .mockResolvedValue({ handled: 'anthropic' })
+
+      const req = {
+        apiKey: { id: 'key-1', permissions: ['glm'] },
+        body: { model: 'glm-4-flash', messages: [] },
+        headers: {},
+        once: jest.fn(),
+        on: jest.fn()
+      }
+      const res = {
+        once: jest.fn(),
+        status: jest.fn().mockReturnThis(),
+        json: jest.fn().mockReturnThis()
+      }
+
+      const result = await svc.handleAnthropicMessages(req, res)
+
+      expect(axios.post).toHaveBeenCalledWith(
+        platform.buildAnthropicMessagesUrl('https://open.bigmodel.cn/api/paas/v4'),
+        expect.objectContaining({
+          model: 'glm-4-flash'
+        }),
+        expect.objectContaining({
+          headers: expect.objectContaining({
+            'x-api-key': 'anthropic-secret',
+            'anthropic-version': '2023-06-01'
+          })
+        })
+      )
+      expect(anthropicHandlerSpy).toHaveBeenCalledWith(
+        req,
+        res,
+        expect.objectContaining({
+          upstreamResponse,
+          accountId: 'acc-glm-1',
+          requestedModel: 'glm-4-flash'
+        })
+      )
+      expect(result).toEqual({ handled: 'anthropic' })
+    })
+  })
+
+  describe('_recordUsage and upstream error helpers', () => {
+    test('records OpenAI usage with synthesized input block metadata', async () => {
+      const apiKeyService = require('../src/services/apiKeyService')
+      const glmAccountService = require('../src/services/account/glmAccountService')
+      const { updateRateLimitCounters } = require('../src/utils/rateLimitHelper')
+      const {
+        createRequestDetailMeta,
+        buildCompletionUsageSummary
+      } = require('../src/utils/requestDetailHelper')
+      const {
+        buildUsageMetadata,
+        buildInputMessagesBlock
+      } = require('../src/utils/userInputExtractor')
+
+      buildInputMessagesBlock.mockReturnValue({
+        type: 'input_messages',
+        messages: [{ role: 'user' }]
+      })
+      buildUsageMetadata.mockReturnValue({ meta: 'openai' })
+      createRequestDetailMeta.mockReturnValue({ detail: true })
+      buildCompletionUsageSummary.mockReturnValue({ totalInputTokens: 3, outputTokens: 2 })
+      apiKeyService.recordUsageWithDetails.mockResolvedValue({ realCost: 1.25 })
+
+      const req = {
+        apiKey: { id: 'key-1' },
+        headers: { 'x-session-id': 'raw-session' },
+        rateLimitInfo: { scope: 'test' }
+      }
+
+      const result = await svc._recordUsage(req, {
+        usage: { prompt_tokens: 3, completion_tokens: 2 },
+        body: { messages: [{ role: 'user', content: 'hi' }] },
+        model: 'glm-4-flash',
+        accountId: 'acc-glm-1',
+        sessionHash: 'hashed-session',
+        stream: false,
+        statusCode: 200,
+        requestedModel: 'glm-4-flash'
+      })
+
+      expect(buildInputMessagesBlock).toHaveBeenCalled()
+      expect(buildUsageMetadata).toHaveBeenCalledWith(
+        expect.objectContaining({
+          format: 'openai',
+          sessionId: 'hashed-session',
+          rawSessionId: 'raw-session',
+          assistantContent: [{ type: 'input_messages', messages: [{ role: 'user' }] }]
+        })
+      )
+      expect(apiKeyService.recordUsageWithDetails).toHaveBeenCalledWith(
+        'key-1',
+        expect.any(Object),
+        'glm-4-flash',
+        'acc-glm-1',
+        'glm',
+        { meta: 'openai' },
+        { detail: true }
+      )
+      expect(glmAccountService.updateUsageQuota).toHaveBeenCalledWith('acc-glm-1', 1.25)
+      expect(updateRateLimitCounters).toHaveBeenCalled()
+      expect(result).toEqual({ totalInputTokens: 3, outputTokens: 2 })
+    })
+
+    test('records Anthropic usage with provided assistant content', async () => {
+      const apiKeyService = require('../src/services/apiKeyService')
+      const {
+        buildUsageMetadata,
+        buildInputMessagesBlock
+      } = require('../src/utils/userInputExtractor')
+
+      buildInputMessagesBlock.mockClear()
+      buildUsageMetadata.mockReturnValue({ meta: 'anthropic' })
+      apiKeyService.recordUsageWithDetails.mockResolvedValue({ realCost: 0 })
+
+      const req = {
+        apiKey: { id: 'key-1' },
+        headers: {},
+        rateLimitInfo: {}
+      }
+
+      await svc._recordUsage(req, {
+        usage: { input_tokens: 4, output_tokens: 5 },
+        body: { messages: [{ role: 'user', content: 'hi' }] },
+        model: 'glm-4-flash',
+        accountId: 'acc-glm-1',
+        sessionHash: 'hashed-session',
+        stream: true,
+        statusCode: 200,
+        protocol: 'anthropic',
+        assistantContent: [{ type: 'text', text: 'done' }],
+        requestedModel: 'glm-4-flash'
+      })
+
+      expect(buildInputMessagesBlock).not.toHaveBeenCalled()
+      expect(buildUsageMetadata).toHaveBeenCalledWith(
+        expect.objectContaining({
+          format: 'anthropic',
+          assistantContent: [{ type: 'text', text: 'done' }]
+        })
+      )
+    })
+
+    test('marks unauthorized, rate-limited and canceled upstream errors correctly', async () => {
+      const axios = require('axios')
+      const unifiedGlmScheduler = require('../src/services/scheduler/unifiedGlmScheduler')
+      const upstreamErrorHelper = require('../src/utils/upstreamErrorHelper')
+
+      await svc._handleUpstreamStatus(401, { error: 'bad auth' }, 'acc-glm-1', 'session-hash')
+      expect(unifiedGlmScheduler.markAccountUnauthorized).toHaveBeenCalledWith(
+        'acc-glm-1',
+        'GLM upstream auth failed (401)'
+      )
+      expect(unifiedGlmScheduler.clearSessionMapping).toHaveBeenCalledWith('session-hash')
+
+      await svc._handleUpstreamStatus(429, { error: 'rate limited' }, 'acc-glm-1', 'session-hash')
+      expect(unifiedGlmScheduler.markAccountRateLimited).toHaveBeenCalledWith(
+        'acc-glm-1',
+        'session-hash'
+      )
+
+      await svc._handleUpstreamStatus(529, { error: 'overloaded' }, 'acc-glm-1', 'session-hash')
+      expect(upstreamErrorHelper.markTempUnavailable).toHaveBeenCalledWith(
+        'acc-glm-1',
+        'glm',
+        529,
+        null,
+        { response: { error: 'overloaded' } }
+      )
+
+      axios.isCancel.mockReturnValue(true)
+      const req = {}
+      const res = {
+        headersSent: false,
+        status: jest.fn().mockReturnThis(),
+        json: jest.fn().mockReturnThis(),
+        end: jest.fn()
+      }
+
+      await svc._handleRequestError(req, res, new Error('canceled'), 'acc-glm-1', 'session-hash')
+
+      expect(res.status).toHaveBeenCalledWith(499)
+      expect(res.json).toHaveBeenCalledWith({
+        error: { message: 'Client closed request' }
+      })
+    })
+  })
 })

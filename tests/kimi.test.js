@@ -20,9 +20,7 @@ describe('kimiPlatform', () => {
 
   describe('normalizeBaseApi', () => {
     test('removes trailing slash', () => {
-      expect(platform.normalizeBaseApi('https://api.moonshot.cn/')).toBe(
-        'https://api.moonshot.cn'
-      )
+      expect(platform.normalizeBaseApi('https://api.moonshot.cn/')).toBe('https://api.moonshot.cn')
     })
 
     test('returns default when empty', () => {
@@ -34,9 +32,7 @@ describe('kimiPlatform', () => {
     })
 
     test('keeps valid url unchanged', () => {
-      expect(platform.normalizeBaseApi('https://api.moonshot.cn')).toBe(
-        'https://api.moonshot.cn'
-      )
+      expect(platform.normalizeBaseApi('https://api.moonshot.cn')).toBe('https://api.moonshot.cn')
     })
   })
 
@@ -289,9 +285,7 @@ describe('KimiAccountService — pure logic', () => {
     })
 
     test('returns false when model not in mapping', () => {
-      expect(
-        service.isModelSupported({ 'moonshot-v1-8k': 'moonshot-v1-8k' }, 'gpt-4')
-      ).toBe(false)
+      expect(service.isModelSupported({ 'moonshot-v1-8k': 'moonshot-v1-8k' }, 'gpt-4')).toBe(false)
     })
   })
 
@@ -301,9 +295,9 @@ describe('KimiAccountService — pure logic', () => {
     })
 
     test('returns mapped value for exact key match', () => {
-      expect(
-        service.getMappedModel({ 'kimi-latest': 'moonshot-v1-128k' }, 'kimi-latest')
-      ).toBe('moonshot-v1-128k')
+      expect(service.getMappedModel({ 'kimi-latest': 'moonshot-v1-128k' }, 'kimi-latest')).toBe(
+        'moonshot-v1-128k'
+      )
     })
 
     test('returns original model when not found in mapping', () => {
@@ -570,6 +564,355 @@ describe('KimiRelayService — helper methods', () => {
 
     test('returns null for invalid JSON', () => {
       expect(svc._parseJsonSafe('not-json')).toBeNull()
+    })
+  })
+
+  describe('handleChatCompletions — forwarding paths', () => {
+    test('forwards non-stream requests to json handler with mapped model', async () => {
+      const crypto = require('crypto')
+      const axios = require('axios')
+      const platform = require('../src/services/kimiPlatform')
+      const kimiAccountService = require('../src/services/account/kimiAccountService')
+      const unifiedKimiScheduler = require('../src/services/scheduler/unifiedKimiScheduler')
+
+      kimiAccountService.getAccount.mockResolvedValue({
+        id: 'acc-kimi-1',
+        name: 'Kimi A',
+        apiKey: 'secret-key',
+        baseApi: 'https://api.moonshot.cn/v1',
+        supportedModels: { 'moonshot-v1-8k': 'moonshot-v1-128k' },
+        proxy: null
+      })
+      kimiAccountService.getMappedModel.mockReturnValue('moonshot-v1-128k')
+
+      const upstreamResponse = { status: 200, data: { ok: true } }
+      axios.post.mockResolvedValue(upstreamResponse)
+
+      const jsonHandlerSpy = jest
+        .spyOn(svc, '_handleJsonResponse')
+        .mockResolvedValue({ handled: 'json' })
+      const streamHandlerSpy = jest.spyOn(svc, '_handleStreamResponse').mockResolvedValue(null)
+
+      const req = {
+        apiKey: { id: 'key-1', permissions: ['kimi'] },
+        body: { model: 'moonshot-v1-8k', messages: [] },
+        headers: { 'x-session-id': 'sess-1' },
+        once: jest.fn(),
+        on: jest.fn()
+      }
+      const res = {
+        once: jest.fn(),
+        status: jest.fn().mockReturnThis(),
+        json: jest.fn().mockReturnThis()
+      }
+
+      const result = await svc.handleChatCompletions(req, res)
+      const sessionHash = crypto.createHash('sha256').update('sess-1').digest('hex')
+
+      expect(unifiedKimiScheduler.selectAccountForApiKey).toHaveBeenCalledWith(
+        req.apiKey,
+        sessionHash,
+        'moonshot-v1-8k'
+      )
+      expect(axios.post).toHaveBeenCalledWith(
+        platform.buildChatCompletionsUrl('https://api.moonshot.cn/v1'),
+        expect.objectContaining({ model: 'moonshot-v1-128k' }),
+        expect.objectContaining({
+          headers: expect.objectContaining({
+            Authorization: 'Bearer secret-key',
+            'Content-Type': 'application/json',
+            'accept-encoding': 'identity'
+          }),
+          timeout: 600000
+        })
+      )
+      expect(streamHandlerSpy).not.toHaveBeenCalled()
+      expect(jsonHandlerSpy).toHaveBeenCalledWith(
+        req,
+        res,
+        expect.objectContaining({
+          upstreamResponse,
+          accountId: 'acc-kimi-1',
+          requestedModel: 'moonshot-v1-8k',
+          sessionHash
+        })
+      )
+      expect(result).toEqual({ handled: 'json' })
+    })
+
+    test('forwards stream requests to stream handler and configures proxy agent', async () => {
+      const crypto = require('crypto')
+      const axios = require('axios')
+      const proxyHelper = require('../src/utils/proxyHelper')
+      const kimiAccountService = require('../src/services/account/kimiAccountService')
+
+      const proxyAgent = { kind: 'agent' }
+      proxyHelper.createProxyAgent.mockReturnValue(proxyAgent)
+      kimiAccountService.getAccount.mockResolvedValue({
+        id: 'acc-kimi-1',
+        name: 'Kimi Stream',
+        apiKey: 'secret-key',
+        baseApi: 'https://api.moonshot.cn/v1',
+        supportedModels: {},
+        proxy: { url: 'http://127.0.0.1:7890' }
+      })
+
+      const upstreamResponse = { status: 200, data: { on: jest.fn() } }
+      axios.post.mockResolvedValue(upstreamResponse)
+
+      const streamHandlerSpy = jest
+        .spyOn(svc, '_handleStreamResponse')
+        .mockResolvedValue({ handled: 'stream' })
+
+      const req = {
+        apiKey: { id: 'key-1', permissions: ['kimi'] },
+        body: {
+          model: 'moonshot-v1-8k',
+          messages: [],
+          stream: true,
+          stream_options: { foo: 'bar' }
+        },
+        headers: { session_id: 'sess-2' },
+        once: jest.fn(),
+        on: jest.fn()
+      }
+      const res = {
+        once: jest.fn(),
+        status: jest.fn().mockReturnThis(),
+        json: jest.fn().mockReturnThis()
+      }
+
+      const result = await svc.handleChatCompletions(req, res)
+      const sessionHash = crypto.createHash('sha256').update('sess-2').digest('hex')
+      const requestConfig = axios.post.mock.calls[0][2]
+
+      expect(requestConfig.responseType).toBe('stream')
+      expect(requestConfig.httpAgent).toBe(proxyAgent)
+      expect(requestConfig.httpsAgent).toBe(proxyAgent)
+      expect(streamHandlerSpy).toHaveBeenCalledWith(
+        req,
+        res,
+        expect.objectContaining({
+          upstreamResponse,
+          accountId: 'acc-kimi-1',
+          requestedModel: 'moonshot-v1-8k',
+          sessionHash,
+          body: expect.objectContaining({
+            stream_options: expect.objectContaining({
+              foo: 'bar',
+              include_usage: true
+            })
+          })
+        })
+      )
+      expect(result).toEqual({ handled: 'stream' })
+    })
+  })
+
+  describe('handleAnthropicMessages — forwarding paths', () => {
+    test('forwards anthropic requests with x-api-key and default version header', async () => {
+      const axios = require('axios')
+      const platform = require('../src/services/kimiPlatform')
+      const kimiAccountService = require('../src/services/account/kimiAccountService')
+
+      kimiAccountService.getAccount.mockResolvedValue({
+        id: 'acc-kimi-1',
+        name: 'Kimi Anthropic',
+        apiKey: 'anthropic-secret',
+        baseApi: 'https://api.moonshot.cn/v1',
+        supportedModels: {},
+        proxy: null
+      })
+
+      const upstreamResponse = { status: 200, data: { ok: true } }
+      axios.post.mockResolvedValue(upstreamResponse)
+
+      const anthropicHandlerSpy = jest
+        .spyOn(svc, '_handleAnthropicJsonResponse')
+        .mockResolvedValue({ handled: 'anthropic' })
+
+      const req = {
+        apiKey: { id: 'key-1', permissions: ['kimi'] },
+        body: { model: 'moonshot-v1-8k', messages: [] },
+        headers: {},
+        once: jest.fn(),
+        on: jest.fn()
+      }
+      const res = {
+        once: jest.fn(),
+        status: jest.fn().mockReturnThis(),
+        json: jest.fn().mockReturnThis()
+      }
+
+      const result = await svc.handleAnthropicMessages(req, res)
+
+      expect(axios.post).toHaveBeenCalledWith(
+        platform.buildAnthropicMessagesUrl('https://api.moonshot.cn/v1'),
+        expect.objectContaining({ model: 'moonshot-v1-8k' }),
+        expect.objectContaining({
+          headers: expect.objectContaining({
+            'x-api-key': 'anthropic-secret',
+            'anthropic-version': '2023-06-01'
+          })
+        })
+      )
+      expect(anthropicHandlerSpy).toHaveBeenCalledWith(
+        req,
+        res,
+        expect.objectContaining({
+          upstreamResponse,
+          accountId: 'acc-kimi-1',
+          requestedModel: 'moonshot-v1-8k'
+        })
+      )
+      expect(result).toEqual({ handled: 'anthropic' })
+    })
+  })
+
+  describe('_recordUsage and upstream error helpers', () => {
+    test('records OpenAI usage with synthesized input block metadata', async () => {
+      const apiKeyService = require('../src/services/apiKeyService')
+      const kimiAccountService = require('../src/services/account/kimiAccountService')
+      const { updateRateLimitCounters } = require('../src/utils/rateLimitHelper')
+      const {
+        createRequestDetailMeta,
+        buildCompletionUsageSummary
+      } = require('../src/utils/requestDetailHelper')
+      const {
+        buildUsageMetadata,
+        buildInputMessagesBlock
+      } = require('../src/utils/userInputExtractor')
+
+      buildInputMessagesBlock.mockReturnValue({
+        type: 'input_messages',
+        messages: [{ role: 'user' }]
+      })
+      buildUsageMetadata.mockReturnValue({ meta: 'openai' })
+      createRequestDetailMeta.mockReturnValue({ detail: true })
+      buildCompletionUsageSummary.mockReturnValue({ totalInputTokens: 3, outputTokens: 2 })
+      apiKeyService.recordUsageWithDetails.mockResolvedValue({ realCost: 1.25 })
+
+      const req = {
+        apiKey: { id: 'key-1' },
+        headers: { 'x-session-id': 'raw-session' },
+        rateLimitInfo: { scope: 'test' }
+      }
+
+      const result = await svc._recordUsage(req, {
+        usage: { prompt_tokens: 3, completion_tokens: 2 },
+        body: { messages: [{ role: 'user', content: 'hi' }] },
+        model: 'moonshot-v1-8k',
+        accountId: 'acc-kimi-1',
+        sessionHash: 'hashed-session',
+        stream: false,
+        statusCode: 200,
+        requestedModel: 'moonshot-v1-8k'
+      })
+
+      expect(buildInputMessagesBlock).toHaveBeenCalled()
+      expect(buildUsageMetadata).toHaveBeenCalledWith(
+        expect.objectContaining({
+          format: 'openai',
+          sessionId: 'hashed-session',
+          rawSessionId: 'raw-session',
+          assistantContent: [{ type: 'input_messages', messages: [{ role: 'user' }] }]
+        })
+      )
+      expect(apiKeyService.recordUsageWithDetails).toHaveBeenCalledWith(
+        'key-1',
+        expect.any(Object),
+        'moonshot-v1-8k',
+        'acc-kimi-1',
+        'kimi',
+        { meta: 'openai' },
+        { detail: true }
+      )
+      expect(kimiAccountService.updateUsageQuota).toHaveBeenCalledWith('acc-kimi-1', 1.25)
+      expect(updateRateLimitCounters).toHaveBeenCalled()
+      expect(result).toEqual({ totalInputTokens: 3, outputTokens: 2 })
+    })
+
+    test('records Anthropic usage with provided assistant content', async () => {
+      const apiKeyService = require('../src/services/apiKeyService')
+      const {
+        buildUsageMetadata,
+        buildInputMessagesBlock
+      } = require('../src/utils/userInputExtractor')
+
+      buildInputMessagesBlock.mockClear()
+      buildUsageMetadata.mockReturnValue({ meta: 'anthropic' })
+      apiKeyService.recordUsageWithDetails.mockResolvedValue({ realCost: 0 })
+
+      const req = {
+        apiKey: { id: 'key-1' },
+        headers: {},
+        rateLimitInfo: {}
+      }
+
+      await svc._recordUsage(req, {
+        usage: { input_tokens: 4, output_tokens: 5 },
+        body: { messages: [{ role: 'user', content: 'hi' }] },
+        model: 'moonshot-v1-8k',
+        accountId: 'acc-kimi-1',
+        sessionHash: 'hashed-session',
+        stream: true,
+        statusCode: 200,
+        protocol: 'anthropic',
+        assistantContent: [{ type: 'text', text: 'done' }],
+        requestedModel: 'moonshot-v1-8k'
+      })
+
+      expect(buildInputMessagesBlock).not.toHaveBeenCalled()
+      expect(buildUsageMetadata).toHaveBeenCalledWith(
+        expect.objectContaining({
+          format: 'anthropic',
+          assistantContent: [{ type: 'text', text: 'done' }]
+        })
+      )
+    })
+
+    test('marks unauthorized, rate-limited and canceled upstream errors correctly', async () => {
+      const axios = require('axios')
+      const unifiedKimiScheduler = require('../src/services/scheduler/unifiedKimiScheduler')
+      const upstreamErrorHelper = require('../src/utils/upstreamErrorHelper')
+
+      await svc._handleUpstreamStatus(401, { error: 'bad auth' }, 'acc-kimi-1', 'session-hash')
+      expect(unifiedKimiScheduler.markAccountUnauthorized).toHaveBeenCalledWith(
+        'acc-kimi-1',
+        'Kimi upstream auth failed (401)'
+      )
+      expect(unifiedKimiScheduler.clearSessionMapping).toHaveBeenCalledWith('session-hash')
+
+      await svc._handleUpstreamStatus(429, { error: 'rate limited' }, 'acc-kimi-1', 'session-hash')
+      expect(unifiedKimiScheduler.markAccountRateLimited).toHaveBeenCalledWith(
+        'acc-kimi-1',
+        'session-hash'
+      )
+
+      await svc._handleUpstreamStatus(529, { error: 'overloaded' }, 'acc-kimi-1', 'session-hash')
+      expect(upstreamErrorHelper.markTempUnavailable).toHaveBeenCalledWith(
+        'acc-kimi-1',
+        'kimi',
+        529,
+        null,
+        { response: { error: 'overloaded' } }
+      )
+
+      axios.isCancel.mockReturnValue(true)
+      const req = {}
+      const res = {
+        headersSent: false,
+        status: jest.fn().mockReturnThis(),
+        json: jest.fn().mockReturnThis(),
+        end: jest.fn()
+      }
+
+      await svc._handleRequestError(req, res, new Error('canceled'), 'acc-kimi-1', 'session-hash')
+
+      expect(res.status).toHaveBeenCalledWith(499)
+      expect(res.json).toHaveBeenCalledWith({
+        error: { message: 'Client closed request' }
+      })
     })
   })
 })
