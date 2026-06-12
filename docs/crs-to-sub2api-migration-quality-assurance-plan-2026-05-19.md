@@ -40,11 +40,14 @@
 
 重点功能点包括：
 
-- 同一个 `cr_...` Key 跨 Claude/OpenAI/Gemini/DeepSeek。
+- 同一个 `cr_...` Key 跨 Claude/OpenAI/Gemini/DeepSeek/Kimi/GLM/MiniMax。
 - 外部业务系统原始 Key 导入。
 - 不同平台不同倍率计费。
 - Partner API 签名、字段、错误格式。
 - DeepSeek cache hit/miss 计费。
+- Kimi/GLM Anthropic 协议路由和格式转换。
+- GLM/MiniMax 分层计费（按 context 大小分档，GLM 含国内定价÷7 换算 USD）。
+- 账户级模型映射（DeepSeek/Kimi/GLM/MiniMax）。
 - 5h/7d 限额。
 - `externalUid` 自动切换。
 - OpenAI Codex 用量保护。
@@ -63,6 +66,9 @@
 - 带 `externalUid` 的多个 Key。
 - 不同平台倍率的 Key。
 - DeepSeek binding Key。
+- Kimi binding Key。
+- GLM binding Key。
+- MiniMax binding Key。
 - 过期、禁用、额度不足、限额命中的 Key。
 
 ### 3.2 请求样本
@@ -72,6 +78,14 @@
 - Gemini。
 - DeepSeek Chat Completions。
 - DeepSeek Anthropic-compatible。
+- Kimi Chat Completions（OpenAI 格式）。
+- Kimi Anthropic-compatible。
+- GLM Chat Completions（OpenAI 格式）。
+- GLM Anthropic-compatible。
+- GLM 分层计费边界（不同 context 大小档位）。
+- MiniMax Chat Completions。
+- MiniMax M3 512K 分层计费边界。
+- 账户级模型映射（精确命中/通配符命中/未命中透传）。
 - 流式和非流式。
 - 有 cache usage 的请求。
 - 请求失败、上游 401/429/529、prompt too long。
@@ -90,6 +104,7 @@
 ### 3.4 账号样本
 
 - Claude/OpenAI/Gemini/DeepSeek active。
+- Kimi/GLM/MiniMax active（含模型映射配置）。
 - rate limited。
 - disabled。
 - Codex usage protection 命中。
@@ -169,6 +184,8 @@ sub2api:
 - 5h/7d 限额映射结果。
 - account binding 映射结果。
 - DeepSeek 账号映射结果。
+- Kimi/GLM/MiniMax 账号映射结果。
+- 模型映射（`modelMapping`）字段迁移结果。
 - 价格缺失模型列表。
 - 无法迁移字段列表。
 
@@ -182,7 +199,7 @@ sub2api:
 | 余额/额度 | 与 CRS 当前口径一致 |
 | 累计成本 | 与 CRS Redis 汇总一致 |
 | 5h/7d 限额 | 配置一致 |
-| 平台倍率 | Claude/OpenAI/DeepSeek 等逐项一致 |
+| 平台倍率 | Claude/OpenAI/Gemini/DeepSeek/Kimi/GLM/MiniMax 逐项一致 |
 | 账号状态 | active/disabled/rate limited 等一致 |
 
 没有 dry-run 和对账，不建议切流。
@@ -202,6 +219,12 @@ sub2api:
 - Gemini mock upstream。
 - DeepSeek OpenAI-compatible mock upstream。
 - DeepSeek Anthropic-compatible mock upstream。
+- Kimi OpenAI-compatible mock upstream。
+- Kimi Anthropic-compatible mock upstream。
+- GLM OpenAI-compatible mock upstream（含分层计费触发响应）。
+- GLM Anthropic-compatible mock upstream。
+- MiniMax OpenAI-compatible mock upstream（含 M3 512K 分层计费触发响应）。
+- MiniMax Anthropic-compatible mock upstream。
 
 mock 响应必须固定：
 
@@ -222,6 +245,9 @@ mock 响应必须固定：
 - 5h/7d 限额是否按 `actual_cost` 消耗。
 - Partner API usage 聚合是否一致。
 - DeepSeek cache hit/miss 是否一致。
+- GLM 分层计费档位和 USD 换算是否一致。
+- MiniMax M3 512K 分层计费档位是否一致。
+- 账户级模型映射是否正确（精确命中/通配符/未命中）。
 - 错误码、错误文案和 request detail 是否一致。
 
 ### 6.2 real upstream 小样本连通验证
@@ -234,7 +260,7 @@ mock 响应必须固定：
 - 代理和网络连通。
 - SSE 传输。
 - 实际账号是否可用。
-- OpenAI/Claude/Gemini/DeepSeek 基础转发。
+- OpenAI/Claude/Gemini/DeepSeek/Kimi/GLM/MiniMax 基础转发。
 - DeepSeek/OpenAI-compatible provider 的真实响应格式。
 
 要求：
@@ -315,6 +341,9 @@ mock 响应必须固定：
 - real upstream 小样本连通验证通过。
 - Partner API 兼容测试通过。
 - DeepSeek usage/cache hit/miss 解析测试通过。
+- Kimi/GLM/MiniMax 路由和 Anthropic 协议适配测试通过。
+- GLM/MiniMax 分层计费测试通过。
+- 账户级模型映射测试通过（DeepSeek/Kimi/GLM/MiniMax）。
 - 5h/7d 限额测试通过。
 - `externalUid` 自动切换测试通过。
 - OpenAI Codex 用量保护测试通过。
