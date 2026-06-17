@@ -974,6 +974,7 @@ const handleResponses = async (req, res) => {
               { raw: chunk.toString() }
             )
             res.write(`data: ${JSON.stringify(friendly)}\n\n`)
+            streamEnded = true
             res.end()
             upstream.data.destroy()
             return
