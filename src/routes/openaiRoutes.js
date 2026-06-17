@@ -964,7 +964,7 @@ const handleResponses = async (req, res) => {
             const friendly = {
               error: {
                 message:
-                  '因模型厂商服务算力受限，请求失败。建议按如下方案尝试解决：1. 点击报错信息下方重试按钮；2. 重新发起新会话重试；3. 点击 uni-agent 左下角版本号升级到最新版，然后切换成聚合中转或DeepSeek等模型重试；详情参考：https://uniapp.dcloud.net.cn/ai/uni-agent.html#intelligencelevel',
+                  '由于 AI 模型厂商（上游服务商）目前的算力受限，导致本次请求未能成功。建议按如下方案尝试解决：1. 点击“重试”或开启新会话；2. 切换成聚合中转或DeepSeek等模型重试（uni-agent高于v1.6.8及以上）。uni-agent版本升级：低于v1.6.8打开 https://ext.dcloud.net.cn/plugin?id=26401 插件页面后，点击页面右侧“下载插件并导入HBuilderX”。切换模型参考文档：https://uniapp.dcloud.net.cn/ai/uni-agent.html#intelligencelevel',
                 type: 'server_error',
                 code: 'server_is_overloaded'
               }
