@@ -964,12 +964,19 @@ const handleResponses = async (req, res) => {
             const friendly = {
               error: {
                 message:
-                  '因模型官方服务算力受限，请求失败，可重新发起对话，或切换其他渠道使用。',
+                  '因模型厂商服务算力受限，请求失败。建议按如下方案尝试解决：1. 点击报错信息下方重试按钮；2. 重新发起新会话重试；3. 点击 uni-agent 左下角版本号升级到最新版，然后切换成聚合中转或DeepSeek等模型重试；详情参考：https://uniapp.dcloud.net.cn/ai/uni-agent.html#intelligencelevel',
                 type: 'server_error',
                 code: 'server_is_overloaded'
               }
             }
+            logger.warn(
+              `⚠️ OpenAI server_is_overloaded raw chunk for account ${accountId}:`,
+              { raw: chunk.toString() }
+            )
             res.write(`data: ${JSON.stringify(friendly)}\n\n`)
+            res.end()
+            upstream.data.destroy()
+            return
           } else {
             res.write(chunk)
           }
