@@ -25,6 +25,9 @@ const ERROR_CODES = {
   E016: { message: 'Prompt is too long', status: 413 }
 }
 
+const ACCOUNT_TEMP_UNAVAILABLE_PATTERN =
+  /chatgpt account|codex with a chatgpt account|subscription.*expired|expired.*subscription|plan.*expired|expired.*plan|account.*expired|expired.*account|workspace.*expired|expired.*workspace/i
+
 // 错误特征匹配规则（按优先级排序）
 const ERROR_MATCHERS = [
   // 网络层错误
@@ -52,9 +55,13 @@ const ERROR_MATCHERS = [
   // 账户错误
   { pattern: /account.*disabled|organization.*disabled/i, code: 'E011' },
   { pattern: /too many active sessions/i, code: 'E011' },
+  { pattern: ACCOUNT_TEMP_UNAVAILABLE_PATTERN, code: 'E011' },
 
   // 模型错误
-  { pattern: /model.*not.*found|model.*unavailable|unsupported.*model/i, code: 'E006' },
+  {
+    pattern: /model.*not.*found|model.*unavailable|unsupported.*model|model.*not supported/i,
+    code: 'E006'
+  },
 
   // 上下文超长错误
   {
@@ -252,6 +259,7 @@ function isAccountDisabledError(statusCode, body) {
     lower.includes('organization has been disabled') ||
     lower.includes('account has been disabled') ||
     lower.includes('account is disabled') ||
+    ACCOUNT_TEMP_UNAVAILABLE_PATTERN.test(message) ||
     lower.includes('no account supporting') ||
     lower.includes('account not found') ||
     lower.includes('invalid account') ||

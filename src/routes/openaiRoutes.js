@@ -962,11 +962,14 @@ const handleResponses = async (req, res) => {
         if (!res.destroyed) {
           if (overloaded) {
             const friendly = {
+              type: 'error',
+              sequence_number: 0,
               error: {
                 message:
                   '由于 AI 模型厂商（上游服务商）目前的算力受限，导致本次请求未能成功。建议按如下方案尝试解决：1. 点击“重试”或开启新会话；2. 切换成聚合中转或DeepSeek等模型重试（uni-agent版本v1.6.8及以上）。uni-agent版本升级：低于v1.6.8打开 https://ext.dcloud.net.cn/plugin?id=26401 插件页面后，点击页面右侧“下载插件并导入HBuilderX”。切换模型参考文档：https://uniapp.dcloud.net.cn/ai/uni-agent.html#intelligencelevel',
                 type: 'server_error',
-                code: 'server_is_overloaded'
+                code: 'server_is_overloaded',
+                param: null
               }
             }
             logger.warn(

@@ -1,4 +1,5 @@
 const logger = require('./logger')
+const { getSafeMessage } = require('./errorSanitizer')
 const { normalizeTempUnavailablePolicyFromAccountData } = require('./tempUnavailablePolicy')
 
 const TEMP_UNAVAILABLE_PREFIX = 'temp_unavailable'
@@ -483,15 +484,53 @@ const getAllTempUnavailable = async () => {
 
 // 清洗上游错误数据，去除内部路由标识（如 [codex/codex]）
 const sanitizeErrorForClient = (errorData) => {
-  if (!errorData || typeof errorData !== 'object') {
+  if (!errorData) {
     return errorData
   }
+
+  if (typeof errorData === 'string') {
+    return {
+      error: {
+        message: getSafeMessage(errorData, { logOriginal: false })
+      }
+    }
+  }
+
+  if (typeof errorData !== 'object') {
+    return {
+      error: {
+        message: getSafeMessage(String(errorData), { logOriginal: false })
+      }
+    }
+  }
+
   try {
     const str = JSON.stringify(errorData)
-    const cleaned = str.replace(/ \[[^\]/]+\/[^\]]+\]/g, '')
-    return JSON.parse(cleaned)
+    const cleaned = JSON.parse(str.replace(/ \[[^\]/]+\/[^\]]+\]/g, ''))
+
+    if (typeof cleaned?.error === 'string') {
+      cleaned.error = {
+        message: getSafeMessage(cleaned.error, { logOriginal: false })
+      }
+    } else if (
+      cleaned?.error &&
+      typeof cleaned.error === 'object' &&
+      typeof cleaned.error.message === 'string'
+    ) {
+      cleaned.error.message = getSafeMessage(cleaned.error.message, { logOriginal: false })
+    }
+
+    if (typeof cleaned?.message === 'string') {
+      cleaned.message = getSafeMessage(cleaned.message, { logOriginal: false })
+    }
+
+    return cleaned
   } catch {
-    return errorData
+    return {
+      error: {
+        message: getSafeMessage(errorData, { logOriginal: false })
+      }
+    }
   }
 }
 
