@@ -12,7 +12,7 @@
     "source_zh": "https://api-docs.deepseek.com/zh-cn/quick_start/pricing",
     "pricing_currency": "USD",
     "pricing_source": "deepseek_official_docs",
-    "pricing_updated_at": "2026-06-21T00:17:25.741Z",
+    "pricing_updated_at": "2026-06-21T05:27:58.555Z",
     "supported_endpoints": [
       "/v1/chat/completions"
     ],
@@ -40,7 +40,7 @@
     "source_zh": "https://api-docs.deepseek.com/zh-cn/quick_start/pricing",
     "pricing_currency": "USD",
     "pricing_source": "deepseek_official_docs",
-    "pricing_updated_at": "2026-06-21T00:17:25.741Z",
+    "pricing_updated_at": "2026-06-21T05:27:58.555Z",
     "supported_endpoints": [
       "/v1/chat/completions"
     ],
@@ -82,7 +82,7 @@
     "source_zh": "https://api-docs.deepseek.com/zh-cn/quick_start/pricing",
     "pricing_currency": "USD",
     "pricing_source": "deepseek_official_docs",
-    "pricing_updated_at": "2026-05-07T08:41:10.786Z",
+    "pricing_updated_at": "2026-06-21T05:27:58.555Z",
     "supported_endpoints": [
       "/v1/chat/completions"
     ],
@@ -108,7 +108,7 @@
     "source_zh": "https://api-docs.deepseek.com/zh-cn/quick_start/pricing",
     "pricing_currency": "USD",
     "pricing_source": "deepseek_official_docs",
-    "pricing_updated_at": "2026-06-02T06:55:50.341Z",
+    "pricing_updated_at": "2026-06-21T05:27:58.555Z",
     "supported_endpoints": [
       "/v1/chat/completions"
     ],
@@ -730,6 +730,7 @@
   "claude-sonnet-4-5": {
     "cache_creation_input_token_cost": 0.00000375,
     "cache_creation_input_token_cost_above_1hr": 0.000006,
+    "cache_creation_input_token_cost_above_1hr_above_200k_tokens": 0.000012,
     "cache_creation_input_token_cost_above_200k_tokens": 0.0000075,
     "cache_read_input_token_cost": 3e-7,
     "cache_read_input_token_cost_above_200k_tokens": 6e-7,
@@ -760,6 +761,7 @@
   "claude-sonnet-4-5-20250929": {
     "cache_creation_input_token_cost": 0.00000375,
     "cache_creation_input_token_cost_above_1hr": 0.000006,
+    "cache_creation_input_token_cost_above_1hr_above_200k_tokens": 0.000012,
     "cache_creation_input_token_cost_above_200k_tokens": 0.0000075,
     "cache_read_input_token_cost": 3e-7,
     "cache_read_input_token_cost_above_200k_tokens": 6e-7,
@@ -791,6 +793,7 @@
   "claude-sonnet-4-5-20250929-v1:0": {
     "cache_creation_input_token_cost": 0.00000375,
     "cache_creation_input_token_cost_above_1hr": 0.000006,
+    "cache_creation_input_token_cost_above_1hr_above_200k_tokens": 0.000012,
     "cache_creation_input_token_cost_above_200k_tokens": 0.0000075,
     "cache_read_input_token_cost": 3e-7,
     "cache_read_input_token_cost_above_200k_tokens": 6e-7,
@@ -5761,6 +5764,23 @@
     "supports_parallel_function_calling": true,
     "supports_system_messages": true,
     "supports_tool_choice": true
+  },
+  "gpt-realtime-whisper": {
+    "input_cost_per_second": 0.0002833333333333333,
+    "litellm_provider": "openai",
+    "mode": "audio_transcription",
+    "source": "https://platform.openai.com/docs/models/gpt-realtime-whisper",
+    "supported_endpoints": [
+      "/v1/realtime",
+      "/v1/realtime/transcription_sessions"
+    ],
+    "supported_modalities": [
+      "audio"
+    ],
+    "supported_output_modalities": [
+      "text"
+    ],
+    "supports_audio_input": true
   },
   "kimi-k2.5": {
     "cache_creation_input_token_cost": 6e-7,
