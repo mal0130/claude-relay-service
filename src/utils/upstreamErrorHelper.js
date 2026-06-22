@@ -524,6 +524,12 @@ const sanitizeErrorForClient = (errorData) => {
       cleaned.message = getSafeMessage(cleaned.message, { logOriginal: false })
     }
 
+    // FastAPI / Django REST 风格的 detail 字段，转成标准 error.message 结构
+    if (typeof cleaned?.detail === 'string' && !cleaned.error && !cleaned.message) {
+      const safeMsg = getSafeMessage(cleaned.detail, { logOriginal: false })
+      return { error: { message: safeMsg } }
+    }
+
     return cleaned
   } catch {
     return {

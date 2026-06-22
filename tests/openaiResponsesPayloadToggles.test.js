@@ -90,7 +90,69 @@ jest.mock('../src/utils/sseParser', () => ({
 }))
 
 jest.mock('../src/utils/errorSanitizer', () => ({
-  getSafeMessage: jest.fn((error) => error?.message || 'error')
+  getSafeMessage: jest.fn((error) => {
+    const status = error?.response?.status
+    const message =
+      typeof error === 'string'
+        ? error
+        : error?.message ||
+          error?.error?.message ||
+          error?.response?.data?.error?.message ||
+          error?.response?.data?.message ||
+          ''
+
+    if (/chatgpt account|subscription expired|workspace expired/i.test(message)) {
+      return 'Account temporarily unavailable'
+    }
+    if (/usage limit/i.test(message)) {
+      return 'Quota exceeded'
+    }
+    if (status === 401) {
+      return 'Authentication failed'
+    }
+    if (status === 429) {
+      return 'Rate limit exceeded'
+    }
+    return message || 'Internal server error'
+  })
+}))
+
+jest.mock('../src/utils/upstreamErrorHelper', () => ({
+  sanitizeErrorForClient: jest.fn((errorData) => {
+    const sanitizeMessage = (message) => {
+      if (/chatgpt account|subscription expired|workspace expired/i.test(message || '')) {
+        return 'Account temporarily unavailable'
+      }
+      if (/usage limit/i.test(message || '')) {
+        return 'Quota exceeded'
+      }
+      if (/payment required|unauthorized/i.test(message || '')) {
+        return 'Authentication failed'
+      }
+      return message || 'Internal server error'
+    }
+
+    if (typeof errorData === 'string') {
+      return { error: { message: sanitizeMessage(errorData) } }
+    }
+
+    if (!errorData || typeof errorData !== 'object') {
+      return { error: { message: sanitizeMessage(String(errorData)) } }
+    }
+
+    const cloned = JSON.parse(JSON.stringify(errorData))
+    if (typeof cloned.error === 'string') {
+      cloned.error = { message: sanitizeMessage(cloned.error) }
+    } else if (cloned.error && typeof cloned.error.message === 'string') {
+      cloned.error.message = sanitizeMessage(cloned.error.message)
+    }
+
+    if (typeof cloned.message === 'string') {
+      cloned.message = sanitizeMessage(cloned.message)
+    }
+
+    return cloned
+  })
 }))
 
 jest.mock('../src/utils/requestDetailHelper', () => {
@@ -376,6 +438,55 @@ describe('openai responses payload toggles', () => {
     expect(upstreamBody).not.toHaveProperty('service_tier')
   })
 
+  test('sanitizes top-level detail errors for non-stream openai responses', async () => {
+    unifiedOpenAIScheduler.selectAccountForApiKey.mockResolvedValue({
+      accountId: 'openai-1',
+      accountType: 'openai'
+    })
+    openaiAccountService.getAccount.mockResolvedValue({
+      id: 'openai-1',
+      name: 'OpenAI Account',
+      accessToken: 'encrypted-token',
+      accountId: 'chatgpt-account-1'
+    })
+    axios.post.mockResolvedValue({
+      status: 400,
+      data: {
+        detail: "The 'gpt-5.4' model is not supported when using Codex with a ChatGPT account."
+      },
+      headers: {}
+    })
+
+    const req = createReq({
+      body: {
+        model: 'gpt-5-2025-08-07',
+        prompt_cache_key: 'sanitize-detail-key',
+        stream: false
+      },
+      apiKeyOverrides: {
+        enableOpenAIResponsesCodexAdaptation: false,
+        enableOpenAIResponsesPayloadRules: false
+      }
+    })
+    const res = createRes()
+
+    await openaiRoutes.handleResponses(req, res)
+
+    expect(res.status).toHaveBeenCalledWith(400)
+    expect(res.payload).toEqual({
+      error: {
+        message: 'Account temporarily unavailable'
+      }
+    })
+    expect(JSON.stringify(res.payload)).not.toContain("The 'gpt-5.4'")
+    expect(logger.error).toHaveBeenCalledWith(
+      '❌ OpenAI Codex upstream error status=400 accountId=openai-1 model=gpt-5',
+      {
+        detail: "The 'gpt-5.4' model is not supported when using Codex with a ChatGPT account."
+      }
+    )
+  })
+
   test('normalizes payload-rule gpt-5 aliases after forced Codex adaptation for openai scheduling', async () => {
     unifiedOpenAIScheduler.selectAccountForApiKey.mockResolvedValue({
       accountId: 'openai-1',
@@ -596,7 +707,7 @@ describe('openai stream overload interception', () => {
     unifiedOpenAIScheduler.isAccountRateLimited.mockResolvedValue(false)
   })
 
-  function makeStreamUpstream(chunks) {
+  function makeStreamUpstream(chunks, status = 200) {
     const emitter = new EventEmitter()
     process.nextTick(() => {
       for (const chunk of chunks) {
@@ -604,11 +715,11 @@ describe('openai stream overload interception', () => {
       }
       emitter.emit('end')
     })
-    return { status: 200, headers: {}, data: emitter }
+    return { status, headers: {}, data: emitter }
   }
 
-  async function runStreamRequest(bodyOverrides, chunks) {
-    axios.post.mockResolvedValue(makeStreamUpstream(chunks))
+  async function runStreamRequest(bodyOverrides, chunks, upstreamOverrides = {}) {
+    axios.post.mockResolvedValue(makeStreamUpstream(chunks, upstreamOverrides.status))
     const written = []
     const res = {
       statusCode: 200,
@@ -660,5 +771,81 @@ describe('openai stream overload interception', () => {
 
     expect(written.length).toBe(1)
     expect(written[0]).toBe(normalChunk)
+  })
+
+  test('logs upstream 400 detail payloads for stream requests', async () => {
+    const errorBody = JSON.stringify({
+      detail: "The 'gpt-5.4' model is not supported when using Codex with a ChatGPT account."
+    })
+
+    const { res, written } = await runStreamRequest({}, [errorBody], { status: 400 })
+
+    expect(written).toEqual([])
+    expect(res.status).toHaveBeenCalledWith(400)
+    expect(res.payload).toEqual({
+      error: {
+        message: 'Account temporarily unavailable'
+      }
+    })
+    expect(logger.error).toHaveBeenCalledWith(
+      '❌ OpenAI Codex upstream error status=400 accountId=openai-1 model=gpt-5',
+      {
+        detail: "The 'gpt-5.4' model is not supported when using Codex with a ChatGPT account."
+      }
+    )
+  })
+
+  test('logs upstream 429 payloads for stream requests', async () => {
+    const errorBody = JSON.stringify({
+      error: {
+        type: 'usage_limit_reached',
+        message: 'The usage limit has been reached',
+        resets_in_seconds: 60
+      }
+    })
+
+    const { written } = await runStreamRequest({}, [errorBody], { status: 429 })
+
+    expect(written).toEqual([
+      'data: {"error":{"type":"usage_limit_reached","message":"Quota exceeded","resets_in_seconds":60}}\n\n'
+    ])
+
+    expect(logger.error).toHaveBeenCalledWith(
+      '❌ OpenAI Codex upstream error status=429 accountId=openai-1 model=gpt-5',
+      {
+        error: {
+          type: 'usage_limit_reached',
+          message: 'The usage limit has been reached',
+          resets_in_seconds: 60
+        }
+      }
+    )
+  })
+
+  test('logs upstream 402 payloads for stream requests', async () => {
+    const errorBody = JSON.stringify({
+      error: {
+        message: 'Payment required'
+      }
+    })
+
+    const { res } = await runStreamRequest({}, [errorBody], { status: 402 })
+
+    expect(res.status).toHaveBeenCalledWith(402)
+    expect(res.payload).toEqual({
+      error: {
+        message: 'Authentication failed',
+        type: 'payment_required',
+        code: 'payment_required'
+      }
+    })
+    expect(logger.error).toHaveBeenCalledWith(
+      '❌ OpenAI Codex upstream error status=402 accountId=openai-1 model=gpt-5',
+      {
+        error: {
+          message: 'Payment required'
+        }
+      }
+    )
   })
 })
