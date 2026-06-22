@@ -12,7 +12,7 @@
     "source_zh": "https://api-docs.deepseek.com/zh-cn/quick_start/pricing",
     "pricing_currency": "USD",
     "pricing_source": "deepseek_official_docs",
-    "pricing_updated_at": "2026-06-22T13:14:15.289Z",
+    "pricing_updated_at": "2026-06-22T18:05:59.969Z",
     "supported_endpoints": [
       "/v1/chat/completions"
     ],
@@ -40,7 +40,7 @@
     "source_zh": "https://api-docs.deepseek.com/zh-cn/quick_start/pricing",
     "pricing_currency": "USD",
     "pricing_source": "deepseek_official_docs",
-    "pricing_updated_at": "2026-06-22T13:14:15.289Z",
+    "pricing_updated_at": "2026-06-22T18:05:59.969Z",
     "supported_endpoints": [
       "/v1/chat/completions"
     ],
@@ -82,7 +82,7 @@
     "source_zh": "https://api-docs.deepseek.com/zh-cn/quick_start/pricing",
     "pricing_currency": "USD",
     "pricing_source": "deepseek_official_docs",
-    "pricing_updated_at": "2026-06-22T13:14:15.289Z",
+    "pricing_updated_at": "2026-06-22T18:05:59.969Z",
     "supported_endpoints": [
       "/v1/chat/completions"
     ],
@@ -108,7 +108,7 @@
     "source_zh": "https://api-docs.deepseek.com/zh-cn/quick_start/pricing",
     "pricing_currency": "USD",
     "pricing_source": "deepseek_official_docs",
-    "pricing_updated_at": "2026-06-22T13:14:15.289Z",
+    "pricing_updated_at": "2026-06-22T18:05:59.969Z",
     "supported_endpoints": [
       "/v1/chat/completions"
     ],
@@ -2707,7 +2707,7 @@
     "source": "https://open.bigmodel.cn/pricing",
     "pricing_currency": "USD",
     "pricing_source": "glm_builtin_fallback",
-    "pricing_updated_at": "2026-06-22T13:14:17.693Z",
+    "pricing_updated_at": "2026-06-22T18:06:02.279Z",
     "supported_endpoints": [
       "/v1/chat/completions"
     ],
@@ -6320,7 +6320,7 @@
     "source": "https://open.bigmodel.cn/pricing",
     "pricing_currency": "USD",
     "pricing_source": "glm_builtin_fallback",
-    "pricing_updated_at": "2026-06-22T13:14:17.693Z",
+    "pricing_updated_at": "2026-06-22T18:06:02.279Z",
     "supported_endpoints": [
       "/v1/chat/completions"
     ],
@@ -6346,7 +6346,7 @@
     "source": "https://open.bigmodel.cn/pricing",
     "pricing_currency": "USD",
     "pricing_source": "glm_builtin_fallback",
-    "pricing_updated_at": "2026-06-22T13:14:17.693Z",
+    "pricing_updated_at": "2026-06-22T18:06:02.279Z",
     "supported_endpoints": [
       "/v1/chat/completions"
     ],
@@ -6389,7 +6389,7 @@
     "source": "https://open.bigmodel.cn/pricing",
     "pricing_currency": "USD",
     "pricing_source": "glm_builtin_fallback",
-    "pricing_updated_at": "2026-06-22T13:14:17.693Z",
+    "pricing_updated_at": "2026-06-22T18:06:02.279Z",
     "supported_endpoints": [
       "/v1/chat/completions"
     ],
@@ -6432,7 +6432,7 @@
     "source": "https://open.bigmodel.cn/pricing",
     "pricing_currency": "USD",
     "pricing_source": "glm_builtin_fallback",
-    "pricing_updated_at": "2026-06-22T13:14:17.693Z",
+    "pricing_updated_at": "2026-06-22T18:06:02.279Z",
     "supported_endpoints": [
       "/v1/chat/completions"
     ],
@@ -6458,7 +6458,7 @@
     "source": "https://open.bigmodel.cn/pricing",
     "pricing_currency": "USD",
     "pricing_source": "glm_builtin_fallback",
-    "pricing_updated_at": "2026-06-22T13:14:17.693Z",
+    "pricing_updated_at": "2026-06-22T18:06:02.279Z",
     "supported_endpoints": [
       "/v1/chat/completions"
     ],
@@ -6484,7 +6484,7 @@
     "source": "https://open.bigmodel.cn/pricing",
     "pricing_currency": "USD",
     "pricing_source": "glm_builtin_fallback",
-    "pricing_updated_at": "2026-06-22T13:14:17.693Z",
+    "pricing_updated_at": "2026-06-22T18:06:02.279Z",
     "supported_endpoints": [
       "/v1/chat/completions"
     ],
@@ -6527,7 +6527,7 @@
     "source": "https://open.bigmodel.cn/pricing",
     "pricing_currency": "USD",
     "pricing_source": "glm_builtin_fallback",
-    "pricing_updated_at": "2026-06-22T13:14:17.693Z",
+    "pricing_updated_at": "2026-06-22T18:06:02.279Z",
     "supported_endpoints": [
       "/v1/chat/completions"
     ],
@@ -6579,7 +6579,7 @@
     "source": "https://open.bigmodel.cn/pricing",
     "pricing_currency": "USD",
     "pricing_source": "glm_builtin_fallback",
-    "pricing_updated_at": "2026-06-22T13:14:17.693Z",
+    "pricing_updated_at": "2026-06-22T18:06:02.279Z",
     "supported_endpoints": [
       "/v1/chat/completions"
     ],
@@ -6622,7 +6622,7 @@
     "source": "https://open.bigmodel.cn/pricing",
     "pricing_currency": "USD",
     "pricing_source": "glm_builtin_fallback",
-    "pricing_updated_at": "2026-06-22T13:14:17.693Z",
+    "pricing_updated_at": "2026-06-22T18:06:02.279Z",
     "supported_endpoints": [
       "/v1/chat/completions"
     ],
@@ -6648,7 +6648,7 @@
     "source": "https://open.bigmodel.cn/pricing",
     "pricing_currency": "USD",
     "pricing_source": "glm_builtin_fallback",
-    "pricing_updated_at": "2026-06-22T13:14:17.693Z",
+    "pricing_updated_at": "2026-06-22T18:06:02.279Z",
     "supported_endpoints": [
       "/v1/chat/completions"
     ],
@@ -6691,7 +6691,7 @@
     "source": "https://open.bigmodel.cn/pricing",
     "pricing_currency": "USD",
     "pricing_source": "glm_builtin_fallback",
-    "pricing_updated_at": "2026-06-22T13:14:17.693Z",
+    "pricing_updated_at": "2026-06-22T18:06:02.279Z",
     "supported_endpoints": [
       "/v1/chat/completions"
     ],
@@ -6717,7 +6717,7 @@
     "source": "https://open.bigmodel.cn/pricing",
     "pricing_currency": "USD",
     "pricing_source": "glm_builtin_fallback",
-    "pricing_updated_at": "2026-06-22T13:14:17.693Z",
+    "pricing_updated_at": "2026-06-22T18:06:02.279Z",
     "supported_endpoints": [
       "/v1/chat/completions"
     ],
@@ -6743,7 +6743,7 @@
     "source": "https://open.bigmodel.cn/pricing",
     "pricing_currency": "USD",
     "pricing_source": "glm_builtin_fallback",
-    "pricing_updated_at": "2026-06-22T13:14:17.693Z",
+    "pricing_updated_at": "2026-06-22T18:06:02.279Z",
     "supported_endpoints": [
       "/v1/chat/completions"
     ],
@@ -6769,7 +6769,7 @@
     "source": "https://open.bigmodel.cn/pricing",
     "pricing_currency": "USD",
     "pricing_source": "glm_builtin_fallback",
-    "pricing_updated_at": "2026-06-22T13:14:17.693Z",
+    "pricing_updated_at": "2026-06-22T18:06:02.279Z",
     "supported_endpoints": [
       "/v1/chat/completions"
     ],
@@ -6821,7 +6821,7 @@
     "source": "https://open.bigmodel.cn/pricing",
     "pricing_currency": "USD",
     "pricing_source": "glm_builtin_fallback",
-    "pricing_updated_at": "2026-06-22T13:14:17.693Z",
+    "pricing_updated_at": "2026-06-22T18:06:02.279Z",
     "supported_endpoints": [
       "/v1/chat/completions"
     ],
@@ -6864,7 +6864,7 @@
     "source": "https://open.bigmodel.cn/pricing",
     "pricing_currency": "USD",
     "pricing_source": "glm_builtin_fallback",
-    "pricing_updated_at": "2026-06-22T13:14:17.693Z",
+    "pricing_updated_at": "2026-06-22T18:06:02.279Z",
     "supported_endpoints": [
       "/v1/chat/completions"
     ],
@@ -6890,7 +6890,7 @@
     "source": "https://open.bigmodel.cn/pricing",
     "pricing_currency": "USD",
     "pricing_source": "glm_builtin_fallback",
-    "pricing_updated_at": "2026-06-22T13:14:17.693Z",
+    "pricing_updated_at": "2026-06-22T18:06:02.279Z",
     "supported_endpoints": [
       "/v1/chat/completions"
     ],
@@ -6916,7 +6916,7 @@
     "source": "https://open.bigmodel.cn/pricing",
     "pricing_currency": "USD",
     "pricing_source": "glm_builtin_fallback",
-    "pricing_updated_at": "2026-06-22T13:14:17.693Z",
+    "pricing_updated_at": "2026-06-22T18:06:02.279Z",
     "supported_endpoints": [
       "/v1/chat/completions"
     ],
@@ -6942,7 +6942,7 @@
     "source": "https://open.bigmodel.cn/pricing",
     "pricing_currency": "USD",
     "pricing_source": "glm_builtin_fallback",
-    "pricing_updated_at": "2026-06-22T13:14:17.693Z",
+    "pricing_updated_at": "2026-06-22T18:06:02.279Z",
     "supported_endpoints": [
       "/v1/chat/completions"
     ],
@@ -6968,7 +6968,7 @@
     "source": "https://open.bigmodel.cn/pricing",
     "pricing_currency": "USD",
     "pricing_source": "glm_builtin_fallback",
-    "pricing_updated_at": "2026-06-22T13:14:17.693Z",
+    "pricing_updated_at": "2026-06-22T18:06:02.279Z",
     "supported_endpoints": [
       "/v1/chat/completions"
     ],
@@ -6994,7 +6994,7 @@
     "source": "https://open.bigmodel.cn/pricing",
     "pricing_currency": "USD",
     "pricing_source": "glm_builtin_fallback",
-    "pricing_updated_at": "2026-06-22T13:14:17.693Z",
+    "pricing_updated_at": "2026-06-22T18:06:02.279Z",
     "supported_endpoints": [
       "/v1/chat/completions"
     ],
@@ -7020,7 +7020,7 @@
     "source": "https://open.bigmodel.cn/pricing",
     "pricing_currency": "USD",
     "pricing_source": "glm_builtin_fallback",
-    "pricing_updated_at": "2026-06-22T13:14:17.693Z",
+    "pricing_updated_at": "2026-06-22T18:06:02.279Z",
     "supported_endpoints": [
       "/v1/chat/completions"
     ],
@@ -7046,7 +7046,7 @@
     "source": "https://open.bigmodel.cn/pricing",
     "pricing_currency": "USD",
     "pricing_source": "glm_builtin_fallback",
-    "pricing_updated_at": "2026-06-22T13:14:17.693Z",
+    "pricing_updated_at": "2026-06-22T18:06:02.279Z",
     "supported_endpoints": [
       "/v1/chat/completions"
     ],
@@ -7072,7 +7072,7 @@
     "source": "https://open.bigmodel.cn/pricing",
     "pricing_currency": "USD",
     "pricing_source": "glm_builtin_fallback",
-    "pricing_updated_at": "2026-06-22T13:14:17.693Z",
+    "pricing_updated_at": "2026-06-22T18:06:02.279Z",
     "supported_endpoints": [
       "/v1/chat/completions"
     ],
@@ -7098,7 +7098,7 @@
     "source": "https://open.bigmodel.cn/pricing",
     "pricing_currency": "USD",
     "pricing_source": "glm_builtin_fallback",
-    "pricing_updated_at": "2026-06-22T13:14:17.693Z",
+    "pricing_updated_at": "2026-06-22T18:06:02.279Z",
     "supported_endpoints": [
       "/v1/chat/completions"
     ],
@@ -7124,7 +7124,7 @@
     "source": "https://open.bigmodel.cn/pricing",
     "pricing_currency": "USD",
     "pricing_source": "glm_builtin_fallback",
-    "pricing_updated_at": "2026-06-22T13:14:17.693Z",
+    "pricing_updated_at": "2026-06-22T18:06:02.279Z",
     "supported_endpoints": [
       "/v1/chat/completions"
     ],
@@ -7150,7 +7150,7 @@
     "source": "https://open.bigmodel.cn/pricing",
     "pricing_currency": "USD",
     "pricing_source": "glm_builtin_fallback",
-    "pricing_updated_at": "2026-06-22T13:14:17.693Z",
+    "pricing_updated_at": "2026-06-22T18:06:02.279Z",
     "supported_endpoints": [
       "/v1/chat/completions"
     ],
@@ -7176,7 +7176,7 @@
     "source": "https://open.bigmodel.cn/pricing",
     "pricing_currency": "USD",
     "pricing_source": "glm_builtin_fallback",
-    "pricing_updated_at": "2026-06-22T13:14:17.693Z",
+    "pricing_updated_at": "2026-06-22T18:06:02.279Z",
     "supported_endpoints": [
       "/v1/chat/completions"
     ],
@@ -7202,7 +7202,7 @@
     "source": "https://open.bigmodel.cn/pricing",
     "pricing_currency": "USD",
     "pricing_source": "glm_builtin_fallback",
-    "pricing_updated_at": "2026-06-22T13:14:17.693Z",
+    "pricing_updated_at": "2026-06-22T18:06:02.279Z",
     "supported_endpoints": [
       "/v1/chat/completions"
     ],
