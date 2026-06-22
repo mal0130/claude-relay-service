@@ -27,6 +27,8 @@ const ERROR_CODES = {
 
 const ACCOUNT_TEMP_UNAVAILABLE_PATTERN =
   /chatgpt account|codex with a chatgpt account|subscription.*expired|expired.*subscription|plan.*expired|expired.*plan|account.*expired|expired.*account|workspace.*expired|expired.*workspace/i
+const ACCOUNT_BILLING_UNAVAILABLE_PATTERN =
+  /余额不足|账户余额不足|可用额度不足|余额已用尽|免费额度已用尽|欠费|请充值|充值后|insufficient(?:\s+\w+){0,2}\s+(?:balance|credit)|out of(?:\s+\w+){0,2}\s+credit|credit(?:\s+\w+){0,2}\s+exhausted|no[_\s-]*free[_\s-]*package|free[_\s-]*quota[_\s-]*exhausted|billing[_\s-]*isolated|recharge/i
 
 // 错误特征匹配规则（按优先级排序）
 const ERROR_MATCHERS = [
@@ -56,6 +58,7 @@ const ERROR_MATCHERS = [
   { pattern: /account.*disabled|organization.*disabled/i, code: 'E011' },
   { pattern: /too many active sessions/i, code: 'E011' },
   { pattern: ACCOUNT_TEMP_UNAVAILABLE_PATTERN, code: 'E011' },
+  { pattern: ACCOUNT_BILLING_UNAVAILABLE_PATTERN, code: 'E011' },
 
   // 模型错误
   {

@@ -463,9 +463,13 @@ describe('DeepSeekRelayService — helper methods', () => {
       markAccountRateLimited: jest.fn(async () => {}),
       clearSessionMapping: jest.fn(async () => {})
     }))
-    jest.doMock('../src/utils/upstreamErrorHelper', () => ({
-      markTempUnavailable: jest.fn(async () => {})
-    }))
+    jest.doMock('../src/utils/upstreamErrorHelper', () => {
+      const actual = jest.requireActual('../src/utils/upstreamErrorHelper')
+      return {
+        ...actual,
+        markTempUnavailable: jest.fn(async () => {})
+      }
+    })
 
     svc = require('../src/services/relay/deepseekRelayService')
   })
@@ -933,6 +937,7 @@ describe('DeepSeekRelayService — helper methods', () => {
     }
 
     test('_handleJsonResponse delegates upstream error payloads', async () => {
+      const upstreamErrorHelper = require('../src/utils/upstreamErrorHelper')
       const req = createReq()
       const res = createRes()
       const upstreamResponse = {
@@ -959,7 +964,40 @@ describe('DeepSeekRelayService — helper methods', () => {
         'session-hash'
       )
       expect(res.status).toHaveBeenCalledWith(429)
-      expect(res.json).toHaveBeenCalledWith(upstreamResponse.data)
+      expect(res.json).toHaveBeenCalledWith(
+        upstreamErrorHelper.sanitizeRelayErrorResponse(429, upstreamResponse.data)
+      )
+    })
+
+    test('_handleJsonResponse sanitizes upstream billing exhaustion payloads', async () => {
+      const req = createReq()
+      const res = createRes()
+      const upstreamResponse = {
+        status: 402,
+        data: {
+          error: {
+            message: 'Insufficient Balance',
+            code: 'insufficient_balance'
+          }
+        }
+      }
+
+      await svc._handleJsonResponse(req, res, {
+        upstreamResponse,
+        body: {},
+        accountId: 'acc-ds-1',
+        requestedModel: 'deepseek-v4-flash',
+        sessionHash: 'session-hash',
+        startTime: Date.now()
+      })
+
+      expect(res.status).toHaveBeenCalledWith(402)
+      expect(res.json).toHaveBeenCalledWith({
+        error: {
+          message: 'Account temporarily unavailable',
+          code: 'insufficient_balance'
+        }
+      })
     })
 
     test('_handleJsonResponse logs when usage is missing', async () => {
@@ -1046,6 +1084,7 @@ describe('DeepSeekRelayService — helper methods', () => {
     })
 
     test('_handleAnthropicJsonResponse delegates upstream error payloads', async () => {
+      const upstreamErrorHelper = require('../src/utils/upstreamErrorHelper')
       const req = createReq()
       const res = createRes()
       const upstreamResponse = {
@@ -1072,7 +1111,9 @@ describe('DeepSeekRelayService — helper methods', () => {
         'session-hash'
       )
       expect(res.status).toHaveBeenCalledWith(503)
-      expect(res.json).toHaveBeenCalledWith(upstreamResponse.data)
+      expect(res.json).toHaveBeenCalledWith(
+        upstreamErrorHelper.sanitizeRelayErrorResponse(503, upstreamResponse.data)
+      )
     })
 
     test('_handleAnthropicStreamResponse records assistant content and destroys the upstream stream on close', async () => {
@@ -1247,12 +1288,30 @@ describe('DeepSeekRelayService — helper methods', () => {
         'DeepSeek upstream auth failed (401)'
       )
       expect(unifiedDeepSeekScheduler.clearSessionMapping).toHaveBeenCalledWith('session-hash')
+      unifiedDeepSeekScheduler.markAccountUnauthorized.mockClear()
+      unifiedDeepSeekScheduler.clearSessionMapping.mockClear()
 
       await svc._handleUpstreamStatus(429, { error: 'rate limited' }, 'acc-ds-1', 'session-hash')
       expect(unifiedDeepSeekScheduler.markAccountRateLimited).toHaveBeenCalledWith(
         'acc-ds-1',
         'session-hash'
       )
+
+      await svc._handleUpstreamStatus(
+        402,
+        { error: { message: 'Insufficient Balance', code: 'insufficient_balance' } },
+        'acc-ds-1',
+        'session-hash'
+      )
+      expect(upstreamErrorHelper.markTempUnavailable).toHaveBeenCalledWith(
+        'acc-ds-1',
+        'deepseek',
+        402,
+        null,
+        { response: { error: { message: 'Insufficient Balance', code: 'insufficient_balance' } } }
+      )
+      expect(unifiedDeepSeekScheduler.markAccountUnauthorized).not.toHaveBeenCalled()
+      expect(unifiedDeepSeekScheduler.clearSessionMapping).toHaveBeenCalledWith('session-hash')
 
       await svc._handleUpstreamStatus(529, { error: 'overloaded' }, 'acc-ds-1', 'session-hash')
       expect(upstreamErrorHelper.markTempUnavailable).toHaveBeenCalledWith(

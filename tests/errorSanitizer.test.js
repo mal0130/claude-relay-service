@@ -18,7 +18,10 @@ const {
   isAccountDisabledError,
   mapToErrorCode
 } = require('../src/utils/errorSanitizer')
-const { sanitizeErrorForClient } = require('../src/utils/upstreamErrorHelper')
+const {
+  sanitizeErrorForClient,
+  sanitizeRelayErrorResponse
+} = require('../src/utils/upstreamErrorHelper')
 
 describe('errorSanitizer account-related interception', () => {
   beforeEach(() => {
@@ -42,6 +45,12 @@ describe('errorSanitizer account-related interception', () => {
     expect(getSafeMessage('workspace expired, please renew')).toBe(
       'Account temporarily unavailable'
     )
+  })
+
+  test('maps billing exhaustion style errors to account temporarily unavailable', () => {
+    expect(getSafeMessage('insufficient balance')).toBe('Account temporarily unavailable')
+    expect(getSafeMessage('FREE_QUOTA_EXHAUSTED')).toBe('Account temporarily unavailable')
+    expect(getSafeMessage('BILLING_ISOLATED')).toBe('Account temporarily unavailable')
   })
 
   test('keeps generic model errors mapped to model not available', () => {
@@ -151,6 +160,38 @@ describe('upstreamErrorHelper sanitizeErrorForClient', () => {
     expect(sanitizeErrorForClient(429)).toEqual({
       error: {
         message: 'Rate limit exceeded'
+      }
+    })
+  })
+
+  test('sanitizes relay billing errors and preserves safe metadata fields', () => {
+    expect(
+      sanitizeRelayErrorResponse(403, {
+        error: {
+          message: 'FREE_QUOTA_EXHAUSTED: please recharge',
+          code: '401008',
+          type: 'insufficient_balance'
+        }
+      })
+    ).toEqual({
+      error: {
+        message: 'Account temporarily unavailable',
+        code: '401008',
+        type: 'insufficient_balance'
+      }
+    })
+  })
+
+  test('sanitizes relay errors with status-based fallback when upstream message is opaque', () => {
+    expect(
+      sanitizeRelayErrorResponse(503, {
+        error: {
+          message: 'busy'
+        }
+      })
+    ).toEqual({
+      error: {
+        message: 'Service temporarily unavailable'
       }
     })
   })

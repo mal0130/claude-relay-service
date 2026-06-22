@@ -387,9 +387,13 @@ describe('GlmRelayService — helper methods', () => {
       markAccountRateLimited: jest.fn(async () => {}),
       clearSessionMapping: jest.fn(async () => {})
     }))
-    jest.doMock('../src/utils/upstreamErrorHelper', () => ({
-      markTempUnavailable: jest.fn(async () => {})
-    }))
+    jest.doMock('../src/utils/upstreamErrorHelper', () => {
+      const actual = jest.requireActual('../src/utils/upstreamErrorHelper')
+      return {
+        ...actual,
+        markTempUnavailable: jest.fn(async () => {})
+      }
+    })
 
     svc = require('../src/services/relay/glmRelayService')
   })
@@ -798,6 +802,7 @@ describe('GlmRelayService — helper methods', () => {
     }
 
     test('_handleJsonResponse delegates upstream error payloads', async () => {
+      const upstreamErrorHelper = require('../src/utils/upstreamErrorHelper')
       const req = createReq()
       const res = createRes()
       const upstreamResponse = {
@@ -824,7 +829,40 @@ describe('GlmRelayService — helper methods', () => {
         'session-hash'
       )
       expect(res.status).toHaveBeenCalledWith(429)
-      expect(res.json).toHaveBeenCalledWith(upstreamResponse.data)
+      expect(res.json).toHaveBeenCalledWith(
+        upstreamErrorHelper.sanitizeRelayErrorResponse(429, upstreamResponse.data)
+      )
+    })
+
+    test('_handleJsonResponse sanitizes upstream billing exhaustion payloads', async () => {
+      const req = createReq()
+      const res = createRes()
+      const upstreamResponse = {
+        status: 403,
+        data: {
+          error: {
+            message: 'FREE_QUOTA_EXHAUSTED: please recharge',
+            code: '401008'
+          }
+        }
+      }
+
+      await svc._handleJsonResponse(req, res, {
+        upstreamResponse,
+        body: {},
+        accountId: 'acc-glm-1',
+        requestedModel: 'glm-4-flash',
+        sessionHash: 'session-hash',
+        startTime: Date.now()
+      })
+
+      expect(res.status).toHaveBeenCalledWith(403)
+      expect(res.json).toHaveBeenCalledWith({
+        error: {
+          message: 'Account temporarily unavailable',
+          code: '401008'
+        }
+      })
     })
 
     test('_handleJsonResponse logs when usage is missing', async () => {
@@ -911,6 +949,7 @@ describe('GlmRelayService — helper methods', () => {
     })
 
     test('_handleAnthropicJsonResponse delegates upstream error payloads', async () => {
+      const upstreamErrorHelper = require('../src/utils/upstreamErrorHelper')
       const req = createReq()
       const res = createRes()
       const upstreamResponse = {
@@ -937,7 +976,9 @@ describe('GlmRelayService — helper methods', () => {
         'session-hash'
       )
       expect(res.status).toHaveBeenCalledWith(503)
-      expect(res.json).toHaveBeenCalledWith(upstreamResponse.data)
+      expect(res.json).toHaveBeenCalledWith(
+        upstreamErrorHelper.sanitizeRelayErrorResponse(503, upstreamResponse.data)
+      )
     })
 
     test('_handleAnthropicStreamResponse records assistant content and destroys the upstream stream on close', async () => {
@@ -1112,12 +1153,32 @@ describe('GlmRelayService — helper methods', () => {
         'GLM upstream auth failed (401)'
       )
       expect(unifiedGlmScheduler.clearSessionMapping).toHaveBeenCalledWith('session-hash')
+      unifiedGlmScheduler.markAccountUnauthorized.mockClear()
+      unifiedGlmScheduler.clearSessionMapping.mockClear()
 
       await svc._handleUpstreamStatus(429, { error: 'rate limited' }, 'acc-glm-1', 'session-hash')
       expect(unifiedGlmScheduler.markAccountRateLimited).toHaveBeenCalledWith(
         'acc-glm-1',
         'session-hash'
       )
+
+      await svc._handleUpstreamStatus(
+        403,
+        { error: { message: 'FREE_QUOTA_EXHAUSTED: please recharge', code: '401008' } },
+        'acc-glm-1',
+        'session-hash'
+      )
+      expect(upstreamErrorHelper.markTempUnavailable).toHaveBeenCalledWith(
+        'acc-glm-1',
+        'glm',
+        403,
+        null,
+        {
+          response: { error: { message: 'FREE_QUOTA_EXHAUSTED: please recharge', code: '401008' } }
+        }
+      )
+      expect(unifiedGlmScheduler.markAccountUnauthorized).not.toHaveBeenCalled()
+      expect(unifiedGlmScheduler.clearSessionMapping).toHaveBeenCalledWith('session-hash')
 
       await svc._handleUpstreamStatus(529, { error: 'overloaded' }, 'acc-glm-1', 'session-hash')
       expect(upstreamErrorHelper.markTempUnavailable).toHaveBeenCalledWith(

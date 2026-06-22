@@ -390,9 +390,13 @@ describe('KimiRelayService — helper methods', () => {
       markAccountRateLimited: jest.fn(async () => {}),
       clearSessionMapping: jest.fn(async () => {})
     }))
-    jest.doMock('../src/utils/upstreamErrorHelper', () => ({
-      markTempUnavailable: jest.fn(async () => {})
-    }))
+    jest.doMock('../src/utils/upstreamErrorHelper', () => {
+      const actual = jest.requireActual('../src/utils/upstreamErrorHelper')
+      return {
+        ...actual,
+        markTempUnavailable: jest.fn(async () => {})
+      }
+    })
 
     svc = require('../src/services/relay/kimiRelayService')
   })
@@ -805,6 +809,7 @@ describe('KimiRelayService — helper methods', () => {
     }
 
     test('_handleJsonResponse delegates upstream error payloads', async () => {
+      const upstreamErrorHelper = require('../src/utils/upstreamErrorHelper')
       const req = createReq()
       const res = createRes()
       const upstreamResponse = {
@@ -831,7 +836,40 @@ describe('KimiRelayService — helper methods', () => {
         'session-hash'
       )
       expect(res.status).toHaveBeenCalledWith(429)
-      expect(res.json).toHaveBeenCalledWith(upstreamResponse.data)
+      expect(res.json).toHaveBeenCalledWith(
+        upstreamErrorHelper.sanitizeRelayErrorResponse(429, upstreamResponse.data)
+      )
+    })
+
+    test('_handleJsonResponse sanitizes upstream billing exhaustion payloads', async () => {
+      const req = createReq()
+      const res = createRes()
+      const upstreamResponse = {
+        status: 403,
+        data: {
+          error: {
+            message: 'BILLING_ISOLATED',
+            code: '403004'
+          }
+        }
+      }
+
+      await svc._handleJsonResponse(req, res, {
+        upstreamResponse,
+        body: {},
+        accountId: 'acc-kimi-1',
+        requestedModel: 'moonshot-v1-8k',
+        sessionHash: 'session-hash',
+        startTime: Date.now()
+      })
+
+      expect(res.status).toHaveBeenCalledWith(403)
+      expect(res.json).toHaveBeenCalledWith({
+        error: {
+          message: 'Account temporarily unavailable',
+          code: '403004'
+        }
+      })
     })
 
     test('_handleJsonResponse logs when usage is missing', async () => {
@@ -918,6 +956,7 @@ describe('KimiRelayService — helper methods', () => {
     })
 
     test('_handleAnthropicJsonResponse delegates upstream error payloads', async () => {
+      const upstreamErrorHelper = require('../src/utils/upstreamErrorHelper')
       const req = createReq()
       const res = createRes()
       const upstreamResponse = {
@@ -944,7 +983,9 @@ describe('KimiRelayService — helper methods', () => {
         'session-hash'
       )
       expect(res.status).toHaveBeenCalledWith(503)
-      expect(res.json).toHaveBeenCalledWith(upstreamResponse.data)
+      expect(res.json).toHaveBeenCalledWith(
+        upstreamErrorHelper.sanitizeRelayErrorResponse(503, upstreamResponse.data)
+      )
     })
 
     test('_handleAnthropicStreamResponse records assistant content and destroys the upstream stream on close', async () => {
@@ -1119,12 +1160,30 @@ describe('KimiRelayService — helper methods', () => {
         'Kimi upstream auth failed (401)'
       )
       expect(unifiedKimiScheduler.clearSessionMapping).toHaveBeenCalledWith('session-hash')
+      unifiedKimiScheduler.markAccountUnauthorized.mockClear()
+      unifiedKimiScheduler.clearSessionMapping.mockClear()
 
       await svc._handleUpstreamStatus(429, { error: 'rate limited' }, 'acc-kimi-1', 'session-hash')
       expect(unifiedKimiScheduler.markAccountRateLimited).toHaveBeenCalledWith(
         'acc-kimi-1',
         'session-hash'
       )
+
+      await svc._handleUpstreamStatus(
+        403,
+        { error: { message: 'BILLING_ISOLATED', code: '403004' } },
+        'acc-kimi-1',
+        'session-hash'
+      )
+      expect(upstreamErrorHelper.markTempUnavailable).toHaveBeenCalledWith(
+        'acc-kimi-1',
+        'kimi',
+        403,
+        null,
+        { response: { error: { message: 'BILLING_ISOLATED', code: '403004' } } }
+      )
+      expect(unifiedKimiScheduler.markAccountUnauthorized).not.toHaveBeenCalled()
+      expect(unifiedKimiScheduler.clearSessionMapping).toHaveBeenCalledWith('session-hash')
 
       await svc._handleUpstreamStatus(529, { error: 'overloaded' }, 'acc-kimi-1', 'session-hash')
       expect(upstreamErrorHelper.markTempUnavailable).toHaveBeenCalledWith(

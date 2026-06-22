@@ -465,9 +465,13 @@ describe('MiniMaxRelayService — helper methods', () => {
       markAccountRateLimited: jest.fn(async () => {}),
       clearSessionMapping: jest.fn(async () => {})
     }))
-    jest.doMock('../src/utils/upstreamErrorHelper', () => ({
-      markTempUnavailable: jest.fn(async () => {})
-    }))
+    jest.doMock('../src/utils/upstreamErrorHelper', () => {
+      const actual = jest.requireActual('../src/utils/upstreamErrorHelper')
+      return {
+        ...actual,
+        markTempUnavailable: jest.fn(async () => {})
+      }
+    })
 
     svc = require('../src/services/relay/minimaxRelayService')
   })
@@ -1116,6 +1120,7 @@ describe('MiniMaxRelayService — helper methods', () => {
     }
 
     test('_handleJsonResponse delegates upstream error payloads', async () => {
+      const upstreamErrorHelper = require('../src/utils/upstreamErrorHelper')
       const req = createReq()
       const res = createRes()
       const upstreamResponse = {
@@ -1142,7 +1147,40 @@ describe('MiniMaxRelayService — helper methods', () => {
         'session-hash'
       )
       expect(res.status).toHaveBeenCalledWith(429)
-      expect(res.json).toHaveBeenCalledWith(upstreamResponse.data)
+      expect(res.json).toHaveBeenCalledWith(
+        upstreamErrorHelper.sanitizeRelayErrorResponse(429, upstreamResponse.data)
+      )
+    })
+
+    test('_handleJsonResponse sanitizes upstream billing exhaustion payloads', async () => {
+      const req = createReq()
+      const res = createRes()
+      const upstreamResponse = {
+        status: 402,
+        data: {
+          error: {
+            message: 'NO_FREE_PACKAGE',
+            code: '401007'
+          }
+        }
+      }
+
+      await svc._handleJsonResponse(req, res, {
+        upstreamResponse,
+        body: {},
+        accountId: 'acc-1',
+        requestedModel: 'MiniMax-M3',
+        sessionHash: 'session-hash',
+        startTime: Date.now()
+      })
+
+      expect(res.status).toHaveBeenCalledWith(402)
+      expect(res.json).toHaveBeenCalledWith({
+        error: {
+          message: 'Account temporarily unavailable',
+          code: '401007'
+        }
+      })
     })
 
     test('_handleJsonResponse logs when usage is missing', async () => {
@@ -1229,6 +1267,7 @@ describe('MiniMaxRelayService — helper methods', () => {
     })
 
     test('_handleAnthropicJsonResponse delegates upstream error payloads', async () => {
+      const upstreamErrorHelper = require('../src/utils/upstreamErrorHelper')
       const req = createReq()
       const res = createRes()
       const upstreamResponse = {
@@ -1255,7 +1294,9 @@ describe('MiniMaxRelayService — helper methods', () => {
         'session-hash'
       )
       expect(res.status).toHaveBeenCalledWith(503)
-      expect(res.json).toHaveBeenCalledWith(upstreamResponse.data)
+      expect(res.json).toHaveBeenCalledWith(
+        upstreamErrorHelper.sanitizeRelayErrorResponse(503, upstreamResponse.data)
+      )
     })
 
     test('_handleAnthropicStreamResponse records assistant content and destroys the upstream stream on close', async () => {
@@ -1430,12 +1471,30 @@ describe('MiniMaxRelayService — helper methods', () => {
         'MiniMax upstream auth failed (401)'
       )
       expect(unifiedMiniMaxScheduler.clearSessionMapping).toHaveBeenCalledWith('session-hash')
+      unifiedMiniMaxScheduler.markAccountUnauthorized.mockClear()
+      unifiedMiniMaxScheduler.clearSessionMapping.mockClear()
 
       await svc._handleUpstreamStatus(429, { error: 'rate limited' }, 'acc-1', 'session-hash')
       expect(unifiedMiniMaxScheduler.markAccountRateLimited).toHaveBeenCalledWith(
         'acc-1',
         'session-hash'
       )
+
+      await svc._handleUpstreamStatus(
+        402,
+        { error: { message: 'NO_FREE_PACKAGE', code: '401007' } },
+        'acc-1',
+        'session-hash'
+      )
+      expect(upstreamErrorHelper.markTempUnavailable).toHaveBeenCalledWith(
+        'acc-1',
+        'minimax',
+        402,
+        null,
+        { response: { error: { message: 'NO_FREE_PACKAGE', code: '401007' } } }
+      )
+      expect(unifiedMiniMaxScheduler.markAccountUnauthorized).not.toHaveBeenCalled()
+      expect(unifiedMiniMaxScheduler.clearSessionMapping).toHaveBeenCalledWith('session-hash')
 
       await svc._handleUpstreamStatus(529, { error: 'overloaded' }, 'acc-1', 'session-hash')
       expect(upstreamErrorHelper.markTempUnavailable).toHaveBeenCalledWith(

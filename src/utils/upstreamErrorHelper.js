@@ -1,5 +1,5 @@
 const logger = require('./logger')
-const { getSafeMessage } = require('./errorSanitizer')
+const { ERROR_CODES, getSafeMessage } = require('./errorSanitizer')
 const { normalizeTempUnavailablePolicyFromAccountData } = require('./tempUnavailablePolicy')
 
 const TEMP_UNAVAILABLE_PREFIX = 'temp_unavailable'
@@ -73,6 +73,12 @@ const EMPTY_TEMP_UNAVAILABLE_POLICY = {
   ttl5xxSeconds: null
 }
 
+const RELAY_BILLING_ERROR_CODE_PATTERN =
+  /^(401007|401008|403004|insufficient_balance|insufficient_credit|credit_exhausted|billing_isolated|no_free_package|free_quota_exhausted)$/i
+const RELAY_BILLING_ERROR_MESSAGE_PATTERN =
+  /余额不足|账户余额不足|可用额度不足|余额已用尽|免费额度已用尽|欠费|请充值|充值后|insufficient(?:\s+\w+){0,2}\s+(?:balance|credit)|out of(?:\s+\w+){0,2}\s+credit|credit(?:\s+\w+){0,2}\s+exhausted|no[_\s-]*free[_\s-]*package|free[_\s-]*quota[_\s-]*exhausted|billing[_\s-]*isolated|recharge/i
+const RELAY_BILLING_SAFE_MESSAGE = ERROR_CODES.E011.message
+
 const getAccountTempUnavailablePolicy = async (accountId, accountType) => {
   try {
     const accountPrefix = ACCOUNT_KEY_PREFIX_BY_TYPE[accountType]
@@ -142,8 +148,68 @@ const resolveAccountTtlOverride = ({ policy, statusCode, errorType }) => {
   return { skip: false, ttlOverrideSeconds: null, reason: '' }
 }
 
+const collectRelayErrorTokens = (errorData) => {
+  const tokens = []
+  const visited = new Set()
+
+  const visit = (value) => {
+    if (value === null || value === undefined) {
+      return
+    }
+
+    if (typeof value === 'string' || typeof value === 'number') {
+      const text = String(value).trim()
+      if (text) {
+        tokens.push(text)
+      }
+      return
+    }
+
+    if (typeof value !== 'object') {
+      return
+    }
+
+    if (visited.has(value)) {
+      return
+    }
+    visited.add(value)
+
+    if (Array.isArray(value)) {
+      value.forEach(visit)
+      return
+    }
+
+    visit(value.message)
+    visit(value.detail)
+    visit(value.code)
+    visit(value.type)
+    visit(value.error)
+    visit(value.errors)
+  }
+
+  visit(errorData)
+  return tokens
+}
+
+const isRelayBillingError = (status, errorData, fallbackError = null) => {
+  if (status === 402) {
+    return true
+  }
+
+  const candidates = [
+    ...collectRelayErrorTokens(errorData),
+    ...collectRelayErrorTokens(fallbackError)
+  ]
+
+  return candidates.some(
+    (candidate) =>
+      RELAY_BILLING_ERROR_CODE_PATTERN.test(candidate) ||
+      RELAY_BILLING_ERROR_MESSAGE_PATTERN.test(candidate)
+  )
+}
+
 // 根据 HTTP 状态码分类错误类型
-const classifyError = (statusCode) => {
+const classifyError = (statusCode, responseBody = null) => {
   if (statusCode === 529) {
     return 'overload'
   }
@@ -152,6 +218,9 @@ const classifyError = (statusCode) => {
   }
   if (statusCode === 504) {
     return 'timeout'
+  }
+  if (isRelayBillingError(statusCode, responseBody)) {
+    return 'service_unavailable'
   }
   if (statusCode === 401 || statusCode === 403) {
     return 'auth_error'
@@ -296,7 +365,7 @@ const markTempUnavailable = async (
   context = null
 ) => {
   try {
-    const errorType = classifyError(statusCode)
+    const errorType = classifyError(statusCode, context?.response || context)
     if (!errorType) {
       return { success: false, reason: 'not_a_pausable_error' }
     }
@@ -540,6 +609,83 @@ const sanitizeErrorForClient = (errorData) => {
   }
 }
 
+const ensureRelayErrorShape = (errorData, safeMessage) => {
+  if (!errorData || typeof errorData !== 'object' || Buffer.isBuffer(errorData)) {
+    return {
+      error: {
+        message: safeMessage
+      }
+    }
+  }
+
+  if (typeof errorData.error === 'string') {
+    return {
+      ...errorData,
+      error: {
+        message: safeMessage
+      }
+    }
+  }
+
+  if (errorData.error && typeof errorData.error === 'object') {
+    return {
+      ...errorData,
+      error: {
+        ...errorData.error,
+        message: safeMessage
+      }
+    }
+  }
+
+  if (typeof errorData.message === 'string' && errorData.message.trim()) {
+    return {
+      ...errorData,
+      error: {
+        ...(errorData.error && typeof errorData.error === 'object' ? errorData.error : {}),
+        message: safeMessage
+      }
+    }
+  }
+
+  return {
+    ...errorData,
+    error: {
+      ...(errorData.error && typeof errorData.error === 'object' ? errorData.error : {}),
+      message: safeMessage
+    }
+  }
+}
+
+const sanitizeRelayErrorResponse = (status, errorData, fallbackError = null) => {
+  const source = errorData ||
+    fallbackError || {
+      error: {
+        message: getSafeMessage({ response: { status } }, { logOriginal: false })
+      }
+    }
+
+  const billingRelated = isRelayBillingError(status, source, fallbackError)
+  const sanitized = sanitizeErrorForClient(source)
+  const hasMessageTokens = collectRelayErrorTokens(source).length > 0
+  const directSafeMessage = billingRelated
+    ? RELAY_BILLING_SAFE_MESSAGE
+    : getSafeMessage(hasMessageTokens ? source : { response: { status, data: source } }, {
+        logOriginal: false
+      })
+  const statusSafeMessage = getSafeMessage(
+    { response: { status, data: source } },
+    { logOriginal: false }
+  )
+  const safeMessage =
+    !billingRelated &&
+    directSafeMessage === ERROR_CODES.E015.message &&
+    statusSafeMessage !== ERROR_CODES.E015.message
+      ? statusSafeMessage
+      : directSafeMessage
+
+  return ensureRelayErrorShape(sanitized, safeMessage)
+}
+
 module.exports = {
   markTempUnavailable,
   isTempUnavailable,
@@ -547,7 +693,9 @@ module.exports = {
   getAllTempUnavailable,
   classifyError,
   parseRetryAfter,
+  isRelayBillingError,
   sanitizeErrorForClient,
+  sanitizeRelayErrorResponse,
   recordErrorHistory,
   getErrorHistory,
   clearErrorHistory,

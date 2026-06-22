@@ -313,7 +313,9 @@ class DeepSeekRelayService {
         accountId,
         sessionHash
       )
-      return res.status(upstreamResponse.status).json(responseData)
+      return res
+        .status(upstreamResponse.status)
+        .json(upstreamErrorHelper.sanitizeRelayErrorResponse(upstreamResponse.status, responseData))
     }
 
     const usage = responseData?.usage
@@ -360,7 +362,9 @@ class DeepSeekRelayService {
         accountId,
         sessionHash
       )
-      return res.status(upstreamResponse.status).json(responseData)
+      return res
+        .status(upstreamResponse.status)
+        .json(upstreamErrorHelper.sanitizeRelayErrorResponse(upstreamResponse.status, responseData))
     }
 
     const usage = responseData?.usage
@@ -405,7 +409,11 @@ class DeepSeekRelayService {
       const errorBody = await this._readStreamToString(upstreamResponse.data)
       const parsed = this._parseJsonSafe(errorBody) || { error: { message: errorBody } }
       await this._handleUpstreamStatus(upstreamResponse.status, parsed, accountId, sessionHash)
-      return res.status(upstreamResponse.status).json(parsed)
+      return res
+        .status(upstreamResponse.status)
+        .json(
+          upstreamErrorHelper.sanitizeRelayErrorResponse(upstreamResponse.status, parsed, errorBody)
+        )
     }
 
     res.status(upstreamResponse.status)
@@ -528,7 +536,11 @@ class DeepSeekRelayService {
         error: { type: 'api_error', message: errorBody }
       }
       await this._handleUpstreamStatus(upstreamResponse.status, parsed, accountId, sessionHash)
-      return res.status(upstreamResponse.status).json(parsed)
+      return res
+        .status(upstreamResponse.status)
+        .json(
+          upstreamErrorHelper.sanitizeRelayErrorResponse(upstreamResponse.status, parsed, errorBody)
+        )
     }
 
     res.status(upstreamResponse.status)
@@ -1038,6 +1050,16 @@ class DeepSeekRelayService {
       return
     }
 
+    if (upstreamErrorHelper.isRelayBillingError(status, responseBody)) {
+      await upstreamErrorHelper.markTempUnavailable(accountId, 'deepseek', status, null, {
+        response: responseBody
+      })
+      if (sessionHash) {
+        await unifiedDeepSeekScheduler.clearSessionMapping(sessionHash)
+      }
+      return
+    }
+
     if (status === 401 || status === 403) {
       await unifiedDeepSeekScheduler.markAccountUnauthorized(
         accountId,
@@ -1080,7 +1102,9 @@ class DeepSeekRelayService {
     await this._handleUpstreamStatus(status, responseBody, accountId, sessionHash)
 
     if (!res.headersSent) {
-      return res.status(status).json(responseBody)
+      return res
+        .status(status)
+        .json(upstreamErrorHelper.sanitizeRelayErrorResponse(status, responseBody, error.message))
     }
     return res.end()
   }

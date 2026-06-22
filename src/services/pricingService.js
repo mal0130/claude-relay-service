@@ -565,6 +565,13 @@ class PricingService {
   getGlmFallbackPricing(now = new Date()) {
     const source = GLM_PRICING_SOURCE
     return {
+      'glm-5.2': this._createGlmFlatPricingEntryFromCny({
+        inputCnyPerMillion: 8,
+        cacheReadCnyPerMillion: 2,
+        outputCnyPerMillion: 28,
+        source,
+        now
+      }),
       'glm-5.1': this._createGlmTieredPricingEntry({
         tiers: [
           { condition: 'input < 32k', input: 6, cacheRead: 1.3, output: 24 },
@@ -782,24 +789,75 @@ class PricingService {
     }
   }
 
-  _extractGlmPriceRow(html, modelLabel) {
-    const rows = [...String(html || '').matchAll(/<tr>([\s\S]*?)<\/tr>/gi)]
+  _parseGlmHtmlSpanCount(attributes, name) {
+    const match = String(attributes || '').match(new RegExp(`${name}=["']?(\\d+)["']?`, 'i'))
+    return match ? Math.max(1, Number(match[1])) : 1
+  }
+
+  _extractGlmTableRows(html) {
+    const rows = [...String(html || '').matchAll(/<tr[^>]*>([\s\S]*?)<\/tr>/gi)]
+    const carryCells = []
+    const resolvedRows = []
 
     for (const [, rowHtml] of rows) {
-      const cells = [...rowHtml.matchAll(/<t[dh][^>]*>([\s\S]*?)<\/t[dh]>/gi)].map(
-        (match) => match[1]
+      const rawCells = [...rowHtml.matchAll(/<t[dh]([^>]*)>([\s\S]*?)<\/t[dh]>/gi)].map(
+        (match) => ({
+          attributes: match[1],
+          html: match[2]
+        })
       )
+      const cells = []
+      let columnIndex = 0
+
+      const fillCarryCells = () => {
+        while (carryCells[columnIndex]?.remaining > 0) {
+          cells[columnIndex] = carryCells[columnIndex].html
+          carryCells[columnIndex].remaining -= 1
+          if (carryCells[columnIndex].remaining === 0) {
+            carryCells[columnIndex] = null
+          }
+          columnIndex += 1
+        }
+      }
+
+      for (const cell of rawCells) {
+        fillCarryCells()
+        const rowspan = this._parseGlmHtmlSpanCount(cell.attributes, 'rowspan')
+        const colspan = this._parseGlmHtmlSpanCount(cell.attributes, 'colspan')
+
+        for (let offset = 0; offset < colspan; offset += 1) {
+          cells[columnIndex + offset] = cell.html
+          if (rowspan > 1) {
+            carryCells[columnIndex + offset] = {
+              html: cell.html,
+              remaining: rowspan - 1
+            }
+          }
+        }
+        columnIndex += colspan
+      }
+
+      fillCarryCells()
+      resolvedRows.push(cells)
+    }
+
+    return resolvedRows
+  }
+
+  _extractGlmPriceRows(html, modelLabel) {
+    const targetLabel = String(modelLabel).toUpperCase()
+
+    return this._extractGlmTableRows(html).filter((cells) => {
       if (cells.length < 3) {
-        continue
+        return false
       }
 
       const labelCell = normalizeWhitespace(stripHtmlTags(cells[0]))
-      if (labelCell.toUpperCase() === String(modelLabel).toUpperCase()) {
-        return cells
-      }
-    }
-
-    return null
+      return (
+        labelCell.toUpperCase() === targetLabel ||
+        labelCell.toUpperCase().startsWith(`${targetLabel} `)
+      )
+    })
   }
 
   _parseGlmPriceCell(cellHtml) {
@@ -820,9 +878,74 @@ class PricingService {
     return match ? Number(match[1]) : null
   }
 
+  _canonicalizeGlmTierCondition(conditionText) {
+    const normalized = normalizeWhitespace(stripHtmlTags(conditionText))
+      .toLowerCase()
+      .replace(/[（【]/g, '(')
+      .replace(/[）】]/g, ')')
+      .replace(/[，、]/g, ',')
+      .replace(/并且|且/g, '&&')
+    const compact = normalized.replace(/\s+/g, '')
+
+    if (!compact) {
+      return null
+    }
+    if (
+      compact.includes('input<32k&&output<0.2k') ||
+      (compact.includes('输入长度[0,32)') && compact.includes('输出长度[0,0.2)'))
+    ) {
+      return 'input < 32k && output < 0.2k'
+    }
+    if (
+      compact.includes('input<32k&&output>=0.2k') ||
+      (compact.includes('输入长度[0,32)') &&
+        (compact.includes('输出长度[0.2,+') ||
+          compact.includes('输出长度[0.2,∞') ||
+          compact.includes('输出长度[0.2,inf')))
+    ) {
+      return 'input < 32k && output >= 0.2k'
+    }
+    if (compact.includes('32k<=input<200k') || compact.includes('输入长度[32,200)')) {
+      return '32k <= input < 200k'
+    }
+    if (compact.includes('32k<=input<128k') || compact.includes('输入长度[32,128)')) {
+      return '32k <= input < 128k'
+    }
+    if (compact.includes('32k<=input<64k') || compact.includes('输入长度[32,64)')) {
+      return '32k <= input < 64k'
+    }
+    if (
+      compact.includes('input>=32k') ||
+      compact.includes('输入长度[32,+') ||
+      compact.includes('输入长度[32,∞') ||
+      compact.includes('输入长度[32,inf')
+    ) {
+      return 'input >= 32k'
+    }
+    if (compact.includes('input<32k') || compact.includes('输入长度[0,32)')) {
+      return 'input < 32k'
+    }
+
+    return null
+  }
+
+  _parseGlmPricingRow(cells) {
+    const hasCnySuffix = cells.slice(1).some((cell) => normalizeWhitespace(cell).includes('元'))
+    const isCnyPricingRow = cells.length >= 6 && hasCnySuffix
+
+    return {
+      context: normalizeWhitespace(stripHtmlTags(cells[1] || '')),
+      isCnyPricingRow,
+      input: this._parseGlmPriceCell(isCnyPricingRow ? cells[2] : cells[1]),
+      output: this._parseGlmPriceCell(isCnyPricingRow ? cells[3] : cells[cells.length - 1]),
+      cacheRead: this._parseGlmPriceCell(isCnyPricingRow ? cells[5] : cells[2])
+    }
+  }
+
   parseGlmPricingHtml(html, now = new Date()) {
     const fallback = this.getGlmFallbackPricing(now)
     const modelMappings = [
+      { label: 'GLM-5.2', key: 'glm-5.2' },
       { label: 'GLM-5.1', key: 'glm-5.1' },
       { label: 'GLM-5-Turbo', key: 'glm-5-turbo' },
       { label: 'GLM-5', key: 'glm-5' },
@@ -845,29 +968,81 @@ class PricingService {
     let parsedCount = 0
 
     for (const { label, key } of modelMappings) {
-      const cells = this._extractGlmPriceRow(html, label)
-      if (!cells) {
+      const rows = this._extractGlmPriceRows(html, label)
+      if (rows.length === 0) {
         continue
       }
+      const parsedRows = rows.map((cells) => this._parseGlmPricingRow(cells))
+      const fallbackTiers = fallback[key]?.provider_specific_entry?.pricing_in_cny?.tiers
+      const hasFallbackTiers = Array.isArray(fallbackTiers) && fallbackTiers.length > 0
 
-      const priceCells = cells.slice(1).map((cell) => this._parseGlmPriceCell(cell))
-      const input = priceCells[0]
-      const cacheRead = Number.isFinite(priceCells[1]) ? priceCells[1] : 0
-      const output = [...priceCells].reverse().find((price) => Number.isFinite(price))
+      if (hasFallbackTiers) {
+        const fallbackConditions = new Map(
+          fallbackTiers.map((tier) => [this._canonicalizeGlmTierCondition(tier.condition), tier])
+        )
+        const tierRows = parsedRows.map((row, index) => {
+          const fallbackTier = fallbackTiers[index]
+          const resolvedCondition =
+            fallbackConditions.get(this._canonicalizeGlmTierCondition(row.context))?.condition ||
+            (parsedRows.length === fallbackTiers.length ? fallbackTier?.condition : null)
 
-      if (!Number.isFinite(input) || !Number.isFinite(output)) {
+          if (!Number.isFinite(row.input) || !Number.isFinite(row.output) || !resolvedCondition) {
+            return null
+          }
+
+          return {
+            condition: resolvedCondition,
+            input: row.input,
+            cacheRead: Number.isFinite(row.cacheRead) ? row.cacheRead : 0,
+            output: row.output
+          }
+        })
+
+        if (tierRows.length === fallbackTiers.length && tierRows.every(Boolean)) {
+          pricing[key] = this._createGlmTieredPricingEntry({
+            tiers: fallbackTiers.map((tier) =>
+              tierRows.find(
+                (row) =>
+                  this._canonicalizeGlmTierCondition(row.condition) ===
+                  this._canonicalizeGlmTierCondition(tier.condition)
+              )
+            ),
+            source: GLM_PRICING_SOURCE,
+            now,
+            pricingSourceName: 'glm_official_docs',
+            baseEntry: fallback[key]
+          })
+          parsedCount += 1
+          continue
+        }
+      }
+
+      const flatRow = parsedRows[0]
+      const cacheRead = Number.isFinite(flatRow.cacheRead) ? flatRow.cacheRead : 0
+
+      if (!Number.isFinite(flatRow.input) || !Number.isFinite(flatRow.output)) {
         throw new Error(`Invalid GLM pricing row for ${label}`)
       }
 
-      pricing[key] = this._createGlmPricingEntry({
-        inputUsdPerMillion: input,
-        outputUsdPerMillion: output,
-        cacheReadUsdPerMillion: Number.isFinite(cacheRead) ? cacheRead : 0,
-        source: GLM_PRICING_SOURCE,
-        now,
-        pricingSourceName: 'glm_official_docs',
-        baseEntry: fallback[key]
-      })
+      pricing[key] = flatRow.isCnyPricingRow
+        ? this._createGlmPricingEntryFromCny({
+            inputCnyPerMillion: flatRow.input,
+            outputCnyPerMillion: flatRow.output,
+            cacheReadCnyPerMillion: cacheRead,
+            source: GLM_PRICING_SOURCE,
+            now,
+            pricingSourceName: 'glm_official_docs',
+            baseEntry: fallback[key]
+          })
+        : this._createGlmPricingEntry({
+            inputUsdPerMillion: flatRow.input,
+            outputUsdPerMillion: flatRow.output,
+            cacheReadUsdPerMillion: cacheRead,
+            source: GLM_PRICING_SOURCE,
+            now,
+            pricingSourceName: 'glm_official_docs',
+            baseEntry: fallback[key]
+          })
       parsedCount += 1
     }
 
@@ -1636,7 +1811,15 @@ class PricingService {
 
   _hasCompleteGlmPricing(pricingData) {
     const fallbackPricing = this.getGlmFallbackPricing()
-    const requiredModels = ['glm-5.1', 'glm-5', 'glm-4.7', 'glm-4.5', 'glm-4-plus', 'glm-4-flash']
+    const requiredModels = [
+      'glm-5.2',
+      'glm-5.1',
+      'glm-5',
+      'glm-4.7',
+      'glm-4.5',
+      'glm-4-plus',
+      'glm-4-flash'
+    ]
 
     return requiredModels.every((modelName) => {
       const currentEntry = pricingData?.[modelName]
@@ -2397,10 +2580,10 @@ class PricingService {
     }
 
     // 尝试模糊匹配（处理版本号等变化，包括点号与连字符互换如 4.6 vs 4-6）
-    const normalizedModel = modelName.toLowerCase().replace(/[_.\-]/g, '')
+    const normalizedModel = modelName.toLowerCase().replace(/[_.-]/g, '')
 
     for (const [key, value] of Object.entries(this.pricingData)) {
-      const normalizedKey = key.toLowerCase().replace(/[_.\-]/g, '')
+      const normalizedKey = key.toLowerCase().replace(/[_.-]/g, '')
       if (normalizedKey.includes(normalizedModel) || normalizedModel.includes(normalizedKey)) {
         logger.debug(`💰 Found pricing for ${modelName} using fuzzy match: ${key}`)
         return value
@@ -2807,9 +2990,11 @@ class PricingService {
       ? Object.keys(this.pricingData).filter((m) => m.startsWith('glm-'))
       : []
     const refPricing =
+      this.pricingData?.['glm-5.2'] ||
       this.pricingData?.['glm-5.1'] ||
       this.pricingData?.['glm-4.5'] ||
       this.pricingData?.['glm-4-plus'] ||
+      this.getGlmFallbackPricing()['glm-5.2'] ||
       this.getGlmFallbackPricing()['glm-4-plus']
 
     return {

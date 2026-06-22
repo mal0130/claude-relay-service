@@ -415,7 +415,147 @@ describe('PricingService - Long Context Pricing', () => {
     })
   })
 
-  describe('GLM 5.1 tiered pricing', () => {
+  describe('GLM pricing', () => {
+    const glmPricingDocsHtml = `
+      <table>
+        <thead>
+          <tr>
+            <th style="text-align: left;">Model</th>
+            <th style="text-align: left;">Context</th>
+            <th style="text-align: left;">Input</th>
+            <th style="text-align: left;">Output</th>
+            <th style="text-align: left;">Cached Input Storage</th>
+            <th style="text-align: left;">Cached Input</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td style="text-align: left;">GLM-5.2 新品</td>
+            <td style="text-align: left;">1M</td>
+            <td style="text-align: left;">8元</td>
+            <td style="text-align: left;">28元</td>
+            <td style="text-align: left;">Limited-time Free</td>
+            <td style="text-align: left;">2元</td>
+          </tr>
+          <tr>
+            <td style="text-align: left;" rowspan="2">GLM-5.1</td>
+            <td style="text-align: left;">输入长度 [0, 32)</td>
+            <td style="text-align: left;">6元</td>
+            <td style="text-align: left;">24元</td>
+            <td style="text-align: left;">Limited-time Free</td>
+            <td style="text-align: left;">1.3元</td>
+          </tr>
+          <tr>
+            <td style="text-align: left;">输入长度 [32, +)</td>
+            <td style="text-align: left;">8元</td>
+            <td style="text-align: left;">28元</td>
+            <td style="text-align: left;">Limited-time Free</td>
+            <td style="text-align: left;">2元</td>
+          </tr>
+        </tbody>
+      </table>
+    `
+
+    it('应为 glm-5.2 提供官方 fallback 价格', () => {
+      const fallbackPricing = pricingService.getGlmFallbackPricing(
+        new Date('2026-06-22T00:00:00.000Z')
+      )
+      pricingService.pricingData = fallbackPricing
+
+      const result = pricingService.calculateCost(
+        {
+          input_tokens: 1000000,
+          output_tokens: 1000000,
+          cache_creation_input_tokens: 0,
+          cache_read_input_tokens: 1000000
+        },
+        'glm-5.2'
+      )
+
+      expect(result.hasPricing).toBe(true)
+      expect(result.pricing.input).toBeCloseTo(8 / 7 / 1e6, 14)
+      expect(result.pricing.output).toBeCloseTo(28 / 7 / 1e6, 14)
+      expect(result.pricing.cacheRead).toBeCloseTo(2 / 7 / 1e6, 14)
+      expect(fallbackPricing['glm-5.2'].provider_specific_entry.pricing_in_cny).toEqual({
+        exchange_rate: 7,
+        input_per_million: 8,
+        output_per_million: 28,
+        cache_read_per_million: 2
+      })
+    })
+
+    it('应能从当前官方文档表格解析 glm-5.2 价格', () => {
+      const parsed = pricingService.parseGlmPricingHtml(
+        glmPricingDocsHtml,
+        new Date('2026-06-22T00:00:00.000Z')
+      )
+
+      expect(parsed['glm-5.2']).toBeDefined()
+      expect(parsed['glm-5.2'].input_cost_per_token).toBeCloseTo(8 / 7 / 1e6, 14)
+      expect(parsed['glm-5.2'].output_cost_per_token).toBeCloseTo(28 / 7 / 1e6, 14)
+      expect(parsed['glm-5.2'].cache_read_input_token_cost).toBeCloseTo(2 / 7 / 1e6, 14)
+      expect(parsed['glm-5.2'].pricing_source).toBe('glm_official_docs')
+      expect(parsed['glm-5.2'].provider_specific_entry.pricing_in_cny).toEqual({
+        exchange_rate: 7,
+        input_per_million: 8,
+        output_per_million: 28,
+        cache_read_per_million: 2
+      })
+    })
+
+    it('应保留 glm-5.1 的官方分档价格', () => {
+      const parsed = pricingService.parseGlmPricingHtml(
+        glmPricingDocsHtml,
+        new Date('2026-06-22T00:00:00.000Z')
+      )
+      pricingService.pricingData = parsed
+
+      expect(parsed['glm-5.1'].provider_specific_entry.pricing_in_cny.tiers).toEqual([
+        {
+          condition: 'input < 32k',
+          input: 6,
+          cacheRead: 1.3,
+          output: 24,
+          input_usd_per_million: 6 / 7,
+          output_usd_per_million: 24 / 7,
+          cache_read_usd_per_million: 1.3 / 7
+        },
+        {
+          condition: 'input >= 32k',
+          input: 8,
+          cacheRead: 2,
+          output: 28,
+          input_usd_per_million: 8 / 7,
+          output_usd_per_million: 28 / 7,
+          cache_read_usd_per_million: 2 / 7
+        }
+      ])
+
+      const lowTierResult = pricingService.calculateCost(
+        {
+          input_tokens: 31999,
+          output_tokens: 100,
+          cache_creation_input_tokens: 0,
+          cache_read_input_tokens: 0
+        },
+        'glm-5.1'
+      )
+      const highTierResult = pricingService.calculateCost(
+        {
+          input_tokens: 32000,
+          output_tokens: 100,
+          cache_creation_input_tokens: 0,
+          cache_read_input_tokens: 0
+        },
+        'glm-5.1'
+      )
+
+      expect(lowTierResult.pricing.input).toBeCloseTo(6 / 7 / 1e6, 14)
+      expect(highTierResult.pricing.input).toBeCloseTo(8 / 7 / 1e6, 14)
+      expect(highTierResult.pricing.output).toBeCloseTo(28 / 7 / 1e6, 14)
+      expect(highTierResult.pricing.cacheRead).toBeCloseTo(2 / 7 / 1e6, 14)
+    })
+
     it('应按官方 32k 以下档位计算 glm-5.1 精确样例', () => {
       pricingService.pricingData = pricingService.getGlmFallbackPricing(
         new Date('2026-06-10T00:00:00.000Z')
@@ -595,6 +735,7 @@ describe('PricingService - Long Context Pricing', () => {
         allowRemote: false
       })
 
+      expect(enriched['glm-5.2']).toBeDefined()
       expect(enriched['glm-5']).toBeDefined()
       expect(enriched['glm-5'].provider_specific_entry.pricing_in_cny.tiers).toHaveLength(2)
       expect(enriched['glm-4.7']).toBeDefined()
