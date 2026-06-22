@@ -241,7 +241,7 @@ function mergeExistingDeepSeekEntries(baseData) {
 }
 
 async function generatePriceMirror() {
-  log.info('Generating price mirror data with DeepSeek official pricing...')
+  log.info('Generating price mirror data with DeepSeek and GLM official pricing...')
   log.info(`Upstream model pricing URL: ${config.upstreamPricingUrl}`)
   log.info(`Mirror output directory: ${config.mirrorOutputDir}`)
 
@@ -256,12 +256,12 @@ async function generatePriceMirror() {
   }
 
   const dataWithExistingDeepSeek = mergeExistingDeepSeekEntries(upstreamData)
-  const enrichedData = await pricingService.enrichPricingDataWithDeepSeek(
-    dataWithExistingDeepSeek,
-    {
-      allowRemote: true
-    }
-  )
+  let enrichedData = await pricingService.enrichPricingDataWithDeepSeek(dataWithExistingDeepSeek, {
+    allowRemote: true
+  })
+  enrichedData = await pricingService.enrichPricingDataWithGlm(enrichedData, {
+    allowRemote: true
+  })
   const formattedJson = JSON.stringify(enrichedData, null, 2)
   const hash = crypto.createHash('sha256').update(formattedJson).digest('hex')
 
@@ -272,8 +272,12 @@ async function generatePriceMirror() {
   const deepseekModels = Object.keys(enrichedData).filter((modelName) =>
     modelName.includes('deepseek')
   ).length
+  const glmModels = Object.keys(enrichedData).filter((modelName) =>
+    modelName.startsWith('glm-')
+  ).length
   log.success(`Generated price mirror for ${modelCount} models`)
   log.info(`DeepSeek models: ${deepseekModels}`)
+  log.info(`GLM models: ${glmModels}`)
   log.info(`Hash: ${hash}`)
 }
 
