@@ -221,10 +221,10 @@ function logOpenAIUpstreamError(status, accountId, requestedModel, payload) {
 function sanitizeOpenAIErrorResponse(status, errorData, fallbackError = null) {
   const source = errorData ||
     fallbackError || {
-      error: {
-        message: getSafeMessage({ response: { status } })
-      }
+    error: {
+      message: getSafeMessage({ response: { status } })
     }
+  }
 
   const sanitized = sanitizeErrorForClient(source)
   const hasSanitizedMessage =
@@ -312,6 +312,24 @@ function getCodexCompatibleModel(requestedModel = null) {
   }
 
   return requestedModel
+}
+
+function buildOpenAIOverloadFriendlyMessage(requestedModel = null) {
+  const normalizedModel = typeof requestedModel === 'string' ? requestedModel.toLowerCase() : ''
+
+  let retrySuggestion = '切换成默认模型(1x/2x)重试'
+
+  if (normalizedModel.startsWith('gpt-5.4')) {
+    retrySuggestion = '当前是默认模型(1x)，可切换成默认模型(2x)重试'
+  } else if (normalizedModel.startsWith('gpt-5.5')) {
+    retrySuggestion = '当前是默认模型(2x)，可切换成默认模型(1x)重试'
+  }
+
+  return (
+    '由于 AI 模型厂商（上游服务商）目前的算力受限，导致本次请求未能成功。建议按如下方案尝试解决：' +
+    `1. 点击“重试”或开启新会话；2. ${retrySuggestion}；3. 切换成聚合中转或DeepSeek等模型重试。` +
+    '切换模型参考文档：https://uniapp.dcloud.net.cn/ai/uni-agent.html#intelligencelevel'
+  )
 }
 
 function normalizeGpt5ModelForCodex(body = {}) {
@@ -604,7 +622,7 @@ const handleResponses = async (req, res) => {
     }
 
     // 使用调度器选择账户
-    ;({ accessToken, accountId, accountType, proxy, account } = await getOpenAIAuthToken(
+    ; ({ accessToken, accountId, accountType, proxy, account } = await getOpenAIAuthToken(
       apiKeyData,
       sessionId,
       schedulerModel
@@ -835,8 +853,8 @@ const handleResponses = async (req, res) => {
           typeof rawErrorResponse === 'string' && rawErrorResponse.trim()
             ? rawErrorResponse.trim()
             : rawErrorResponse.error &&
-                typeof rawErrorResponse.error.message === 'string' &&
-                rawErrorResponse.error.message.trim()
+              typeof rawErrorResponse.error.message === 'string' &&
+              rawErrorResponse.error.message.trim()
               ? rawErrorResponse.error.message.trim()
               : typeof rawErrorResponse.message === 'string' && rawErrorResponse.message.trim()
                 ? rawErrorResponse.message.trim()
@@ -1134,8 +1152,7 @@ const handleResponses = async (req, res) => {
               type: 'error',
               sequence_number: 0,
               error: {
-                message:
-                  '由于 AI 模型厂商（上游服务商）目前的算力受限，导致本次请求未能成功。建议按如下方案尝试解决：1. 点击“重试”或开启新会话；2. 切换成聚合中转或DeepSeek等模型重试。切换模型参考文档：https://uniapp.dcloud.net.cn/ai/uni-agent.html#intelligencelevel',
+                message: buildOpenAIOverloadFriendlyMessage(requestedModel),
                 type: 'server_error',
                 code: 'server_is_overloaded',
                 param: null
@@ -1263,10 +1280,10 @@ const handleResponses = async (req, res) => {
           ? {}
           : completedResponse || completedOutputItems.length
             ? {
-                response: completedResponse
-                  ? { ...completedResponse, output: completedOutputItems }
-                  : { output: completedOutputItems }
-              }
+              response: completedResponse
+                ? { ...completedResponse, output: completedOutputItems }
+                : { output: completedOutputItems }
+            }
             : streamErrors.length
               ? { streamErrors }
               : {}

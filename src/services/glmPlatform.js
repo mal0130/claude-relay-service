@@ -77,7 +77,8 @@ function normalizeGlmUsage(usage = {}) {
   )
   const totalInputTokens = Number(usage.prompt_tokens || usage.input_tokens || 0)
   return {
-    input_tokens: cacheReadTokens > 0 ? Math.max(0, totalInputTokens - cacheReadTokens) : totalInputTokens,
+    input_tokens:
+      cacheReadTokens > 0 ? Math.max(0, totalInputTokens - cacheReadTokens) : totalInputTokens,
     output_tokens: Number(usage.completion_tokens || usage.output_tokens || 0),
     cache_creation_input_tokens: 0,
     cache_read_input_tokens: cacheReadTokens

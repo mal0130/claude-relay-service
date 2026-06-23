@@ -120,17 +120,7 @@ class Application {
       logger.info('🔒 Cleaning up invalid admin sessions...')
       await this.cleanupInvalidSessions()
 
-      // 💰 初始化费用数据
-      logger.info('💰 Checking cost data initialization...')
-      const costInitService = require('./services/costInitService')
-      const needsInit = await costInitService.needsInitialization()
-      if (needsInit) {
-        logger.info('💰 Initializing cost data for all API Keys...')
-        const result = await costInitService.initializeAllCosts()
-        logger.info(
-          `💰 Cost initialization completed: ${result.processed} processed, ${result.errors} errors`
-        )
-      }
+      logger.info('💰 Skipping startup cost initialization; scheduler will handle it')
 
       // 💰 启动回填：本周 Claude 周费用（用于 API Key 维度周限额）
       try {
@@ -842,6 +832,9 @@ class Application {
     } else {
       logger.info('🧪 Account test scheduler service disabled')
     }
+
+    const costInitService = require('./services/costInitService')
+    costInitService.startScheduler()
   }
 
   setupGracefulShutdown() {
@@ -903,6 +896,14 @@ class Application {
             logger.info('🧪 Account test scheduler service stopped')
           } catch (error) {
             logger.error('❌ Error stopping account test scheduler service:', error)
+          }
+
+          try {
+            const costInitService = require('./services/costInitService')
+            costInitService.stopScheduler()
+            logger.info('💰 Cost init scheduler service stopped')
+          } catch (error) {
+            logger.error('❌ Error stopping cost init scheduler service:', error)
           }
 
           // 🔢 清理所有并发计数（Phase 1 修复：防止重启泄漏）

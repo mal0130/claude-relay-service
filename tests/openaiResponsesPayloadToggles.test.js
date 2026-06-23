@@ -752,7 +752,32 @@ describe('openai stream overload interception', () => {
     return { res, written }
   }
 
-  test('replaces server_is_overloaded chunk with friendly message in stream', async () => {
+  test('replaces server_is_overloaded chunk with gpt-5.4 friendly message in stream', async () => {
+    const overloadChunk =
+      'data: {"type":"error","error":{"type":"service_unavailable_error","code":"server_is_overloaded","message":"Our servers are currently overloaded.","param":null},"sequence_number":3}\n\n'
+
+    const { written } = await runStreamRequest({ model: 'gpt-5.4' }, [overloadChunk])
+
+    expect(written.length).toBe(1)
+    const parsed = JSON.parse(written[0].replace(/^data: /, '').trim())
+    expect(parsed.error.code).toBe('server_is_overloaded')
+    expect(parsed.error.message).toContain('算力受限')
+    expect(parsed.error.message).toContain('切换成 2x 重试')
+  })
+
+  test('replaces server_is_overloaded chunk with gpt-5.5 friendly message in stream', async () => {
+    const overloadChunk =
+      'data: {"type":"error","error":{"type":"service_unavailable_error","code":"server_is_overloaded","message":"Our servers are currently overloaded.","param":null},"sequence_number":3}\n\n'
+
+    const { written } = await runStreamRequest({ model: 'gpt-5.5' }, [overloadChunk])
+
+    expect(written.length).toBe(1)
+    const parsed = JSON.parse(written[0].replace(/^data: /, '').trim())
+    expect(parsed.error.code).toBe('server_is_overloaded')
+    expect(parsed.error.message).toContain('切换成 1x 重试')
+  })
+
+  test('replaces server_is_overloaded chunk with generic friendly message for other models', async () => {
     const overloadChunk =
       'data: {"type":"error","error":{"type":"service_unavailable_error","code":"server_is_overloaded","message":"Our servers are currently overloaded.","param":null},"sequence_number":3}\n\n'
 
@@ -761,7 +786,7 @@ describe('openai stream overload interception', () => {
     expect(written.length).toBe(1)
     const parsed = JSON.parse(written[0].replace(/^data: /, '').trim())
     expect(parsed.error.code).toBe('server_is_overloaded')
-    expect(parsed.error.message).toContain('算力受限')
+    expect(parsed.error.message).toContain('聚合中转或DeepSeek等模型重试')
   })
 
   test('passes normal stream chunks through without modification', async () => {
