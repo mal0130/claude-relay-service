@@ -71,13 +71,21 @@ function normalizeDeepSeekModel(model) {
 }
 
 function normalizeDeepSeekUsage(usage = {}) {
-  const hitTokens = Number(usage.prompt_cache_hit_tokens || 0)
+  const hitTokens = Number(
+    usage.prompt_cache_hit_tokens ||
+      usage.cache_read_tokens ||
+      usage.prompt_tokens_details?.cached_tokens ||
+      0
+  )
   const missTokens = Number(usage.prompt_cache_miss_tokens || 0)
   const hasCacheBreakdown = hitTokens > 0 || missTokens > 0
 
   return {
     input_tokens: hasCacheBreakdown
-      ? Math.max(0, missTokens)
+      ? Math.max(
+          0,
+          missTokens || Number(usage.prompt_tokens || usage.input_tokens || 0) - hitTokens
+        )
       : Number(usage.prompt_tokens || usage.input_tokens || 0),
     output_tokens: Number(usage.completion_tokens || usage.output_tokens || 0),
     cache_creation_input_tokens: 0,

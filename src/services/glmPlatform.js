@@ -31,17 +31,7 @@ function normalizeBaseApi(baseApi = GLM_DEFAULT_BASE_API) {
 }
 
 function buildChatCompletionsUrl(baseApi) {
-  const normalized = normalizeBaseApi(baseApi)
-
-  if (normalized.endsWith('/chat/completions')) {
-    return normalized
-  }
-
-  if (normalized.endsWith('/v4') || normalized.endsWith('/v1')) {
-    return `${normalized}${GLM_PLATFORM.chatPath}`
-  }
-
-  return `${normalized}/v1/chat/completions`
+  return `${normalizeBaseApi(baseApi)}${GLM_PLATFORM.chatPath}`
 }
 
 function buildAnthropicMessagesUrl(baseApi) {
@@ -82,11 +72,16 @@ function normalizeGlmModel(model) {
 }
 
 function normalizeGlmUsage(usage = {}) {
+  const cacheReadTokens = Number(
+    usage.prompt_cache_hit_tokens || usage.prompt_tokens_details?.cached_tokens || 0
+  )
+  const totalInputTokens = Number(usage.prompt_tokens || usage.input_tokens || 0)
   return {
-    input_tokens: Number(usage.prompt_tokens || usage.input_tokens || 0),
+    input_tokens:
+      cacheReadTokens > 0 ? Math.max(0, totalInputTokens - cacheReadTokens) : totalInputTokens,
     output_tokens: Number(usage.completion_tokens || usage.output_tokens || 0),
     cache_creation_input_tokens: 0,
-    cache_read_input_tokens: 0
+    cache_read_input_tokens: cacheReadTokens
   }
 }
 

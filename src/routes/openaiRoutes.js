@@ -17,6 +17,7 @@ const { updateRateLimitCounters } = require('../utils/rateLimitHelper')
 const { setSessionId } = require('../utils/requestContext')
 const { IncrementalSSEParser } = require('../utils/sseParser')
 const { getSafeMessage } = require('../utils/errorSanitizer')
+const { sanitizeErrorForClient } = require('../utils/upstreamErrorHelper')
 const { buildUsageMetadata, buildInputMessagesBlock } = require('../utils/userInputExtractor')
 const {
   createRequestDetailMeta,
@@ -124,6 +125,168 @@ function buildCodexAssistantContent(responseData) {
   return text ? [{ type: 'text', text }] : undefined
 }
 
+function parseUpstreamErrorPayload(rawBody = '') {
+  const trimmed = typeof rawBody === 'string' ? rawBody.trim() : ''
+  if (!trimmed) {
+    return rawBody
+  }
+
+  if (trimmed.includes('data: ')) {
+    const lines = trimmed.split('\n')
+    for (const line of lines) {
+      if (!line.startsWith('data: ')) {
+        continue
+      }
+
+      const jsonStr = line.slice(6).trim()
+      if (!jsonStr || jsonStr === '[DONE]') {
+        continue
+      }
+
+      try {
+        return JSON.parse(jsonStr)
+      } catch (_) {
+        // ignore and continue to the next candidate
+      }
+    }
+  }
+
+  try {
+    return JSON.parse(trimmed)
+  } catch (_) {
+    return trimmed
+  }
+}
+
+async function resolveStreamErrorPayload(stream, timeoutMs = 5000) {
+  if (!stream || typeof stream.on !== 'function') {
+    return {
+      rawBody: '',
+      parsedBody: ''
+    }
+  }
+
+  const chunks = []
+
+  await new Promise((resolve) => {
+    let settled = false
+    let timer = null
+
+    const finish = () => {
+      if (settled) {
+        return
+      }
+      settled = true
+      if (timer) {
+        clearTimeout(timer)
+      }
+      stream.removeListener('data', onData)
+      stream.removeListener('end', onDone)
+      stream.removeListener('error', onDone)
+      resolve()
+    }
+
+    const onData = (chunk) => {
+      if (Buffer.isBuffer(chunk)) {
+        chunks.push(chunk)
+        return
+      }
+      chunks.push(Buffer.from(typeof chunk === 'string' ? chunk : String(chunk)))
+    }
+
+    const onDone = () => {
+      finish()
+    }
+
+    stream.on('data', onData)
+    stream.on('end', onDone)
+    stream.on('error', onDone)
+    timer = setTimeout(finish, timeoutMs)
+  })
+
+  const rawBody = Buffer.concat(chunks).toString()
+  return {
+    rawBody,
+    parsedBody: parseUpstreamErrorPayload(rawBody)
+  }
+}
+
+function logOpenAIUpstreamError(status, accountId, requestedModel, payload) {
+  logger.error(
+    `❌ OpenAI Codex upstream error status=${status} accountId=${accountId} model=${requestedModel}`,
+    payload
+  )
+}
+
+function sanitizeOpenAIErrorResponse(status, errorData, fallbackError = null) {
+  const source = errorData ||
+    fallbackError || {
+    error: {
+      message: getSafeMessage({ response: { status } })
+    }
+  }
+
+  const sanitized = sanitizeErrorForClient(source)
+  const hasSanitizedMessage =
+    typeof sanitized?.error === 'string' ||
+    typeof sanitized?.error?.message === 'string' ||
+    typeof sanitized?.message === 'string'
+
+  if (!hasSanitizedMessage) {
+    const safeMessageSource =
+      typeof fallbackError === 'string' && fallbackError.trim()
+        ? fallbackError
+        : typeof source?.detail === 'string' && source.detail.trim()
+          ? source.detail
+          : source
+
+    return {
+      error: {
+        message: getSafeMessage(safeMessageSource)
+      }
+    }
+  }
+
+  if (status === 401 || status === 402) {
+    if (!sanitized.error || typeof sanitized.error !== 'object') {
+      sanitized.error = {}
+    }
+
+    if (!sanitized.error.message || sanitized.error.message === 'Internal server error') {
+      sanitized.error.message = getSafeMessage({ response: { status, data: source } })
+    }
+
+    const errorType = status === 402 ? 'payment_required' : 'unauthorized'
+    if (!sanitized.error.type) {
+      sanitized.error.type = errorType
+    }
+    if (!sanitized.error.code) {
+      sanitized.error.code = errorType
+    }
+  }
+
+  return sanitized
+}
+
+function sendSanitizedStreamErrorResponse(res, status, errorPayload, headers = {}) {
+  res.status(status)
+
+  const contentType = normalizeHeaders(headers)['content-type'] || 'application/json'
+  const shouldUseSse = contentType.includes('text/event-stream')
+  res.setHeader('Content-Type', shouldUseSse ? 'text/event-stream' : 'application/json')
+
+  if (shouldUseSse) {
+    res.setHeader('Cache-Control', 'no-cache')
+    res.setHeader('Connection', 'keep-alive')
+    res.setHeader('X-Accel-Buffering', 'no')
+    res.write(`data: ${JSON.stringify(errorPayload)}\n\n`)
+    res.end()
+    return
+  }
+
+  res.json(errorPayload)
+}
+
 function isCompactResponsesRoute(req) {
   return (
     req.path === '/responses/compact' ||
@@ -149,6 +312,24 @@ function getCodexCompatibleModel(requestedModel = null) {
   }
 
   return requestedModel
+}
+
+function buildOpenAIOverloadFriendlyMessage(requestedModel = null) {
+  const normalizedModel = typeof requestedModel === 'string' ? requestedModel.toLowerCase() : ''
+
+  let retrySuggestion = '切换成默认模型(1x/2x)重试'
+
+  if (normalizedModel.startsWith('gpt-5.4')) {
+    retrySuggestion = '当前是默认模型(1x)，可切换成默认模型(2x)重试'
+  } else if (normalizedModel.startsWith('gpt-5.5')) {
+    retrySuggestion = '当前是默认模型(2x)，可切换成默认模型(1x)重试'
+  }
+
+  return (
+    '由于 AI 模型厂商（上游服务商）目前的算力受限，导致本次请求未能成功。建议按如下方案尝试解决：' +
+    `1. 点击“重试”或开启新会话；2. ${retrySuggestion}；3. 切换成聚合中转或DeepSeek等模型重试。` +
+    '切换模型参考文档：https://uniapp.dcloud.net.cn/ai/uni-agent.html#intelligencelevel'
+  )
 }
 
 function normalizeGpt5ModelForCodex(body = {}) {
@@ -528,10 +709,28 @@ const handleResponses = async (req, res) => {
       upstream = await axios.post(codexEndpoint, req.body, axiosConfig)
     }
 
+    let resolvedStreamErrorPayload
+    let resolvedStreamErrorRawBody = ''
+    if (
+      isStream &&
+      upstream.status >= 400 &&
+      upstream.data &&
+      typeof upstream.data.on === 'function'
+    ) {
+      const { rawBody, parsedBody } = await resolveStreamErrorPayload(upstream.data)
+      resolvedStreamErrorRawBody = rawBody
+      resolvedStreamErrorPayload = parsedBody
+    }
+
     logger.info(`← 上游响应 status=${upstream.status} elapsed=${Date.now() - startTime}ms`)
 
-    if (upstream.status === 400) {
-      logger.error('❌ OpenAI Codex upstream returned 400:', upstream.data)
+    if (upstream.status >= 400) {
+      logOpenAIUpstreamError(
+        upstream.status,
+        accountId,
+        upstreamRequestedModel,
+        resolvedStreamErrorPayload ?? upstream.data
+      )
     }
 
     const codexUsageSnapshot = extractCodexUsageHeaders(upstream.headers)
@@ -557,24 +756,8 @@ const handleResponses = async (req, res) => {
 
       try {
         // 对于429错误，无论是否是流式请求，响应都会是完整的JSON错误对象
-        if (isStream && upstream.data) {
-          // 流式响应需要先收集数据
-          const chunks = []
-          await new Promise((resolve, reject) => {
-            upstream.data.on('data', (chunk) => chunks.push(chunk))
-            upstream.data.on('end', resolve)
-            upstream.data.on('error', reject)
-            // 设置超时防止无限等待
-            setTimeout(resolve, 5000)
-          })
-
-          const fullResponse = Buffer.concat(chunks).toString()
-          try {
-            errorData = JSON.parse(fullResponse)
-          } catch (e) {
-            logger.error('Failed to parse 429 error response:', e)
-            logger.debug('Raw response:', fullResponse)
-          }
+        if (isStream) {
+          errorData = resolvedStreamErrorPayload || null
         } else {
           // 非流式响应直接使用data
           errorData = upstream.data
@@ -604,13 +787,14 @@ const handleResponses = async (req, res) => {
       )
 
       // 返回错误响应给客户端
-      const errorResponse = errorData || {
+      const rawErrorResponse = errorData || {
         error: {
           type: 'usage_limit_reached',
           message: 'The usage limit has been reached',
           resets_in_seconds: resetsInSeconds
         }
       }
+      const errorResponse = sanitizeOpenAIErrorResponse(upstream.status, rawErrorResponse)
 
       if (isStream) {
         // 流式响应也需要设置正确的状态码
@@ -635,23 +819,12 @@ const handleResponses = async (req, res) => {
       let errorData = null
 
       try {
-        if (isStream && upstream.data && typeof upstream.data.on === 'function') {
-          const chunks = []
-          await new Promise((resolve, reject) => {
-            upstream.data.on('data', (chunk) => chunks.push(chunk))
-            upstream.data.on('end', resolve)
-            upstream.data.on('error', reject)
-            setTimeout(resolve, 5000)
-          })
-
-          const fullResponse = Buffer.concat(chunks).toString()
-          try {
-            errorData = JSON.parse(fullResponse)
-          } catch (parseError) {
-            logger.error(`Failed to parse ${unauthorizedStatus} error response:`, parseError)
-            logger.debug(`Raw ${unauthorizedStatus} response:`, fullResponse)
-            errorData = { error: { message: fullResponse || 'Unauthorized' } }
-          }
+        if (isStream) {
+          errorData =
+            resolvedStreamErrorPayload ||
+            (resolvedStreamErrorRawBody
+              ? { error: { message: resolvedStreamErrorRawBody || 'Unauthorized' } }
+              : null)
         } else {
           errorData = upstream.data
         }
@@ -659,18 +832,33 @@ const handleResponses = async (req, res) => {
         logger.error(`⚠️ Failed to handle ${unauthorizedStatus} error response:`, parseError)
       }
 
+      const rawErrorResponse = errorData || {
+        error: {
+          message: unauthorizedStatus === 402 ? 'Payment required' : 'Unauthorized',
+          type: 'unauthorized',
+          code: 'unauthorized'
+        }
+      }
+      const errorResponse = sanitizeOpenAIErrorResponse(
+        unauthorizedStatus,
+        rawErrorResponse,
+        rawErrorResponse
+      )
+
       const statusLabel = unauthorizedStatus === 401 ? '401错误' : '402错误'
       const extraHint = unauthorizedStatus === 402 ? '，可能欠费' : ''
       let reason = `OpenAI账号认证失败（${statusLabel}${extraHint}）`
-      if (errorData) {
+      if (rawErrorResponse) {
         const messageCandidate =
-          errorData.error &&
-            typeof errorData.error.message === 'string' &&
-            errorData.error.message.trim()
-            ? errorData.error.message.trim()
-            : typeof errorData.message === 'string' && errorData.message.trim()
-              ? errorData.message.trim()
-              : null
+          typeof rawErrorResponse === 'string' && rawErrorResponse.trim()
+            ? rawErrorResponse.trim()
+            : rawErrorResponse.error &&
+              typeof rawErrorResponse.error.message === 'string' &&
+              rawErrorResponse.error.message.trim()
+              ? rawErrorResponse.error.message.trim()
+              : typeof rawErrorResponse.message === 'string' && rawErrorResponse.message.trim()
+                ? rawErrorResponse.message.trim()
+                : null
         if (messageCandidate) {
           reason = `OpenAI账号认证失败（${statusLabel}${extraHint}）：${messageCandidate}`
         }
@@ -690,20 +878,24 @@ const handleResponses = async (req, res) => {
         )
       }
 
-      let errorResponse = errorData
-      if (!errorResponse || typeof errorResponse !== 'object' || Buffer.isBuffer(errorResponse)) {
-        const fallbackMessage =
-          typeof errorData === 'string' && errorData.trim() ? errorData.trim() : 'Unauthorized'
-        errorResponse = {
-          error: {
-            message: fallbackMessage,
-            type: 'unauthorized',
-            code: 'unauthorized'
-          }
-        }
+      res.status(unauthorizedStatus).json(errorResponse)
+      return
+    } else if (upstream.status >= 400) {
+      const rawErrorResponse = isStream
+        ? resolvedStreamErrorPayload || resolvedStreamErrorRawBody
+        : upstream.data
+      const errorResponse = sanitizeOpenAIErrorResponse(
+        upstream.status,
+        rawErrorResponse,
+        resolvedStreamErrorRawBody
+      )
+
+      if (isStream) {
+        sendSanitizedStreamErrorResponse(res, upstream.status, errorResponse, upstream.headers)
+        return
       }
 
-      res.status(unauthorizedStatus).json(errorResponse)
+      res.status(upstream.status).json(errorResponse)
       return
     } else if (upstream.status === 200 || upstream.status === 201) {
       // 请求成功，检查并移除限流状态
@@ -714,11 +906,6 @@ const handleResponses = async (req, res) => {
         )
         await unifiedOpenAIScheduler.removeAccountRateLimit(accountId, 'openai')
       }
-    } else {
-      logger.error(
-        `❌ 上游返回错误 status=${upstream.status} accountId=${accountId} model=${upstreamRequestedModel}`,
-        isStream ? {} : upstream.data
-      )
     }
 
     res.status(upstream.status)
@@ -962,14 +1149,23 @@ const handleResponses = async (req, res) => {
         if (!res.destroyed) {
           if (overloaded) {
             const friendly = {
+              type: 'error',
+              sequence_number: 0,
               error: {
-                message:
-                  '因模型官方服务算力受限，请求失败，可重新发起对话，或切换其他渠道使用。',
+                message: buildOpenAIOverloadFriendlyMessage(requestedModel),
                 type: 'server_error',
-                code: 'server_is_overloaded'
+                code: 'server_is_overloaded',
+                param: null
               }
             }
+            logger.warn(`⚠️ OpenAI server_is_overloaded raw chunk for account ${accountId}:`, {
+              raw: chunk.toString()
+            })
             res.write(`data: ${JSON.stringify(friendly)}\n\n`)
+            streamEnded = true
+            res.end()
+            upstream.data.destroy()
+            return
           } else {
             res.write(chunk)
           }

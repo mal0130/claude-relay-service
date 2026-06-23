@@ -223,25 +223,34 @@ function downloadText(url) {
   })
 }
 
-function mergeExistingDeepSeekEntries(baseData) {
+function mergeExistingMirrorProviderEntries(baseData) {
   if (!fs.existsSync(config.mirrorPricingFile)) {
     return baseData
   }
 
   try {
     const existingData = JSON.parse(fs.readFileSync(config.mirrorPricingFile, 'utf8'))
-    const existingDeepSeekEntries = Object.fromEntries(
-      Object.entries(existingData).filter(([modelName]) => modelName.includes('deepseek'))
+    const existingProviderEntries = Object.fromEntries(
+      Object.entries(existingData).filter(([modelName]) => {
+        const normalized = String(modelName || '').toLowerCase()
+        return (
+          normalized.includes('deepseek') ||
+          normalized.startsWith('glm-') ||
+          normalized.startsWith('minimax-') ||
+          normalized.startsWith('kimi-') ||
+          normalized.startsWith('moonshot-')
+        )
+      })
     )
-    return { ...existingDeepSeekEntries, ...baseData }
+    return { ...existingProviderEntries, ...baseData }
   } catch (error) {
-    log.warn(`Failed to load existing DeepSeek mirror entries: ${error.message}`)
+    log.warn(`Failed to load existing provider mirror entries: ${error.message}`)
     return baseData
   }
 }
 
 async function generatePriceMirror() {
-  log.info('Generating price mirror data with DeepSeek official pricing...')
+  log.info('Generating price mirror data with DeepSeek, GLM, MiniMax, and Kimi official pricing...')
   log.info(`Upstream model pricing URL: ${config.upstreamPricingUrl}`)
   log.info(`Mirror output directory: ${config.mirrorOutputDir}`)
 
@@ -255,13 +264,19 @@ async function generatePriceMirror() {
     throw new Error('Invalid upstream pricing data structure')
   }
 
-  const dataWithExistingDeepSeek = mergeExistingDeepSeekEntries(upstreamData)
-  const enrichedData = await pricingService.enrichPricingDataWithDeepSeek(
-    dataWithExistingDeepSeek,
-    {
-      allowRemote: true
-    }
-  )
+  const dataWithExistingProviders = mergeExistingMirrorProviderEntries(upstreamData)
+  let enrichedData = await pricingService.enrichPricingDataWithDeepSeek(dataWithExistingProviders, {
+    allowRemote: true
+  })
+  enrichedData = await pricingService.enrichPricingDataWithMiniMax(enrichedData, {
+    allowRemote: true
+  })
+  enrichedData = await pricingService.enrichPricingDataWithGlm(enrichedData, {
+    allowRemote: true
+  })
+  enrichedData = await pricingService.enrichPricingDataWithKimi(enrichedData, {
+    allowRemote: true
+  })
   const formattedJson = JSON.stringify(enrichedData, null, 2)
   const hash = crypto.createHash('sha256').update(formattedJson).digest('hex')
 
@@ -272,8 +287,20 @@ async function generatePriceMirror() {
   const deepseekModels = Object.keys(enrichedData).filter((modelName) =>
     modelName.includes('deepseek')
   ).length
+  const glmModels = Object.keys(enrichedData).filter((modelName) =>
+    modelName.startsWith('glm-')
+  ).length
+  const minimaxModels = Object.keys(enrichedData).filter((modelName) =>
+    /^MiniMax-/i.test(modelName)
+  ).length
+  const kimiModels = Object.keys(enrichedData).filter(
+    (modelName) => modelName.startsWith('kimi-') || modelName.startsWith('moonshot-')
+  ).length
   log.success(`Generated price mirror for ${modelCount} models`)
   log.info(`DeepSeek models: ${deepseekModels}`)
+  log.info(`GLM models: ${glmModels}`)
+  log.info(`MiniMax models: ${minimaxModels}`)
+  log.info(`Kimi models: ${kimiModels}`)
   log.info(`Hash: ${hash}`)
 }
 

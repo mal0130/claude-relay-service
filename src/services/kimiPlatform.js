@@ -1,4 +1,4 @@
-const KIMI_DEFAULT_BASE_API = 'https://api.moonshot.cn'
+const KIMI_DEFAULT_BASE_API = 'https://api.moonshot.cn/v1'
 const KIMI_DEFAULT_MODEL = 'moonshot-v1-8k'
 
 const KIMI_PLATFORM = {
@@ -11,7 +11,7 @@ const KIMI_PLATFORM = {
   accountSubTypeLabel: '标准 API',
   protocol: 'openai-compatible-chat',
   protocols: ['openai-compatible-chat', 'anthropic-messages'],
-  chatPath: '/v1/chat/completions',
+  chatPath: '/chat/completions',
   anthropicMessagesPath: '/anthropic/v1/messages',
   modelPatterns: ['moonshot-*'],
   modelAliases: {
@@ -33,17 +33,7 @@ function normalizeBaseApi(baseApi = KIMI_DEFAULT_BASE_API) {
 }
 
 function buildChatCompletionsUrl(baseApi) {
-  const normalized = normalizeBaseApi(baseApi)
-
-  if (normalized.endsWith('/chat/completions')) {
-    return normalized
-  }
-
-  if (normalized.endsWith('/v1')) {
-    return `${normalized}/chat/completions`
-  }
-
-  return `${normalized}${KIMI_PLATFORM.chatPath}`
+  return `${normalizeBaseApi(baseApi)}${KIMI_PLATFORM.chatPath}`
 }
 
 function buildAnthropicMessagesUrl(baseApi) {
@@ -86,11 +76,16 @@ function normalizeKimiModel(model) {
 }
 
 function normalizeKimiUsage(usage = {}) {
+  const cacheReadTokens = Number(
+    usage.prompt_cache_hit_tokens || usage.prompt_tokens_details?.cached_tokens || 0
+  )
+  const totalInputTokens = Number(usage.prompt_tokens || usage.input_tokens || 0)
   return {
-    input_tokens: Number(usage.prompt_tokens || usage.input_tokens || 0),
+    input_tokens:
+      cacheReadTokens > 0 ? Math.max(0, totalInputTokens - cacheReadTokens) : totalInputTokens,
     output_tokens: Number(usage.completion_tokens || usage.output_tokens || 0),
     cache_creation_input_tokens: 0,
-    cache_read_input_tokens: 0
+    cache_read_input_tokens: cacheReadTokens
   }
 }
 

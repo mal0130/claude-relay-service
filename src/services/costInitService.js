@@ -1,6 +1,8 @@
+const cron = require('node-cron')
 const redis = require('../models/redis')
 const CostCalculator = require('../utils/costCalculator')
 const logger = require('../utils/logger')
+const config = require('../../config/config')
 
 // HMGET 需要的字段
 const USAGE_FIELDS = [
@@ -19,6 +21,120 @@ const USAGE_FIELDS = [
 ]
 
 class CostInitService {
+  constructor() {
+    this.task = null
+    this.isStarted = false
+    this.isRunning = false
+    this.cronExpression = process.env.COST_INIT_CRON || '0 2 * * *'
+    this.timezone = config.system?.timezone || process.env.TZ || 'Asia/Shanghai'
+  }
+
+  startScheduler() {
+    if (process.env.COST_INIT_SCHEDULER_ENABLED !== 'true') {
+      logger.info(
+        '💰 Cost init scheduler disabled (set COST_INIT_SCHEDULER_ENABLED=true to enable)'
+      )
+      return false
+    }
+
+    if (this.isStarted) {
+      logger.warn('⚠️ Cost init scheduler is already running')
+      return false
+    }
+
+    if (!cron.validate(this.cronExpression)) {
+      logger.error(`❌ Invalid cost init cron expression: ${this.cronExpression}`)
+      return false
+    }
+
+    this.task = cron.schedule(
+      this.cronExpression,
+      () => {
+        this.runScheduledInitialization().catch((error) => {
+          logger.error('❌ Scheduled cost initialization failed:', error)
+        })
+      },
+      {
+        scheduled: true,
+        timezone: this.timezone
+      }
+    )
+
+    this.isStarted = true
+    logger.info(
+      `💰 Cost init scheduler started (${this.cronExpression}, timezone: ${this.timezone})`
+    )
+    return true
+  }
+
+  stopScheduler() {
+    if (this.task) {
+      this.task.stop()
+      this.task = null
+    }
+
+    if (this.isStarted) {
+      logger.info('💰 Cost init scheduler stopped')
+    }
+
+    this.isStarted = false
+    this.isRunning = false
+  }
+
+  async runScheduledInitialization() {
+    if (this.isRunning) {
+      logger.warn('⚠️ Cost initialization is already running in this process, skipping')
+      return { success: true, skipped: true, reason: 'in_progress' }
+    }
+
+    const client = redis.getClientSafe()
+    if (!client) {
+      logger.warn('⚠️ Scheduled cost initialization skipped: Redis client unavailable')
+      return { success: false, reason: 'redis_unavailable' }
+    }
+
+    const todayStr = redis.getDateStringInTimezone()
+    const doneKey = `init:cost:${todayStr}:done`
+
+    try {
+      const alreadyDone = await client.get(doneKey)
+      if (alreadyDone) {
+        logger.info(`ℹ️ Cost initialization already completed today (${todayStr}), skipping`)
+        return { success: true, skipped: true, reason: 'already_done' }
+      }
+    } catch (_error) {
+      logger.warn(`⚠️ Failed to read scheduled cost init marker (${todayStr}), continuing`)
+    }
+
+    const lockKey = `lock:init:cost:${todayStr}`
+    const lockValue = `${process.pid}:${Date.now()}`
+    const lockTtlMs = 8 * 60 * 60 * 1000
+
+    this.isRunning = true
+    const lockAcquired = await redis.setAccountLock(lockKey, lockValue, lockTtlMs)
+    if (!lockAcquired) {
+      this.isRunning = false
+      logger.info(`ℹ️ Cost initialization is already running on another instance (${todayStr})`)
+      return { success: true, skipped: true, reason: 'locked' }
+    }
+
+    try {
+      logger.info(`💰 Starting scheduled cost initialization (${todayStr})...`)
+      const result = await this.initializeAllCosts()
+      await client.set(doneKey, new Date().toISOString(), 'EX', 2 * 24 * 3600)
+      logger.info(
+        `✅ Scheduled cost initialization completed (${todayStr}): ${result.processed} processed, ${result.errors} errors`
+      )
+      return { success: true, ...result }
+    } catch (error) {
+      logger.error(`❌ Scheduled cost initialization failed (${todayStr}):`, error)
+      return { success: false, error: error.message }
+    } finally {
+      this.isRunning = false
+      await redis.releaseAccountLock(lockKey, lockValue)
+    }
+  }
+
   /**
    * 带并发限制的并行执行
    */

@@ -311,7 +311,9 @@ class KimiRelayService {
         accountId,
         sessionHash
       )
-      return res.status(upstreamResponse.status).json(responseData)
+      return res
+        .status(upstreamResponse.status)
+        .json(upstreamErrorHelper.sanitizeRelayErrorResponse(upstreamResponse.status, responseData))
     }
 
     const usage = responseData?.usage
@@ -354,7 +356,11 @@ class KimiRelayService {
       const errorBody = await this._readStreamToString(upstreamResponse.data)
       const parsed = this._parseJsonSafe(errorBody) || { error: { message: errorBody } }
       await this._handleUpstreamStatus(upstreamResponse.status, parsed, accountId, sessionHash)
-      return res.status(upstreamResponse.status).json(parsed)
+      return res
+        .status(upstreamResponse.status)
+        .json(
+          upstreamErrorHelper.sanitizeRelayErrorResponse(upstreamResponse.status, parsed, errorBody)
+        )
     }
 
     res.status(upstreamResponse.status)
@@ -478,7 +484,9 @@ class KimiRelayService {
         accountId,
         sessionHash
       )
-      return res.status(upstreamResponse.status).json(responseData)
+      return res
+        .status(upstreamResponse.status)
+        .json(upstreamErrorHelper.sanitizeRelayErrorResponse(upstreamResponse.status, responseData))
     }
 
     const usage = responseData?.usage
@@ -526,7 +534,11 @@ class KimiRelayService {
         error: { type: 'api_error', message: errorBody }
       }
       await this._handleUpstreamStatus(upstreamResponse.status, parsed, accountId, sessionHash)
-      return res.status(upstreamResponse.status).json(parsed)
+      return res
+        .status(upstreamResponse.status)
+        .json(
+          upstreamErrorHelper.sanitizeRelayErrorResponse(upstreamResponse.status, parsed, errorBody)
+        )
     }
 
     res.status(upstreamResponse.status)
@@ -1039,6 +1051,16 @@ class KimiRelayService {
       return
     }
 
+    if (upstreamErrorHelper.isRelayBillingError(status, responseBody)) {
+      await upstreamErrorHelper.markTempUnavailable(accountId, 'kimi', status, null, {
+        response: responseBody
+      })
+      if (sessionHash) {
+        await unifiedKimiScheduler.clearSessionMapping(sessionHash)
+      }
+      return
+    }
+
     if (status === 401 || status === 403) {
       await unifiedKimiScheduler.markAccountUnauthorized(
         accountId,
@@ -1081,7 +1103,9 @@ class KimiRelayService {
     await this._handleUpstreamStatus(status, responseBody, accountId, sessionHash)
 
     if (!res.headersSent) {
-      return res.status(status).json(responseBody)
+      return res
+        .status(status)
+        .json(upstreamErrorHelper.sanitizeRelayErrorResponse(status, responseBody, error.message))
     }
     return res.end()
   }

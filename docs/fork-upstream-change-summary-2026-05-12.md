@@ -57,7 +57,7 @@
 
 - 新增签名认证中间件：`src/middleware/partnerAuth.js`，按参数排序拼接后使用 SHA-256 校验 `sign`，并记录签名计算过程以便排查。
 - 新增合作伙伴路由：`src/routes/partner.js`，覆盖 API Key 创建、更新、批量更新、过期时间更新、用量汇总和近 30 天用量明细查询。
-- 合作伙伴接口支持 `claude_account_id`、`openai_account_id`、`deepseek_account_id` 绑定，支持账号组绑定，支持 `claude_rate`、`openai_rate`、`deepseek_rate` 和兼容字段 `rate`。
+- 合作伙伴接口支持 `claude_account_id`、`openai_account_id`、`deepseek_account_id`、`kimi_account_id`、`glm_account_id`、`minimax_account_id` 绑定，支持账号组绑定，支持 `claude_rate`、`openai_rate`、`deepseek_rate`、`kimi_rate`、`glm_rate`、`minimax_rate` 和兼容字段 `rate`。
 - 合作伙伴接口支持 `rateLimits` 多窗口限制、`pack_consent` 标签、`user_id`/`externalUid` 多 Key 切换索引。
 - `config/config.example.js` 增加 `partnerApi.secret` 和默认 Claude 账号配置；`src/app.js` 挂载 `/partner` 路由。
 - 新增 Partner API 文档和测试：`docs/partner-api.md`、`tests/partnerApi.simple.test.js`。
@@ -176,6 +176,63 @@
 | `POST` | `/partner/enterprise/key/batch-create` | 批量创建企业版 API Key                                 |
 | `POST` | `/partner/enterprise/key/members/set`  | 全量覆盖企业版成员列表并同步维护成员反向索引           |
 
+### Kimi
+
+> 2026-05-12 之后新增
+
+| 方法   | 路径                                             | 说明                                          |
+| ------ | ------------------------------------------------ | --------------------------------------------- |
+| `POST` | `/kimi/v1/chat/completions`                      | Kimi OpenAI-compatible Chat Completions 转发  |
+| `POST` | `/kimi/anthropic/v1/messages`                    | Kimi Anthropic Messages 兼容转发              |
+| `GET`  | `/admin/kimi-accounts`                           | Kimi 账号列表                                 |
+| `POST` | `/admin/kimi-accounts`                           | 创建 Kimi 账号                                |
+| `GET`  | `/admin/kimi-accounts/:id`                       | 查询 Kimi 账号                                |
+| `PUT`  | `/admin/kimi-accounts/:id`                       | 更新 Kimi 账号                                |
+| `DELETE` | `/admin/kimi-accounts/:id`                     | 删除 Kimi 账号                                |
+| `PUT`  | `/admin/kimi-accounts/:id/toggle-schedulable`    | 切换是否参与调度                              |
+| `PUT`  | `/admin/kimi-accounts/:id/toggle`                | 切换启用状态                                  |
+| `POST` | `/admin/kimi-accounts/:id/reset-rate-limit`      | 重置限流状态                                  |
+| `POST` | `/admin/kimi-accounts/:id/reset-status`          | 重置异常状态                                  |
+| `POST` | `/admin/kimi-accounts/:accountId/test`           | 测试 Kimi 账号连通性                          |
+
+### GLM
+
+> 2026-05-12 之后新增
+
+| 方法   | 路径                                            | 说明                                              |
+| ------ | ----------------------------------------------- | ------------------------------------------------- |
+| `POST` | `/glm/v1/chat/completions`                      | GLM (智谱AI) OpenAI-compatible Chat Completions 转发 |
+| `POST` | `/glm/anthropic/v1/messages`                    | GLM Anthropic Messages 兼容转发                   |
+| `GET`  | `/admin/glm-accounts`                           | GLM 账号列表                                      |
+| `POST` | `/admin/glm-accounts`                           | 创建 GLM 账号                                     |
+| `GET`  | `/admin/glm-accounts/:id`                       | 查询 GLM 账号                                     |
+| `PUT`  | `/admin/glm-accounts/:id`                       | 更新 GLM 账号                                     |
+| `DELETE` | `/admin/glm-accounts/:id`                     | 删除 GLM 账号                                     |
+| `PUT`  | `/admin/glm-accounts/:id/toggle-schedulable`    | 切换是否参与调度                                  |
+| `PUT`  | `/admin/glm-accounts/:id/toggle`                | 切换启用状态                                      |
+| `POST` | `/admin/glm-accounts/:id/reset-rate-limit`      | 重置限流状态                                      |
+| `POST` | `/admin/glm-accounts/:id/reset-status`          | 重置异常状态                                      |
+| `POST` | `/admin/glm-accounts/:accountId/test`           | 测试 GLM 账号连通性                               |
+
+### MiniMax
+
+> 2026-05-12 之后新增
+
+| 方法   | 路径                                               | 说明                                          |
+| ------ | -------------------------------------------------- | --------------------------------------------- |
+| `POST` | `/minimax/v1/chat/completions`                     | MiniMax OpenAI-compatible Chat Completions 转发 |
+| `POST` | `/minimax/anthropic/v1/messages`                   | MiniMax Anthropic Messages 兼容转发           |
+| `GET`  | `/admin/minimax-accounts`                          | MiniMax 账号列表                              |
+| `POST` | `/admin/minimax-accounts`                          | 创建 MiniMax 账号                             |
+| `GET`  | `/admin/minimax-accounts/:id`                      | 查询 MiniMax 账号                             |
+| `PUT`  | `/admin/minimax-accounts/:id`                      | 更新 MiniMax 账号                             |
+| `DELETE` | `/admin/minimax-accounts/:id`                    | 删除 MiniMax 账号                             |
+| `PUT`  | `/admin/minimax-accounts/:id/toggle-schedulable`   | 切换是否参与调度                              |
+| `PUT`  | `/admin/minimax-accounts/:id/toggle`               | 切换启用状态                                  |
+| `POST` | `/admin/minimax-accounts/:id/reset-rate-limit`     | 重置限流状态                                  |
+| `POST` | `/admin/minimax-accounts/:id/reset-status`         | 重置异常状态                                  |
+| `POST` | `/admin/minimax-accounts/:accountId/test`          | 测试 MiniMax 账号连通性                       |
+
 ## 新增或扩展的数据字段
 
 | 对象             | 字段                              | 说明                                                |
@@ -201,6 +258,13 @@
 | DeepSeek Account | `apiKey`                          | AES 加密保存的 DeepSeek API Key                     |
 | DeepSeek Account | `baseApi`                         | DeepSeek 上游地址，默认 `https://api.deepseek.com`  |
 | DeepSeek Account | `rateLimitStatus`                 | 限流状态、重置时间和剩余分钟数                      |
+| DeepSeek Account | `modelMapping`                    | 请求模型名 → 平台实际模型名的映射表，支持通配符（2026-05-12 之后新增） |
+| Kimi Account     | `apiKey`                          | AES 加密保存的 Kimi API Key（2026-05-12 之后新增）  |
+| Kimi Account     | `modelMapping`                    | 请求模型名 → Kimi 实际模型名映射表，支持通配符      |
+| GLM Account      | `apiKey`                          | AES 加密保存的 GLM API Key（2026-05-12 之后���增）   |
+| GLM Account      | `modelMapping`                    | 请求模型名 → GLM 实际模型名映射表，支持通配符       |
+| MiniMax Account  | `apiKey`                          | AES 加密保存的 MiniMax API Key（2026-05-12 之后新增） |
+| MiniMax Account  | `modelMapping`                    | 请求模型名 → MiniMax 实际模型名映射表，支持通配符   |
 
 ## 新增/变更配置与命令
 
@@ -221,9 +285,28 @@
 
 > 以下内容不属于本文生成当时的 `git diff upstream/main...HEAD` 统计结果，而是对 2026-05-12 之后继续演进的功能补充说明，用于帮助读者快速理解“当前仓库”相对本文快照又发生了哪些变化。
 
-### 企业版共享 Key / 企业资源包
+### Kimi / GLM / MiniMax 新渠道接入
 
-- 新增企业版共享 Key 方案：一个 `externalUid` 归属者可对应多个 `memberUids` 成员共同使用同一 Key，共享整包配额。
+- 新增 Kimi（月之暗面）渠道：账户实体、AES 加密 API Key、状态管理和调度器（`src/services/account/kimiAccountService.js`、`src/services/scheduler/unifiedKimiScheduler.js`）；OpenAI-compatible 转发 + Anthropic 协议适配（`src/services/relay/kimiRelayService.js`、`src/routes/kimiRoutes.js`），支持 `/kimi/v1/chat/completions` 与 `/kimi/anthropic/v1/messages`。
+- 新增 GLM（智谱 AI）渠道：结构与 Kimi 相同（`glmAccountService.js`、`unifiedGlmScheduler.js`、`glmRelayService.js`、`glmRoutes.js`），支持 `/glm/v1/chat/completions` 与 `/glm/anthropic/v1/messages`；价格采用国内人民币定价÷7 换算 USD，并按请求 context 大小分层计费（小 context 低单价、大 context 高单价）。
+- 新增 MiniMax 渠道：结构相同（`minimaxAccountService.js`、`unifiedMinimaxScheduler.js`、`minimaxRelayService.js`、`minimaxRoutes.js`），支持 `/minimax/v1/chat/completions` 与 `/minimax/anthropic/v1/messages`；MiniMax M3 512K 模型按 ≤32K / ≤512K context 窗口大小分两档定价。
+- 三平台后台管理 CRUD 同结构：账号列表、创建、更新、删除、toggle-schedulable、toggle、reset-rate-limit、reset-status、连通性测试（`src/routes/admin/kimiAccounts.js`、`glmAccounts.js`、`minimaxAccounts.js`）。
+- Partner API 扩展支持三平台：新增 `kimi_account_id`、`glm_account_id`、`minimax_account_id` 绑定字段和 `kimi_rate`、`glm_rate`、`minimax_rate` 倍率字段，语义与 `deepseek_account_id`/`deepseek_rate` 等价（`src/routes/partner.js`）。
+- `pricingService.js` 补充 Kimi/GLM/MiniMax 各模型价格抓取与 fallback 定价；GLM/MiniMax 分层计费逻辑集成其中。
+
+### 账户级模型映射
+
+- DeepSeek/Kimi/GLM/MiniMax 四平台账户新增 `modelMapping` 配置字段：以 JSON 对象保存"请求模型名 → 平台实际模型名"映射，支持精确匹配和通配符匹配。
+- 转发服务在调度选账户后、构建请求体前查询 `modelMapping`：精确命中优先，其次通配符；命中时将请求体 `model` 字段替换为平台实际模型名；未命中或 mapping 为空时完全透传原始模型名。
+- 管理界面账户表单同步增加模型映射编辑入口（`web/admin-spa/src/components/accounts/AccountForm.vue`）。
+- 调度器（`unifiedDeepSeekScheduler.js`、`unifiedKimiScheduler.js`、`unifiedGlmScheduler.js`、`unifiedMinimaxScheduler.js`）同步扩展，支持带 modelMapping 字段的账户对象。
+
+### 计费修复
+
+- 三方 DeepSeek 计费兼容：修复上游 usage 不含 `prompt_cache_hit_tokens`/`prompt_cache_miss_tokens` 字段时的计费异常，兼容无缓存字段的纯 OpenAI-compatible DeepSeek 响应。
+- Claude 4.6 计费修复：修复 4.6 系列模型费用无法计入的问题，以及缓存相关计费 bug。
+
+### 企业版共享 Key / 企业资源包
 - 鉴权链路新增企业模式：请求可通过 `uni_agent_subscription_type=enterprise` 与 `uni_agent_subscription_user_id` 进入企业版切换逻辑，只在 `enterprise_pack_member:{uid}` 索引对应的企业 Key 集合中切换。
 - Partner API 新增企业版接口：`/partner/enterprise/key/batch-create` 与 `/partner/enterprise/key/members/set`，用于批量创建企业 Key 和全量维护成员列表。
 - 切换规则继续细化：个人请求会过滤企业 Key，企业模式不依赖 `pack_consent`，并补充了 `packMode` 返回值和相关提示语优化。
@@ -239,6 +322,7 @@
 
 - 本文仍然适合作为 2026-05-12 的 fork 差异快照。
 - 如需了解当前最新的企业版能力，应结合 `docs/enterprise-pack-design.md`、`docs/partner-api-enterprise.md` 与 2026-05-12 之后的提交记录一起阅读。
+- 如需了解 Kimi/GLM/MiniMax 三平台接入、账户级模型映射和分层计费，参见本文"2026-05-12 之后的增量更新"中的对应专节。
 
 ## 完整文件差异清单
 

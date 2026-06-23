@@ -91,6 +91,20 @@
 | P0-CUT-002 | in-flight drain | CRS 请求可能仍在写 Redis | 维护窗口等待或中断长连接 | 切换演练 | 最终导出状态不完整 |
 | P0-TASK-001 | 后台任务单实例语义 | CRS/sub2api 单实例任务直接执行 | 分布式部署下任务加锁或独立 worker | 多实例任务测试 | 重复执行导致重复通知/状态覆盖 |
 | P0-PRICE-001 | 价格同步源 | 不再直接跟随 weishaw 上游 | 固定为 `mal0130/sub2api` fork 指定分支 | 配置和 dry-run | 同步源错误或覆盖业务价格 |
+| P0-KIMI-001 | Kimi 路由（OpenAI 格式） | `/kimi/v1/chat/completions` | sub2api 保留兼容入口 | mock Kimi 请求 | 路由不可用 |
+| P0-KIMI-002 | Kimi 路由（Anthropic 格式） | `/kimi/anthropic/v1/messages` | 保留兼容入口 | mock 请求 | 路由不可用 |
+| P0-KIMI-003 | Kimi 账户管理 | CRUD + toggle-schedulable + reset-rate-limit | sub2api 等价账户管理接口 | 账户 CRUD 样本 | 账户无法创建/调度 |
+| P0-GLM-001 | GLM 路由（OpenAI 格式） | `/glm/v1/chat/completions` | sub2api 保留兼容入口 | mock GLM 请求 | 路由不可用 |
+| P0-GLM-002 | GLM 路由（Anthropic 格式） | `/glm/anthropic/v1/messages` | 保留兼容入口 | mock 请求 | 路由不可用 |
+| P0-GLM-003 | GLM 账户管理 | CRUD + toggle-schedulable + reset-rate-limit | sub2api 等价账户管理接口 | 账户 CRUD 样本 | 账户无法创建/调度 |
+| P0-GLM-004 | GLM 分层计费 | 按请求 context 大小分档定价（国内定价÷7 转 USD） | sub2api 等价分层计费逻辑 | 不同 context 大小样本 | 档位判断错误或汇率换算不一致 |
+| P0-MINIMAX-001 | MiniMax 路由（OpenAI 格式） | `/minimax/v1/chat/completions` | sub2api 保留兼容入口 | mock MiniMax 请求 | 路由不可用 |
+| P0-MINIMAX-002 | MiniMax 路由（Anthropic 格式） | `/minimax/anthropic/v1/messages` | 保留兼容入口 | mock 请求 | 路由不可用 |
+| P0-MINIMAX-003 | MiniMax 账户管理 | CRUD + toggle-schedulable + reset-rate-limit | sub2api 等价账户管理接口 | 账户 CRUD 样本 | 账户无法创建/调度 |
+| P0-MINIMAX-004 | MiniMax M3 512K 分层计费 | 按 context 窗口大小（≤32K / ≤512K）分档定价 | sub2api 等价分层逻辑 | 不同 context 大小样本 | 档位计费不一致 |
+| P0-PARTNER-006 | Partner API 新渠道账户绑定 | `kimi_account_id`、`glm_account_id`、`minimax_account_id` 支持 `group:*` 语法 | 创建/更新时写入 Kimi/GLM/MiniMax binding | Partner API 绑定样本 | 字段缺失或 binding 写入失败 |
+| P0-PARTNER-007 | Partner API 新渠道倍率 | `kimi_rate`、`glm_rate`、`minimax_rate` 映射到 `serviceRates.kimi/glm/minimax` | 倍率正确写入 actual cost 计算链路 | 倍率 actual cost 样本 | 倍率缺失或重复相乘 |
+| P1-MODEL-MAP-001 | 账户级模型映射 | DeepSeek/GLM/Kimi/MiniMax 账户支持 `modelMapping`：请求模型名 → 平台实际模型名，支持通配符匹配 | sub2api 等价模型映射语义，映射后请求体中 `model` 字段使用平台模型名 | 模型映射正反样本 | 映射后模型名错误或未映射时透传行为不一致 |
 
 ### 2.3 P1 功能兼容矩阵
 
@@ -193,6 +207,12 @@ golden-samples/
     gemini.jsonl
     deepseek-chat.jsonl
     deepseek-anthropic.jsonl
+    kimi-chat.jsonl
+    kimi-anthropic.jsonl
+    glm-chat.jsonl
+    glm-anthropic.jsonl
+    minimax-chat.jsonl
+    minimax-anthropic.jsonl
   partner/
     create-key.jsonl
     update-key.jsonl
@@ -203,6 +223,9 @@ golden-samples/
     openai/
     gemini/
     deepseek/
+    kimi/
+    glm/
+    minimax/
   expected/
     crs-results.jsonl
     sub2api-results.jsonl
@@ -268,6 +291,16 @@ golden-samples/
 | REQ-DEEP-001 | DeepSeek chat | hit/miss usage | cache 计费 |
 | REQ-DEEP-002 | DeepSeek stream | usage chunk before DONE | 流式 usage 捕获 |
 | REQ-DEEP-003 | DeepSeek Anthropic | fixed translated request | 兼容路由 |
+| REQ-KIMI-001 | Kimi OpenAI 格式非流式 | 固定 usage | token/cost/log |
+| REQ-KIMI-002 | Kimi Anthropic 格式流式 | SSE + final usage | 格式转换 + 流式 usage 捕获 |
+| REQ-KIMI-003 | Kimi 模型映射 | 固定 usage（映射后模型名） | 映射正确写入请求体 |
+| REQ-GLM-001 | GLM OpenAI 格式非流式 | 固定 usage | token/cost/log |
+| REQ-GLM-002 | GLM Anthropic 格式流式 | SSE + final usage | 格式转换 + 流式 usage 捕获 |
+| REQ-GLM-003 | GLM 分层计费（小 context�� | 固定 usage（≤4K token） | 低档单价计费 |
+| REQ-GLM-004 | GLM 分层计费（大 context） | 固定 usage（>4K token） | 高档单价计费，USD 换算一致 |
+| REQ-MINIMAX-001 | MiniMax OpenAI 格式非流式 | 固定 usage | token/cost/log |
+| REQ-MINIMAX-002 | MiniMax Anthropic 格式流式 | SSE + final usage | 格式转换 + 流式 usage 捕获 |
+| REQ-MINIMAX-003 | MiniMax M3 512K 分层计费 | 固定 usage（≤32K / ≤512K） | 档位判断和单价正确 |
 | REQ-ERR-001 | Prompt too long | 400 upstream body | 映射 413 |
 | REQ-ERR-002 | Upstream 429 | 429 + reset info | 账号限流状态 |
 | REQ-ERR-003 | Upstream 529 | 529 overloaded | overload_until |
@@ -286,6 +319,10 @@ golden-samples/
 | PTN-007 | usage-details | 近 30 天 daily/model | 聚合口径 |
 | PTN-008 | auth | sign 错误 | 认证拒绝 |
 | PTN-009 | validation | 缺必填字段 | 错误码/文案 |
+| PTN-010 | create | 含 kimi_account_id/glm_account_id/minimax_account_id | 三平台 binding + rates 写入正确 |
+| PTN-011 | update | 只更新 kimi_rate | 未传 glm/minimax 字段不覆盖 |
+| PTN-012 | create | `glm_account_id=group:*` | GLM group binding |
+| PTN-013 | create | 含模型映射账户 | 模型映射随账户关联写入 |
 
 ### 3.7 账号和后台任务样本细化
 
@@ -296,6 +333,9 @@ golden-samples/
 | ACC-003 | OpenAI account | Codex 5h near limit | 自动保护 |
 | ACC-004 | DeepSeek account | rate_limited | 限流状态迁移 |
 | ACC-005 | Gemini account | disabled | 不参与调度 |
+| ACC-006 | Kimi account | active，含 modelMapping | 可调度 + 模型映射正确 |
+| ACC-007 | GLM account | active，分层计费触发边界 | 分层计费正确，USD 换算一致 |
+| ACC-008 | MiniMax account | active，M3 512K | 分层计费正确 |
 | TASK-001 | 价格同步 | 两实例同时触发 | 只有一个执行 |
 | TASK-002 | Webhook retry | 重复触发同事件 | 幂等去重 |
 | TASK-003 | 保护恢复 | 多实例恢复同账号 | 状态不互相覆盖 |
@@ -303,7 +343,9 @@ golden-samples/
 ### 3.8 样本覆盖要求
 
 - P0 功能点必须至少有 1 个正向样本和 1 个反向/错误样本。
-- 每个平台至少覆盖流式和非流式中的一种；DeepSeek 必须同时覆盖 cache hit/miss。
+- 每个平台至少覆盖流式和非流式中的一种；DeepSeek 必须同时覆盖 cache hit/miss；GLM 和 MiniMax 必须覆盖分层计费边界。
+- Kimi/GLM 必须同时覆盖 OpenAI 格式和 Anthropic 格式路由。
+- 模型映射功能必须覆盖：映射命中、通配符命中、未命中透传、空映射透传四种场景。
 - Partner API 每个迁移接口至少 1 个成功样本和 1 个失败样本。
 - 5h/7d 限额必须覆盖：未超限、刚好达到、超过上限、窗口重置。
 - 价格表必须覆盖所有线上会使用的模型；缺失模型应在 dry-run 中阻断。
@@ -457,8 +499,8 @@ compare diff
 
 - 签名算法兼容。
 - 参数排序兼容。
-- `claude_account_id`、`openai_account_id`、`deepseek_account_id` 映射。
-- `claude_rate`、`openai_rate`、`deepseek_rate` 映射。
+- `claude_account_id`、`openai_account_id`、`deepseek_account_id`、`kimi_account_id`、`glm_account_id`、`minimax_account_id` 映射。
+- `claude_rate`、`openai_rate`、`deepseek_rate`、`kimi_rate`、`glm_rate`、`minimax_rate` 映射。
 - `rateLimits` 只迁移当前实际使用的 5h/7d 限制。
 - `pack_consent` 写入 tags/metadata。
 - `externalUid` 写入候选 Key 索引。
@@ -521,7 +563,7 @@ compare diff
 
 real upstream smoke 只做少量测试：
 
-- 每个平台至少 1 个成功请求。
+- 每个平台至少 1 个成功请求（Claude、OpenAI、Gemini、DeepSeek、Kimi、GLM、MiniMax）。
 - 每个平台至少 1 个流式请求，若该平台生产会使用流式。
 - OpenAI OAuth refresh 1 次。
 - DeepSeek 真实 chat 1 次。

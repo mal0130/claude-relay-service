@@ -16,13 +16,15 @@
 
 | 维度 | sub2api 现状 | 与 CRS 的差距 | 迁移方向 |
 | --- | --- | --- | --- |
-| API Key | `api_keys.key` 保存明文 Key，`group_id` 只绑定一个 group | CRS Redis 只存 hash，但外部业务系统保存了原始 `cr_...` Key；核心差距仍是同 Key 跨 Claude/OpenAI/Gemini/DeepSeek 多平台 | 优先从外部业务系统导入原始 Key 到 sub2api，同时保留 legacy hash/ID 做对账和兜底；新增多平台 binding |
+| API Key | `api_keys.key` 保存明文 Key，`group_id` 只绑定一个 group | CRS Redis 只存 hash，但外部业务系统保存了原始 `cr_...` Key；核心差距仍是同 Key 跨 Claude/OpenAI/Gemini/DeepSeek/Kimi/GLM/MiniMax 多平台 | 优先从外部业务系统导入原始 Key 到 sub2api，同时保留 legacy hash/ID 做对账和兜底；新增多平台 binding |
 | 平台选择 | 主要由 Key 所属 group 的 `platform` 决定 | CRS 由请求入口和 Key 权限共同决定平台 | 在认证后、调度前增加 platform resolver，按路径/协议选 binding |
 | 计费 | `usage_logs.total_cost` + `actual_cost`，存在 group/user/account 倍率 | CRS 业务计费以 API Key 为中心，平台倍率不同，不能双重相乘 | CRS 兼容 Key 的最终倍率由 binding/serviceRates 计算并写 usage log |
 | 限额 | API Key 已有 5h/1d/7d 成本窗口 | CRS 虽支持任意多窗口，但当前实际只使用 5h 和 7d 限制；sub2api 现有字段已满足首批迁移 | 不新增多窗口结构；只迁移 5h/7d 限额值和必要的已用量口径 |
 | 用量日志 | `usage_logs` 有 token/cost/model/account/group/request_id 等字段 | CRS 额外有 session/userInput/processType/projectType/assistantContent 等 | 小字段进入 `usage_logs.extra` 或扩展列，大内容进入 request detail 表 |
 | OpenAI Codex 用量 | 已能解析部分 `x-codex-*` 快照到 `account.extra` | CRS 还有自动停止调度、自动恢复、阈值、通知、UI 状态 | 补齐保护策略和调度排除逻辑，复用现有 snapshot |
 | DeepSeek | 可按 OpenAI-compatible 思路承接，但未形成 CRS 兼容闭环 | CRS 是一等平台，有路由、账号、统计、价格、cache hit/miss | 以 platform alias + OpenAI-compatible gateway 承接，补 usage/pricing/同步 |
+| Kimi/GLM/MiniMax | 均已在 CRS 实现为一等平台渠道，含独立路由、账户管理、Anthropic 协议兼容 | sub2api 未覆盖这三个平台；GLM 有按请求大小分层计费，MiniMax 有 M3 512K 分层计费 | 新增三平台 route/account/scheduler/pricing，补 Anthropic 协议适配和分层计费逻辑 |
+| 模型映射 | DeepSeek/GLM/Kimi/MiniMax 账户支持 `modelMapping` 配置：将请求侧模型名映射到平台实际模型名，支持通配符 | sub2api 无此账户级模型映射能力 | 迁移 `modelMapping` 字段到账户 extra，调度后在转发服务中执行映射逻辑 |
 | 价格同步 | sub2api 价格同步当前需要确认是否仍跟随 `Wei-Shaw/sub2api` 上游 | 迁移后价格、模型和业务补丁应以 `mal0130/sub2api` fork 分支为准，不能继续从 weishaw 上游直接覆盖 | 将价格同步源改为 `mal0130` fork 指定分支，并固定 repo/branch 配置；同步前做 diff/dry-run，避免覆盖本地业务定价 |
 | Partner API | sub2api 有 admin/API Key/usage 能力，但没有 CRS `/partner` 兼容接口 | 外部业务系统依赖 CRS Partner API 的 SHA-256 签名、字段名、批量更新、用量查询和平台绑定语义 | 新增 `/partner` 兼容层，保持签名和字段契约，内部落到 sub2api Key、binding、usage 聚合 |
 | 分布式部署/后台任务 | 单实例部署下后台任务可直接在服务进程内执行 | 多实例部署会导致价格同步、账号刷新、用量保护恢复、通知、清理等任务重复执行或互相覆盖 | 后台任务需要分布式锁/leader election/独立 worker，所有任务保证幂等；定时任务和 Web 服务实例职责要拆清 |
@@ -64,6 +66,12 @@ raw_model_cost -> service/global rate -> API Key 平台倍率 -> billed actual_c
 | Gemini API | `gemini` | Gemini group binding | 保留 Gemini CLI header key 兼容 |
 | DeepSeek OpenAI-compatible | `deepseek` | DeepSeek alias 的 OpenAI-compatible group | 保留 `/deepseek/v1/chat/completions` |
 | DeepSeek Anthropic-compatible | `deepseek` | DeepSeek alias + Anthropic adapter 或协议转换 | 保留 `/deepseek/anthropic/v1/messages` |
+| Kimi OpenAI-compatible | `kimi` | Kimi group binding | `/kimi/v1/chat/completions` |
+| Kimi Anthropic-compatible | `kimi` | Kimi group + Anthropic adapter | `/kimi/anthropic/v1/messages` |
+| GLM OpenAI-compatible | `glm` | GLM group binding，分层计费 | `/glm/v1/chat/completions` |
+| GLM Anthropic-compatible | `glm` | GLM group + Anthropic adapter，分层计费 | `/glm/anthropic/v1/messages` |
+| MiniMax OpenAI-compatible | `minimax` | MiniMax group binding，M3 512K 分层计费 | `/minimax/v1/chat/completions` |
+| MiniMax Anthropic-compatible | `minimax` | MiniMax group + Anthropic adapter | `/minimax/anthropic/v1/messages` |
 
 ## 4. 主要改动点对点迁移方案
 
@@ -122,8 +130,8 @@ raw_model_cost -> service/global rate -> API Key 平台倍率 -> billed actual_c
 
 - `/partner` 路由使用签名认证：参数排序拼接后用 SHA-256 校验 `sign`。
 - 支持创建、更新、批量更新 API Key，更新过期时间，查询用量汇总和近 30 天明细。
-- 支持 `claude_account_id`、`openai_account_id`、`deepseek_account_id`，支持 `group:` 绑定。
-- 支持 `claude_rate`、`openai_rate`、`deepseek_rate`、兼容字段 `rate`。
+- 支持 `claude_account_id`、`openai_account_id`、`deepseek_account_id`、`kimi_account_id`、`glm_account_id`、`minimax_account_id`，支持 `group:` 绑定。
+- 支持 `claude_rate`、`openai_rate`、`deepseek_rate`、`kimi_rate`、`glm_rate`、`minimax_rate`、兼容字段 `rate`。
 - 支持 `rateLimits`、`pack_consent`、`user_id`/`externalUid`。
 
 **sub2api 现状与差距**
@@ -161,9 +169,15 @@ raw_model_cost -> service/global rate -> API Key 平台倍率 -> billed actual_c
 | `claude_account_id` | `claude` binding 的 account/group ref |
 | `openai_account_id` | `openai/codex` binding 的 account/group ref |
 | `deepseek_account_id` | `deepseek` binding 的 account/group ref |
+| `kimi_account_id` | `kimi` binding 的 account/group ref |
+| `glm_account_id` | `glm` binding 的 account/group ref |
+| `minimax_account_id` | `minimax` binding 的 account/group ref |
 | `claude_rate` | `claude` binding `rate_multiplier` |
 | `openai_rate` | `openai/codex` binding `rate_multiplier` |
 | `deepseek_rate` | `deepseek` binding `rate_multiplier` |
+| `kimi_rate` | `kimi` binding `rate_multiplier` |
+| `glm_rate` | `glm` binding `rate_multiplier` |
+| `minimax_rate` | `minimax` binding `rate_multiplier` |
 | `rateLimits` | 首批仅映射当前实际使用的 5h/7d 限额到 sub2api 现有字段 |
 | `pack_consent` | `tags` 包含 `pack_consent` 或 metadata bool |
 
@@ -389,11 +403,58 @@ raw_model_cost -> service/global rate -> API Key 平台倍率 -> billed actual_c
 **验收标准**
 
 - Dashboard 与 CRS 关键指标同口径：请求数、token、原始成本、倍率后成本、DeepSeek 统计。
-- 标签筛选、昨日快捷筛选、metric 切换和 Top 50 可用。
+- 标签筛选、昨日快捷筛选、metric 切换和 Top 50 可用���
 - API Key 编辑不会丢失任一平台 binding 或倍率。
 - 用户侧统计能聚合用户所有 Key。
 
-## 5. 外部业务系统同步迁移方案
+### 4.9 Kimi/GLM/MiniMax 新渠道支持
+
+**CRS 能力**
+
+- Kimi（月之暗面）：独立账户实体、AES 加密 API Key、状态管理和调度器；路由 `/kimi/v1/chat/completions` 和 `/kimi/anthropic/v1/messages`；Anthropic 协议格式转换；账户级模型映射。
+- GLM（智谱 AI）：独立账户实体；路由 `/glm/v1/chat/completions` 和 `/glm/anthropic/v1/messages`；Anthropic 协议适配；按请求 context 大小分层计费，国内定价÷7 换算 USD；账户级模型映射。
+- MiniMax：独立账户实体；路由 `/minimax/v1/chat/completions` 和 `/minimax/anthropic/v1/messages`；M3 512K 模型按 ≤32K/≤512K 分档定价；账户级模型映射。
+- 三平台均支持 Partner API 账户绑定（`kimi_account_id`/`glm_account_id`/`minimax_account_id`）和独立倍率（`kimi_rate`/`glm_rate`/`minimax_rate`）。
+
+**sub2api 现状与差距**
+
+- 三平台在 sub2api 中尚无对应渠道，需从路由、账户管理、调度器、pricing 全部新建。
+- 分层计费逻辑（按 context 大小分档）和国内定价÷7 换算 USD 需要在 pricing service 中实现。
+- 账户级模型映射目前 sub2api 无此能力。
+
+**迁移方案**
+
+- 三平台接入方式与 DeepSeek 相同：保留 CRS 外部路由，新增 OpenAI-compatible gateway + Anthropic adapter。
+- 账户导入：`platform=openai_compatible`，`extra.provider_alias=kimi/glm/minimax`，`credentials.api_key` 加密，`extra.legacy_crs_account_id`，`extra.model_mapping` 保存映射表。
+- 模型映射在调度后、转发前执行：
+  - 查询当前账户的 `model_mapping`，精确匹配优先，其次通配符匹配。
+  - 命中时将请求体 `model` 字段替换为平台实际模型名；未命中时透传原始模型名。
+  - 空 mapping 或未配置时完全透传，行为与无映射账户一致。
+- 分层计费：
+  - GLM：在 pricing service 中根据 `input_tokens + output_tokens`（或请求 context token 数）判断档位，使用对应单价；最终成本÷7 换算 USD，与 sub2api 其他平台统一入 `usage_logs`。
+  - MiniMax M3：根据请求 context 窗口 ≤32K 或 ≤512K 选对应单价。
+- 三平台价格：在 pricing service 中补充 Kimi/GLM/MiniMax 各模型价格；缺失模型在 dry-run 中报错，不允许无价格上线。
+
+**数据和接口映射**
+
+| CRS 字段/接口 | sub2api 目标 |
+| --- | --- |
+| Kimi/GLM/MiniMax account id | `accounts.extra.legacy_crs_account_id` |
+| `apiKey` | `accounts.credentials.api_key`，加密 |
+| `modelMapping` | `accounts.extra.model_mapping`，JSON 对象 |
+| `serviceRates.kimi/glm/minimax` | API Key binding `rate_multiplier` |
+| `/admin/kimi-accounts/*`、`/admin/glm-accounts/*`、`/admin/minimax-accounts/*` | sub2api admin account API 对应 alias 路由 |
+| GLM 分层计费档位 | pricing service 分层逻辑 + USD 换算 |
+| MiniMax M3 512K 分层计费 | pricing service 分层逻辑 |
+
+**验收标准**
+
+- 同一个 `cr_...` Key 可访问 Kimi/GLM/MiniMax，写入同一 `api_key_id` 和对应 group。
+- Kimi/GLM Anthropic 格式请求通过格式转换后正确转发，流式 usage 捕获与 CRS 样本一致。
+- GLM 分层计费档位判断和 USD 换算结果与 CRS 样本一致。
+- MiniMax M3 512K 分层计费档位正确。
+- 模型映射命中/未命中/通配符三种场景行为与 CRS 一致。
+- 三平台价格缺失时 dry-run 直接报错。
 
 ### 5.1 API Key 请求日志同步
 
@@ -415,7 +476,7 @@ raw_model_cost -> service/global rate -> API Key 平台倍率 -> billed actual_c
 | `legacy_crs_key_id` | 业务系统原主键对齐 |
 | `api_key_id` | sub2api 新主键 |
 | `external_uid` | 外部用户 ID |
-| `platform` / `platform_alias` | Claude/OpenAI/Gemini/DeepSeek |
+| `platform` / `platform_alias` | Claude/OpenAI/Gemini/DeepSeek/Kimi/GLM/MiniMax |
 | `group_id` / `account_id` | 本次请求实际调度对象 |
 | `request_id` | 全链路追踪 |
 | `model` / `requested_model` / `upstream_model` | 模型口径 |
@@ -444,7 +505,7 @@ raw_model_cost -> service/global rate -> API Key 平台倍率 -> billed actual_c
 | 数据类型 | 迁移方式 | 是否完整迁移历史 | 备注 |
 | --- | --- | --- | --- |
 | API Key 基础信息 | 从外部业务系统导入原始 `cr_...` Key 到 sub2api API Key，并写 legacy hash/ID | 是 | sub2api 当前保存明文 Key；hash 用于 CRS 对账和兜底 |
-| API Key 多平台权限/绑定 | 导入 binding 表/JSONB | 是 | Claude/OpenAI/Gemini/DeepSeek 分平台映射 |
+| API Key 多平台权限/绑定 | 导入 binding 表/JSONB | 是 | Claude/OpenAI/Gemini/DeepSeek/Kimi/GLM/MiniMax 分平台映射 |
 | API Key serviceRates | 导入 binding multiplier | 是 | 作为 CRS 最终倍率计算输入 |
 | API Key tags/pack_consent | 导入 metadata/tags | 是 | 用于资源包切换和 UI 筛选 |
 | externalUid 索引 | 重建索引 | 是 | 用于自动切换候选 Key |
@@ -453,6 +514,9 @@ raw_model_cost -> service/global rate -> API Key 平台倍率 -> billed actual_c
 | 请求历史明细 | CRS Redis 只读归档 | 否 | sub2api 只承接切换后新明细 |
 | AI 平台账号 | 导入 sub2api accounts | 是 | credentials 加密，legacy id 写 extra |
 | DeepSeek 账号 | 导入 OpenAI-compatible account + alias | 是 | 补 base URL、限流状态、价格 |
+| Kimi 账号 | 导入 OpenAI-compatible account + alias | 是 | 补 API Key、model_mapping、价格 |
+| GLM 账号 | 导入 OpenAI-compatible account + alias | 是 | 补 API Key、model_mapping、分层计费价格 |
+| MiniMax 账号 | 导入 OpenAI-compatible account + alias | 是 | 补 API Key、model_mapping、M3 512K 分层计费价格 |
 | OpenAI Codex usage snapshot | 导入 account extra | 当前状态导入 | 用于切换后保护策略连续 |
 
 ## 7. 实施阶段
@@ -467,7 +531,7 @@ raw_model_cost -> service/global rate -> API Key 平台倍率 -> billed actual_c
 ### Phase 1：迁移盘点和 dry-run
 
 - 从 CRS Redis 导出 API Key metadata、permissions、serviceRates、accountBindings、rateLimits、externalUid、tags、cost totals；从外部业务系统导出原始 `cr_...` Key。
-- 导出 Claude/OpenAI/Gemini/DeepSeek 账号和状态，生成 legacy id 映射。
+- 导出 Claude/OpenAI/Gemini/DeepSeek/Kimi/GLM/MiniMax 账号和状态，生成 legacy id 映射。
 - 检查 sub2api 中目标 group/account/channel/pricing 是否齐全。
 - 生成 dry-run 报告：缺 group、缺价格、重复账号、无效绑定、权限冲突、无法映射字段。
 
@@ -478,6 +542,8 @@ raw_model_cost -> service/global rate -> API Key 平台倍率 -> billed actual_c
 - 5h/7d cost 限制复用和 externalUid 自动切换。
 - Partner API 兼容层。
 - DeepSeek route/account/usage/pricing 兼容。
+- Kimi/GLM/MiniMax route/account/usage/pricing 兼容，含 Anthropic 协议适配和分层计费。
+- 账户级模型映射(DeepSeek/Kimi/GLM/MiniMax）。
 
 ### Phase 3：日志、同步和通知
 
@@ -506,13 +572,15 @@ raw_model_cost -> service/global rate -> API Key 平台倍率 -> billed actual_c
 | 场景 | 验收点 |
 | --- | --- |
 | API Key 导入/认证 | 从外部业务系统导入的 `cr_` Key 可直接认证；legacy hash 可对账/兜底；日志不出现完整 Key |
-| 跨平台访问 | 同一 Key 调 Claude/OpenAI/Gemini/DeepSeek，写同一 `api_key_id` 和不同 group/platform |
+| 跨平台访问 | 同一 Key 调 Claude/OpenAI/Gemini/DeepSeek/Kimi/GLM/MiniMax，写同一 `api_key_id` 和不同 group/platform |
 | 平台倍率 | 不同平台倍率生效，且不与 sub2api group/user multiplier 双重相乘 |
 | quota/rate limit | quota 和 5h/7d 限制按 `actual_cost` 消耗，窗口状态迁移/重开策略明确 |
 | externalUid 切换 | 主 Key 失败后只切到同 uid 且满足目标平台校验的候选 Key |
 | pack_consent | 未授权时不切资源包，授权后按 CRS 顺序切换 |
 | Partner API | 签名、字段、批量更新、usage 汇总与 CRS 兼容 |
 | DeepSeek | 路由、账号、stream usage、cache hit/miss、价格、统计可用 |
+| Kimi/GLM/MiniMax | 双协议路由（OpenAI+Anthropic）、账号、usage、分层计费（GLM/MiniMax）、统计可用 |
+| 模型映射 | 精确匹配、通配符匹配、未命中透传、空映射透传四场景与 CRS 一致 |
 | Codex 保护 | header snapshot、停调度、恢复、通知、UI 状态一致 |
 | request detail | session/userInput/processType/projectType/assistantContent 可按开关记录 |
 | 外部同步 | API/view/Webhook 能替代业务系统直接读 CRS Redis |
@@ -528,3 +596,6 @@ raw_model_cost -> service/global rate -> API Key 平台倍率 -> billed actual_c
 - DeepSeek Anthropic-compatible 路由是否必须首批完全兼容；若业务只使用 OpenAI-compatible，可先灰度 OpenAI-compatible。
 - Partner API 的错误响应 JSON 是否需要字节级兼容 CRS，还是字段级兼容即可。
 - 请求体/响应体明细的保存 TTL、采样率和最大长度，需要业务、安全、合规一起确认。
+- Kimi/GLM/MiniMax 是否首批必须支持 Anthropic 协议路由，还是先仅上 OpenAI-compatible 路由。
+- GLM 分层计费的档位分界（context token 数阈值）以及 MiniMax M3 512K 的分层规则是否需要与 CRS 严格对齐，还是允许按 sub2api 方式重新配置。
+- 账户级模型映射（`modelMapping`）是否需要在 sub2api Partner API 中暴露修改接口，还是仅通过 admin 后台维护。

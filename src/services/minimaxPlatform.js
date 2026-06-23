@@ -41,21 +41,7 @@ function normalizeBaseApi(baseApi = MINIMAX_DEFAULT_BASE_API) {
 }
 
 function buildChatCompletionsUrl(baseApi) {
-  const normalized = normalizeBaseApi(baseApi)
-
-  if (normalized.endsWith('/chat/completions')) {
-    return normalized
-  }
-
-  if (normalized.endsWith('/v1')) {
-    return `${normalized}${MINIMAX_PLATFORM.chatPath}`
-  }
-
-  if (normalized.endsWith('/anthropic')) {
-    return `${normalized.slice(0, -11)}/v1/chat/completions`
-  }
-
-  return `${normalized}/v1/chat/completions`
+  return `${normalizeBaseApi(baseApi)}${MINIMAX_PLATFORM.chatPath}`
 }
 
 function buildAnthropicMessagesUrl(baseApi) {
