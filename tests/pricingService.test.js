@@ -541,6 +541,111 @@ describe('PricingService - Long Context Pricing', () => {
       expect(pricingService._parseGlmPriceCell('限时免费')).toBe(0)
     })
 
+    it('官网解析应只覆盖前 5 个旗舰 GLM，其余继续保留 fallback', () => {
+      const htmlWithBrokenLegacyRow = `
+        <table>
+          <tbody>
+            <tr>
+              <td style="text-align: left;">GLM-5.2 新品</td>
+              <td style="text-align: left;">1M</td>
+              <td style="text-align: left;">8元</td>
+              <td style="text-align: left;">28元</td>
+              <td style="text-align: left;">限时免费</td>
+              <td style="text-align: left;">2元</td>
+            </tr>
+            <tr>
+              <td style="text-align: left;" rowspan="2">GLM-5.1</td>
+              <td style="text-align: left;">输入长度 [0, 32)</td>
+              <td style="text-align: left;">6元</td>
+              <td style="text-align: left;">24元</td>
+              <td style="text-align: left;">限时免费</td>
+              <td style="text-align: left;">1.3元</td>
+            </tr>
+            <tr>
+              <td style="text-align: left;">输入长度 [32, +)</td>
+              <td style="text-align: left;">8元</td>
+              <td style="text-align: left;">28元</td>
+              <td style="text-align: left;">限时免费</td>
+              <td style="text-align: left;">2元</td>
+            </tr>
+            <tr>
+              <td style="text-align: left;" rowspan="2">GLM-5-Turbo</td>
+              <td style="text-align: left;">输入长度 [0, 32)</td>
+              <td style="text-align: left;">5元</td>
+              <td style="text-align: left;">22元</td>
+              <td style="text-align: left;">限时免费</td>
+              <td style="text-align: left;">1.2元</td>
+            </tr>
+            <tr>
+              <td style="text-align: left;">输入长度 [32, +)</td>
+              <td style="text-align: left;">7元</td>
+              <td style="text-align: left;">26元</td>
+              <td style="text-align: left;">限时免费</td>
+              <td style="text-align: left;">1.8元</td>
+            </tr>
+            <tr>
+              <td style="text-align: left;" rowspan="2">GLM-5</td>
+              <td style="text-align: left;">输入长度 [0, 32)</td>
+              <td style="text-align: left;">4元</td>
+              <td style="text-align: left;">18元</td>
+              <td style="text-align: left;">限时免费</td>
+              <td style="text-align: left;">1元</td>
+            </tr>
+            <tr>
+              <td style="text-align: left;">输入长度 [32, +)</td>
+              <td style="text-align: left;">6元</td>
+              <td style="text-align: left;">22元</td>
+              <td style="text-align: left;">限时免费</td>
+              <td style="text-align: left;">1.5元</td>
+            </tr>
+            <tr>
+              <td style="text-align: left;" rowspan="3">GLM-4.7</td>
+              <td style="text-align: left;">输入长度 [0, 32) 输出长度 [0, 0.2)</td>
+              <td style="text-align: left;">2元</td>
+              <td style="text-align: left;">8元</td>
+              <td style="text-align: left;">限时免费</td>
+              <td style="text-align: left;">0.4元</td>
+            </tr>
+            <tr>
+              <td style="text-align: left;">输入长度 [0, 32) 输出长度 [0.2, +)</td>
+              <td style="text-align: left;">3元</td>
+              <td style="text-align: left;">14元</td>
+              <td style="text-align: left;">限时免费</td>
+              <td style="text-align: left;">0.6元</td>
+            </tr>
+            <tr>
+              <td style="text-align: left;">输入长度 [32, 200)</td>
+              <td style="text-align: left;">4元</td>
+              <td style="text-align: left;">16元</td>
+              <td style="text-align: left;">限时免费</td>
+              <td style="text-align: left;">0.8元</td>
+            </tr>
+            <tr>
+              <td style="text-align: left;">GLM-4.5</td>
+              <td style="text-align: left;">128K</td>
+              <td style="text-align: left;">不支持</td>
+              <td style="text-align: left;">3元</td>
+              <td style="text-align: left;">限时免费</td>
+              <td style="text-align: left;">0.2元</td>
+            </tr>
+          </tbody>
+        </table>
+      `
+
+      const parsed = pricingService.parseGlmPricingHtml(
+        htmlWithBrokenLegacyRow,
+        new Date('2026-06-22T00:00:00.000Z')
+      )
+
+      expect(parsed['glm-5.2'].pricing_source).toBe('glm_official_docs')
+      expect(parsed['glm-5.1'].pricing_source).toBe('glm_official_docs')
+      expect(parsed['glm-5-turbo'].pricing_source).toBe('glm_official_docs')
+      expect(parsed['glm-5'].pricing_source).toBe('glm_official_docs')
+      expect(parsed['glm-4.7'].pricing_source).toBe('glm_official_docs')
+      expect(parsed['glm-4.5'].pricing_source).toBe('glm_builtin_fallback')
+      expect(parsed['glm-4.5'].provider_specific_entry.pricing_in_cny.input_per_million).toBe(1)
+    })
+
     it('应保留 glm-5.1 的官方分档价格', () => {
       const parsed = pricingService.parseGlmPricingHtml(
         glmPricingDocsHtml,

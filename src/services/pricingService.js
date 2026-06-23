@@ -68,6 +68,13 @@ const glmCnyPerMillionToUsdPerMillion = (cnyPerMillionTokens) =>
 
 const GLM_PRICING_SOURCE = process.env.GLM_PRICING_URL || 'https://open.bigmodel.cn/pricing'
 const GLM_CNY_PER_USD = 7
+const GLM_REMOTE_MODEL_MAPPINGS = [
+  { label: 'GLM-5.2', key: 'glm-5.2' },
+  { label: 'GLM-5.1', key: 'glm-5.1' },
+  { label: 'GLM-5-Turbo', key: 'glm-5-turbo' },
+  { label: 'GLM-5', key: 'glm-5' },
+  { label: 'GLM-4.7', key: 'glm-4.7' }
+]
 const GLM_RENDER_BROWSER_CANDIDATES = [
   process.env.GLM_RENDER_BROWSER_BIN,
   '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
@@ -953,30 +960,10 @@ class PricingService {
 
   parseGlmPricingHtml(html, now = new Date()) {
     const fallback = this.getGlmFallbackPricing(now)
-    const modelMappings = [
-      { label: 'GLM-5.2', key: 'glm-5.2' },
-      { label: 'GLM-5.1', key: 'glm-5.1' },
-      { label: 'GLM-5-Turbo', key: 'glm-5-turbo' },
-      { label: 'GLM-5', key: 'glm-5' },
-      { label: 'GLM-4.7-FlashX', key: 'glm-4.7-flashx' },
-      { label: 'GLM-4.7-Flash', key: 'glm-4.7-flash' },
-      { label: 'GLM-4.7', key: 'glm-4.7' },
-      { label: 'GLM-4.6V-FlashX', key: 'glm-4.6v-flashx' },
-      { label: 'GLM-4.6V', key: 'glm-4.6v' },
-      { label: 'GLM-4.6', key: 'glm-4.6' },
-      { label: 'GLM-4.5-Flash', key: 'glm-4.5-flash' },
-      { label: 'GLM-4.5-AirX', key: 'glm-4.5-airx' },
-      { label: 'GLM-4.5-Air', key: 'glm-4.5-air' },
-      { label: 'GLM-4.5V', key: 'glm-4.5v' },
-      { label: 'GLM-4.5-X', key: 'glm-4.5-x' },
-      { label: 'GLM-4.5', key: 'glm-4.5' },
-      { label: 'GLM-4-32B-0414-128K', key: 'glm-4-32b-0414-128k' }
-    ]
-
     const pricing = { ...fallback }
     let parsedCount = 0
 
-    for (const { label, key } of modelMappings) {
+    for (const { label, key } of GLM_REMOTE_MODEL_MAPPINGS) {
       const rows = this._extractGlmPriceRows(html, label)
       if (rows.length === 0) {
         continue
