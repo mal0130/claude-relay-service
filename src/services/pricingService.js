@@ -2,6 +2,7 @@ const fs = require('fs')
 const path = require('path')
 const https = require('https')
 const crypto = require('crypto')
+const { execFile } = require('child_process')
 const pricingSource = require('../../config/pricingSource')
 const logger = require('../utils/logger')
 
@@ -67,6 +68,14 @@ const glmCnyPerMillionToUsdPerMillion = (cnyPerMillionTokens) =>
 
 const GLM_PRICING_SOURCE = process.env.GLM_PRICING_URL || 'https://open.bigmodel.cn/pricing'
 const GLM_CNY_PER_USD = 7
+const GLM_RENDER_BROWSER_CANDIDATES = [
+  process.env.GLM_RENDER_BROWSER_BIN,
+  '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+  'google-chrome',
+  'google-chrome-stable',
+  'chromium-browser',
+  'chromium'
+].filter(Boolean)
 
 const KIMI_PRICING_SOURCE_K26 =
   process.env.KIMI_PRICING_URL_K26 || 'https://platform.kimi.ai/docs/pricing/chat-k26'
@@ -865,7 +874,7 @@ class PricingService {
     if (!text) {
       return null
     }
-    if (/free/i.test(text)) {
+    if (/free/i.test(text) || text.includes('免费')) {
       return 0
     }
 
@@ -1055,7 +1064,26 @@ class PricingService {
 
   async fetchGlmOfficialPricing(now = new Date()) {
     const html = await this._downloadText(GLM_PRICING_SOURCE)
-    return this.parseGlmPricingHtml(html, now)
+
+    try {
+      return this.parseGlmPricingHtml(html, now)
+    } catch (error) {
+      if (!this._shouldRetryGlmPricingWithRenderedDom(html, error)) {
+        throw error
+      }
+    }
+
+    const renderedHtml = await this._downloadRenderedDom(GLM_PRICING_SOURCE)
+    return this.parseGlmPricingHtml(renderedHtml, now)
+  }
+
+  _shouldRetryGlmPricingWithRenderedDom(html, error) {
+    if (error?.message !== 'GLM pricing table not found') {
+      return false
+    }
+
+    const normalizedHtml = String(html || '')
+    return !/<tr[\s>]/i.test(normalizedHtml) && !/GLM-5\.2/i.test(normalizedHtml)
   }
 
   _isEquivalentGlmPricingEntry(current = {}, next = {}) {
@@ -2088,6 +2116,50 @@ class PricingService {
         request.destroy()
         reject(new Error('Download timeout after 30 seconds'))
       })
+    })
+  }
+
+  _downloadRenderedDom(url) {
+    return new Promise((resolve, reject) => {
+      const tryBrowser = (index, lastError = null) => {
+        if (index >= GLM_RENDER_BROWSER_CANDIDATES.length) {
+          const detail = lastError ? `: ${lastError.message}` : ''
+          reject(new Error(`No usable headless browser found for GLM pricing${detail}`))
+          return
+        }
+
+        const browser = GLM_RENDER_BROWSER_CANDIDATES[index]
+        const args = [
+          '--headless=new',
+          '--disable-gpu',
+          '--no-first-run',
+          '--no-default-browser-check',
+          '--virtual-time-budget=15000',
+          '--dump-dom',
+          url
+        ]
+
+        execFile(
+          browser,
+          args,
+          {
+            timeout: 30000,
+            maxBuffer: 25 * 1024 * 1024
+          },
+          (error, stdout) => {
+            if (!error && stdout && String(stdout).includes('<html')) {
+              resolve(String(stdout))
+              return
+            }
+
+            const nextError =
+              error || new Error(`Browser command returned no HTML output: ${browser}`)
+            tryBrowser(index + 1, nextError)
+          }
+        )
+      }
+
+      tryBrowser(0)
     })
   }
 

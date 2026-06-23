@@ -503,6 +503,44 @@ describe('PricingService - Long Context Pricing', () => {
       })
     })
 
+    it('官网原始 HTML 无表格时应回退到渲染后 DOM 抓取 GLM 价格', async () => {
+      const shellHtml = `
+        <!DOCTYPE html>
+        <html>
+          <head><title>智谱AI开放平台</title></head>
+          <body>
+            <div id="app"></div>
+            <script src="/js/app.ab6f5a20.js"></script>
+          </body>
+        </html>
+      `
+      const downloadTextSpy = jest
+        .spyOn(pricingService, '_downloadText')
+        .mockResolvedValue(shellHtml)
+      const renderedDomSpy = jest
+        .spyOn(pricingService, '_downloadRenderedDom')
+        .mockResolvedValue(glmPricingDocsHtml)
+
+      const parsed = await pricingService.fetchGlmOfficialPricing(
+        new Date('2026-06-22T00:00:00.000Z')
+      )
+
+      expect(downloadTextSpy).toHaveBeenCalledWith('https://open.bigmodel.cn/pricing')
+      expect(renderedDomSpy).toHaveBeenCalledWith('https://open.bigmodel.cn/pricing')
+      expect(parsed['glm-5.2']).toBeDefined()
+      expect(parsed['glm-5.2'].input_cost_per_token).toBeCloseTo(8 / 7 / 1e6, 14)
+      expect(parsed['glm-5.2'].output_cost_per_token).toBeCloseTo(28 / 7 / 1e6, 14)
+      expect(parsed['glm-5.2'].cache_read_input_token_cost).toBeCloseTo(2 / 7 / 1e6, 14)
+
+      downloadTextSpy.mockRestore()
+      renderedDomSpy.mockRestore()
+    })
+
+    it('应将中文免费价格解析为 0', () => {
+      expect(pricingService._parseGlmPriceCell('免费')).toBe(0)
+      expect(pricingService._parseGlmPriceCell('限时免费')).toBe(0)
+    })
+
     it('应保留 glm-5.1 的官方分档价格', () => {
       const parsed = pricingService.parseGlmPricingHtml(
         glmPricingDocsHtml,
