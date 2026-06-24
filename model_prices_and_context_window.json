@@ -12,7 +12,7 @@
     "source_zh": "https://api-docs.deepseek.com/zh-cn/quick_start/pricing",
     "pricing_currency": "USD",
     "pricing_source": "deepseek_official_docs",
-    "pricing_updated_at": "2026-06-23T22:49:33.533Z",
+    "pricing_updated_at": "2026-06-24T00:05:36.336Z",
     "supported_endpoints": [
       "/v1/chat/completions"
     ],
@@ -40,7 +40,7 @@
     "source_zh": "https://api-docs.deepseek.com/zh-cn/quick_start/pricing",
     "pricing_currency": "USD",
     "pricing_source": "deepseek_official_docs",
-    "pricing_updated_at": "2026-06-23T22:49:33.533Z",
+    "pricing_updated_at": "2026-06-24T00:05:36.336Z",
     "supported_endpoints": [
       "/v1/chat/completions"
     ],
@@ -82,7 +82,7 @@
     "source_zh": "https://api-docs.deepseek.com/zh-cn/quick_start/pricing",
     "pricing_currency": "USD",
     "pricing_source": "deepseek_official_docs",
-    "pricing_updated_at": "2026-06-23T22:49:33.533Z",
+    "pricing_updated_at": "2026-06-24T00:05:36.336Z",
     "supported_endpoints": [
       "/v1/chat/completions"
     ],
@@ -108,7 +108,7 @@
     "source_zh": "https://api-docs.deepseek.com/zh-cn/quick_start/pricing",
     "pricing_currency": "USD",
     "pricing_source": "deepseek_official_docs",
-    "pricing_updated_at": "2026-06-23T22:49:33.533Z",
+    "pricing_updated_at": "2026-06-24T00:05:36.336Z",
     "supported_endpoints": [
       "/v1/chat/completions"
     ],
@@ -133,7 +133,7 @@
     "source": "https://open.bigmodel.cn/pricing",
     "pricing_currency": "USD",
     "pricing_source": "glm_official_docs",
-    "pricing_updated_at": "2026-06-23T22:49:36.661Z",
+    "pricing_updated_at": "2026-06-24T00:05:38.737Z",
     "supported_endpoints": [
       "/v1/chat/completions"
     ],
@@ -176,7 +176,7 @@
     "source": "https://platform.kimi.ai/docs/pricing/chat-k25",
     "pricing_currency": "USD",
     "pricing_source": "kimi_official_docs",
-    "pricing_updated_at": "2026-06-23T22:49:53.397Z",
+    "pricing_updated_at": "2026-06-24T00:05:56.498Z",
     "supported_endpoints": [
       "/v1/chat/completions"
     ],
@@ -194,7 +194,7 @@
     "source": "https://platform.kimi.ai/docs/pricing/chat-k26",
     "pricing_currency": "USD",
     "pricing_source": "kimi_official_docs",
-    "pricing_updated_at": "2026-06-23T22:49:53.396Z",
+    "pricing_updated_at": "2026-06-24T00:05:56.497Z",
     "supported_endpoints": [
       "/v1/chat/completions"
     ],
@@ -1382,7 +1382,7 @@
     "source": "https://platform.kimi.ai/docs/pricing/chat-v1",
     "pricing_currency": "USD",
     "pricing_source": "kimi_official_docs",
-    "pricing_updated_at": "2026-06-23T22:49:53.397Z",
+    "pricing_updated_at": "2026-06-24T00:05:56.499Z",
     "supported_endpoints": [
       "/v1/chat/completions"
     ],
@@ -1400,7 +1400,7 @@
     "source": "https://platform.kimi.ai/docs/pricing/chat-v1",
     "pricing_currency": "USD",
     "pricing_source": "kimi_official_docs",
-    "pricing_updated_at": "2026-06-23T22:49:53.397Z",
+    "pricing_updated_at": "2026-06-24T00:05:56.499Z",
     "supported_endpoints": [
       "/v1/chat/completions"
     ],
@@ -1418,7 +1418,7 @@
     "source": "https://platform.kimi.ai/docs/pricing/chat-v1",
     "pricing_currency": "USD",
     "pricing_source": "kimi_official_docs",
-    "pricing_updated_at": "2026-06-23T22:49:53.397Z",
+    "pricing_updated_at": "2026-06-24T00:05:56.499Z",
     "supported_endpoints": [
       "/v1/chat/completions"
     ],
@@ -1436,7 +1436,7 @@
     "source": "https://platform.kimi.ai/docs/pricing/chat-v1",
     "pricing_currency": "USD",
     "pricing_source": "kimi_official_docs",
-    "pricing_updated_at": "2026-06-23T22:49:53.397Z",
+    "pricing_updated_at": "2026-06-24T00:05:56.499Z",
     "supported_endpoints": [
       "/v1/chat/completions"
     ],
@@ -1454,7 +1454,7 @@
     "source": "https://platform.kimi.ai/docs/pricing/chat-v1",
     "pricing_currency": "USD",
     "pricing_source": "kimi_official_docs",
-    "pricing_updated_at": "2026-06-23T22:49:53.397Z",
+    "pricing_updated_at": "2026-06-24T00:05:56.499Z",
     "supported_endpoints": [
       "/v1/chat/completions"
     ],
@@ -1472,7 +1472,7 @@
     "source": "https://platform.kimi.ai/docs/pricing/chat-v1",
     "pricing_currency": "USD",
     "pricing_source": "kimi_official_docs",
-    "pricing_updated_at": "2026-06-23T22:49:53.397Z",
+    "pricing_updated_at": "2026-06-24T00:05:56.499Z",
     "supported_endpoints": [
       "/v1/chat/completions"
     ],
@@ -2222,6 +2222,8 @@
     "output_cost_per_token_batches": 0.000015,
     "output_cost_per_token_flex": 0.000015,
     "output_cost_per_token_priority": 0.00006,
+    "regional_processing_uplift_multiplier_eu": 1.1,
+    "regional_processing_uplift_multiplier_us": 1.1,
     "supported_endpoints": [
       "/v1/chat/completions",
       "/v1/batch",
@@ -6052,6 +6054,8 @@
     "output_cost_per_token_batches": 0.0000075,
     "output_cost_per_token_flex": 0.0000075,
     "output_cost_per_token_priority": 0.00003,
+    "regional_processing_uplift_multiplier_eu": 1.1,
+    "regional_processing_uplift_multiplier_us": 1.1,
     "supported_endpoints": [
       "/v1/chat/completions",
       "/v1/batch",
@@ -6099,6 +6103,8 @@
     "output_cost_per_token_batches": 0.0000075,
     "output_cost_per_token_flex": 0.0000075,
     "output_cost_per_token_priority": 0.00003,
+    "regional_processing_uplift_multiplier_eu": 1.1,
+    "regional_processing_uplift_multiplier_us": 1.1,
     "supported_endpoints": [
       "/v1/chat/completions",
       "/v1/batch",
@@ -6141,6 +6147,8 @@
     "output_cost_per_token_batches": 0.00000225,
     "output_cost_per_token_flex": 0.00000225,
     "output_cost_per_token_priority": 0.000009,
+    "regional_processing_uplift_multiplier_eu": 1.1,
+    "regional_processing_uplift_multiplier_us": 1.1,
     "supported_endpoints": [
       "/v1/chat/completions",
       "/v1/batch",
@@ -6187,6 +6195,8 @@
     "output_cost_per_token_batches": 0.00000225,
     "output_cost_per_token_flex": 0.00000225,
     "output_cost_per_token_priority": 0.000009,
+    "regional_processing_uplift_multiplier_eu": 1.1,
+    "regional_processing_uplift_multiplier_us": 1.1,
     "supported_endpoints": [
       "/v1/chat/completions",
       "/v1/batch",
@@ -6230,6 +6240,8 @@
     "output_cost_per_token": 0.00000125,
     "output_cost_per_token_batches": 6.25e-7,
     "output_cost_per_token_flex": 6.25e-7,
+    "regional_processing_uplift_multiplier_eu": 1.1,
+    "regional_processing_uplift_multiplier_us": 1.1,
     "supported_endpoints": [
       "/v1/chat/completions",
       "/v1/batch",
@@ -6273,6 +6285,8 @@
     "output_cost_per_token": 0.00000125,
     "output_cost_per_token_batches": 6.25e-7,
     "output_cost_per_token_flex": 6.25e-7,
+    "regional_processing_uplift_multiplier_eu": 1.1,
+    "regional_processing_uplift_multiplier_us": 1.1,
     "supported_endpoints": [
       "/v1/chat/completions",
       "/v1/batch",
@@ -6317,6 +6331,8 @@
     "output_cost_per_token_above_272k_tokens": 0.00027,
     "output_cost_per_token_batches": 0.00009,
     "output_cost_per_token_flex": 0.00009,
+    "regional_processing_uplift_multiplier_eu": 1.1,
+    "regional_processing_uplift_multiplier_us": 1.1,
     "supported_endpoints": [
       "/v1/responses",
       "/v1/batch"
@@ -6360,6 +6376,8 @@
     "output_cost_per_token_above_272k_tokens": 0.00027,
     "output_cost_per_token_batches": 0.00009,
     "output_cost_per_token_flex": 0.00009,
+    "regional_processing_uplift_multiplier_eu": 1.1,
+    "regional_processing_uplift_multiplier_us": 1.1,
     "supported_endpoints": [
       "/v1/responses",
       "/v1/batch"
@@ -6407,6 +6425,8 @@
     "output_cost_per_token_batches": 0.000015,
     "output_cost_per_token_flex": 0.000015,
     "output_cost_per_token_priority": 0.00006,
+    "regional_processing_uplift_multiplier_eu": 1.1,
+    "regional_processing_uplift_multiplier_us": 1.1,
     "supported_endpoints": [
       "/v1/chat/completions",
       "/v1/batch",
@@ -6455,6 +6475,8 @@
     "output_cost_per_token_batches": 0.000015,
     "output_cost_per_token_flex": 0.000015,
     "output_cost_per_token_priority": 0.00006,
+    "regional_processing_uplift_multiplier_eu": 1.1,
+    "regional_processing_uplift_multiplier_us": 1.1,
     "supported_endpoints": [
       "/v1/chat/completions",
       "/v1/batch",
@@ -6499,6 +6521,8 @@
     "output_cost_per_token_above_272k_tokens": 0.00027,
     "output_cost_per_token_batches": 0.00009,
     "output_cost_per_token_flex": 0.00009,
+    "regional_processing_uplift_multiplier_eu": 1.1,
+    "regional_processing_uplift_multiplier_us": 1.1,
     "supported_endpoints": [
       "/v1/responses",
       "/v1/batch"
@@ -6543,6 +6567,8 @@
     "output_cost_per_token_above_272k_tokens": 0.00027,
     "output_cost_per_token_batches": 0.00009,
     "output_cost_per_token_flex": 0.00009,
+    "regional_processing_uplift_multiplier_eu": 1.1,
+    "regional_processing_uplift_multiplier_us": 1.1,
     "supported_endpoints": [
       "/v1/responses",
       "/v1/batch"
