@@ -19,6 +19,10 @@ DEFAULT_REDIS_HOST="localhost"
 DEFAULT_REDIS_PORT="6379"
 DEFAULT_REDIS_PASSWORD=""
 DEFAULT_APP_PORT="3000"
+DEFAULT_PM2_CLUSTER_NODE_MAX_OLD_SPACE_SIZE="2560"
+DEFAULT_PM2_CLUSTER_MAX_MEMORY_RESTART="3000M"
+DEFAULT_PM2_SINGLE_NODE_MAX_OLD_SPACE_SIZE="2560"
+DEFAULT_PM2_SINGLE_MAX_MEMORY_RESTART="3000M"
 
 # 全局变量
 INSTALL_DIR=""
@@ -910,6 +914,109 @@ has_instances_flag() {
     return 1
 }
 
+get_pm2_daemon_log_file() {
+    local pm2_home="${PM2_HOME:-$HOME/.pm2}"
+    echo "$pm2_home/pm2.log"
+}
+
+ensure_pm2_daemon_log() {
+    local pm2_log_file
+    pm2_log_file=$(get_pm2_daemon_log_file)
+    local pm2_log_dir
+    pm2_log_dir=$(dirname "$pm2_log_file")
+
+    mkdir -p "$pm2_log_dir" 2>/dev/null || true
+    touch "$pm2_log_file" 2>/dev/null || true
+    print_info "PM2 daemon 日志: $pm2_log_file"
+}
+
+get_pm2_node_memory() {
+    local pm2_instances="$1"
+    shift
+
+    local default_value
+    if [ "$pm2_instances" = "max" ] || { [[ "$pm2_instances" =~ ^[0-9]+$ ]] && [ "$pm2_instances" -gt 1 ]; }; then
+        default_value="${PM2_CLUSTER_NODE_MAX_OLD_SPACE_SIZE:-$DEFAULT_PM2_CLUSTER_NODE_MAX_OLD_SPACE_SIZE}"
+    else
+        default_value="${PM2_SINGLE_NODE_MAX_OLD_SPACE_SIZE:-$DEFAULT_PM2_SINGLE_NODE_MAX_OLD_SPACE_SIZE}"
+    fi
+
+    local args=("$@")
+    local index=0
+    while [ $index -lt ${#args[@]} ]; do
+        case "${args[$index]}" in
+            --node-memory|--max-old-space-size)
+                index=$((index + 1))
+                if [ $index -lt ${#args[@]} ]; then
+                    echo "${args[$index]}"
+                    return 0
+                fi
+                print_error "${args[$((index - 1))]} 需要指定 MB 数值，例如 --node-memory 1536" >&2
+                return 1
+                ;;
+            --node-memory=*|--max-old-space-size=*)
+                echo "${args[$index]#*=}"
+                return 0
+                ;;
+        esac
+        index=$((index + 1))
+    done
+
+    echo "$default_value"
+}
+
+get_pm2_max_memory_restart() {
+    local pm2_instances="$1"
+    shift
+
+    local default_value
+    if [ "$pm2_instances" = "max" ] || { [[ "$pm2_instances" =~ ^[0-9]+$ ]] && [ "$pm2_instances" -gt 1 ]; }; then
+        default_value="${PM2_CLUSTER_MAX_MEMORY_RESTART:-$DEFAULT_PM2_CLUSTER_MAX_MEMORY_RESTART}"
+    else
+        default_value="${PM2_SINGLE_MAX_MEMORY_RESTART:-$DEFAULT_PM2_SINGLE_MAX_MEMORY_RESTART}"
+    fi
+
+    local args=("$@")
+    local index=0
+    while [ $index -lt ${#args[@]} ]; do
+        case "${args[$index]}" in
+            --max-memory-restart)
+                index=$((index + 1))
+                if [ $index -lt ${#args[@]} ]; then
+                    echo "${args[$index]}"
+                    return 0
+                fi
+                print_error "--max-memory-restart 需要指定阈值，例如 --max-memory-restart 2300M" >&2
+                return 1
+                ;;
+            --max-memory-restart=*)
+                echo "${args[$index]#--max-memory-restart=}"
+                return 0
+                ;;
+        esac
+        index=$((index + 1))
+    done
+
+    echo "$default_value"
+}
+
+validate_pm2_memory_config() {
+    local node_memory="$1"
+    local max_memory_restart="$2"
+
+    if ! [[ "$node_memory" =~ ^[0-9]+$ ]] || [ "$node_memory" -lt 256 ]; then
+        print_error "--node-memory/--max-old-space-size 仅支持不小于 256 的 MB 整数"
+        return 1
+    fi
+
+    if ! [[ "$max_memory_restart" =~ ^[0-9]+([KkMmGg])?$ ]]; then
+        print_error "--max-memory-restart 仅支持数字或 K/M/G 后缀，例如 2300M"
+        return 1
+    fi
+
+    return 0
+}
+
 get_pm2_exec_mode() {
     if ! command_exists pm2; then
         return 1
@@ -942,10 +1049,56 @@ process.stdout.write(String(instances))
 "
 }
 
+pm2_memory_config_matches() {
+    local node_memory="$1"
+    local max_memory_restart="$2"
+
+    if ! command_exists pm2; then
+        return 1
+    fi
+
+    pm2 jlist 2>/dev/null | node -e "
+const fs = require('fs')
+const expectedHeap = process.argv[1]
+const expectedMax = process.argv[2]
+const input = fs.readFileSync(0, 'utf8')
+const apps = JSON.parse(input || '[]')
+const app = apps.find((item) => item.name === 'claude-relay')
+if (!app) process.exit(1)
+
+const nodeArgsRaw = app.pm2_env?.node_args || []
+const nodeArgs = Array.isArray(nodeArgsRaw) ? nodeArgsRaw : String(nodeArgsRaw).split(/\\s+/)
+const heapOk = nodeArgs.some(
+  (arg) =>
+    arg === '--max-old-space-size=' + expectedHeap ||
+    arg === '--max_old_space_size=' + expectedHeap
+)
+
+function toBytes(value) {
+  if (value === undefined || value === null || value === '') return null
+  if (typeof value === 'number') return Number.isFinite(value) ? value : null
+  const match = String(value).trim().toLowerCase().match(/^(\\d+(?:\\.\\d+)?)([kmgt]?b?)?$/)
+  if (!match) return null
+  const size = Number(match[1])
+  const unit = (match[2] || '').replace('b', '')
+  const factors = { '': 1, k: 1024, m: 1024 ** 2, g: 1024 ** 3, t: 1024 ** 4 }
+  return Math.round(size * (factors[unit] || 1))
+}
+
+const currentMax = app.pm2_env?.max_memory_restart
+const maxOk = toBytes(currentMax) === toBytes(expectedMax)
+if (!heapOk || !maxOk) process.exit(1)
+" "$node_memory" "$max_memory_restart"
+}
+
 recreate_pm2_service() {
     local pm2_instances="$1"
+    local node_memory="$2"
+    local max_memory_restart="$3"
 
     pm2 delete claude-relay 2>/dev/null || true
+    ensure_pm2_daemon_log
+    print_info "PM2 内存参数: --max-old-space-size=${node_memory}MB, --max-memory-restart=${max_memory_restart}"
 
     local pm2_args=(
         start
@@ -956,6 +1109,10 @@ recreate_pm2_service() {
         "$APP_DIR/logs/pm2-out.log"
         --error
         "$APP_DIR/logs/pm2-error.log"
+        --node-args
+        "--max-old-space-size=$node_memory"
+        --max-memory-restart
+        "$max_memory_restart"
         --merge-logs
     )
 
@@ -1020,17 +1177,38 @@ start_service() {
     if command_exists pm2 && [ "$use_pm2" = true ]; then
         print_info "使用 pm2 启动服务..."
 
+        local pm2_node_memory
+        local pm2_max_memory_restart
+        if ! pm2_node_memory=$(get_pm2_node_memory "$pm2_instances" "$@"); then
+            return 1
+        fi
+        if ! pm2_max_memory_restart=$(get_pm2_max_memory_restart "$pm2_instances" "$@"); then
+            return 1
+        fi
+        if ! validate_pm2_memory_config "$pm2_node_memory" "$pm2_max_memory_restart"; then
+            return 1
+        fi
+
         if pm2 describe claude-relay >/dev/null 2>&1; then
             print_info "检测到现有 pm2 应用，复用已有配置启动..."
 
             local exec_mode
             exec_mode=$(get_pm2_exec_mode 2>/dev/null || true)
 
+            local recreate_required=false
             if { [ "$pm2_instances" = "max" ] || { [[ "$pm2_instances" =~ ^[0-9]+$ ]] && [ "$pm2_instances" -gt 1 ]; }; } \
                 && [ "$exec_mode" != "cluster_mode" ]; then
                 print_info "现有 pm2 应用不是 cluster 模式，重新创建以支持多实例..."
-                recreate_pm2_service "$pm2_instances"
+                recreate_required=true
+            elif ! pm2_memory_config_matches "$pm2_node_memory" "$pm2_max_memory_restart"; then
+                print_info "现有 pm2 应用内存参数不匹配，重新创建以应用新配置..."
+                recreate_required=true
+            fi
+
+            if [ "$recreate_required" = true ]; then
+                recreate_pm2_service "$pm2_instances" "$pm2_node_memory" "$pm2_max_memory_restart"
             else
+                ensure_pm2_daemon_log
                 if [[ "$pm2_instances" =~ ^[0-9]+$ ]]; then
                     pm2 scale claude-relay "$pm2_instances" >/dev/null 2>&1 || true
                 fi
@@ -1042,7 +1220,7 @@ start_service() {
                 fi
             fi
         else
-            recreate_pm2_service "$pm2_instances"
+            recreate_pm2_service "$pm2_instances" "$pm2_node_memory" "$pm2_max_memory_restart"
         fi
         sleep 2
 
@@ -1191,15 +1369,37 @@ restart_service() {
 
     if command_exists pm2 && [ "$use_pm2" = true ] && [ -n "$APP_DIR" ] && [ -d "$APP_DIR" ]; then
         cd "$APP_DIR" 2>/dev/null
+
+        local pm2_node_memory
+        local pm2_max_memory_restart
+        if ! pm2_node_memory=$(get_pm2_node_memory "$pm2_instances" "$@"); then
+            return 1
+        fi
+        if ! pm2_max_memory_restart=$(get_pm2_max_memory_restart "$pm2_instances" "$@"); then
+            return 1
+        fi
+        if ! validate_pm2_memory_config "$pm2_node_memory" "$pm2_max_memory_restart"; then
+            return 1
+        fi
+
         if pm2 describe claude-relay >/dev/null 2>&1; then
             local exec_mode
             exec_mode=$(get_pm2_exec_mode 2>/dev/null || true)
 
+            local recreate_required=false
             if { [ "$pm2_instances" = "max" ] || { [[ "$pm2_instances" =~ ^[0-9]+$ ]] && [ "$pm2_instances" -gt 1 ]; }; } \
                 && [ "$exec_mode" != "cluster_mode" ]; then
                 print_info "现有 pm2 应用不是 cluster 模式，重新创建以支持多实例..."
-                recreate_pm2_service "$pm2_instances"
+                recreate_required=true
+            elif ! pm2_memory_config_matches "$pm2_node_memory" "$pm2_max_memory_restart"; then
+                print_info "现有 pm2 应用内存参数不匹配，重新创建以应用新配置..."
+                recreate_required=true
+            fi
+
+            if [ "$recreate_required" = true ]; then
+                recreate_pm2_service "$pm2_instances" "$pm2_node_memory" "$pm2_max_memory_restart"
             else
+                ensure_pm2_daemon_log
                 if [ "$pm2_instances" = "max" ]; then
                     print_info "重载 pm2 cluster 服务，实例数: max"
                     pm2 reload claude-relay --update-env
@@ -1216,6 +1416,14 @@ restart_service() {
                 fi
             fi
 
+            sleep 2
+            if pm2 list 2>/dev/null | grep -q "claude-relay"; then
+                print_success "服务已通过 pm2 重启"
+                pm2 save 2>/dev/null || true
+                return 0
+            fi
+        else
+            recreate_pm2_service "$pm2_instances" "$pm2_node_memory" "$pm2_max_memory_restart"
             sleep 2
             if pm2 list 2>/dev/null | grep -q "claude-relay"; then
                 print_success "服务已通过 pm2 重启"
@@ -1576,6 +1784,13 @@ show_status() {
     elif [ -d "$DEFAULT_INSTALL_DIR" ]; then
         echo -e "\n安装目录: $DEFAULT_INSTALL_DIR"
     fi
+
+    if command_exists pm2; then
+        echo -e "\nPM2 日志:"
+        echo "  daemon: $(get_pm2_daemon_log_file)"
+        echo "  stdout: $APP_DIR/logs/pm2-out.log"
+        echo "  stderr: $APP_DIR/logs/pm2-error.log"
+    fi
     
     # Redis状态
     if command_exists redis-cli; then
@@ -1601,7 +1816,6 @@ show_status() {
     echo -e "\n${BLUE}===========================${NC}"
 }
 
-# 轮转日志（无需重启服务）
 rotate_logs() {
     if ! check_installation; then
         print_error "服务未安装，请先运行: $0 install"
@@ -1614,45 +1828,43 @@ rotate_logs() {
 
     if [ ! -f "$log_file" ]; then
         print_warning "日志文件不存在: $log_file"
-        return 0
-    fi
-
-    local file_size=$(du -k "$log_file" 2>/dev/null | cut -f1)
-    if [ "${file_size:-0}" -eq 0 ]; then
-        print_info "日志文件已为空，无需轮转"
-        return 0
-    fi
-
-    local archive="$log_dir/service-$(date +%Y%m%d-%H%M%S).log"
-
-    # 压缩存档当前日志
-    if command_exists gzip; then
-        cp "$log_file" "$archive"
-        gzip -f "$archive"
-        archive="${archive}.gz"
-        print_success "已归档: $archive"
     else
-        cp "$log_file" "$archive"
-        print_success "已归档: $archive"
-    fi
+        local file_size=$(du -k "$log_file" 2>/dev/null | cut -f1)
+        if [ "${file_size:-0}" -eq 0 ]; then
+            print_info "日志文件已为空，无需轮转"
+        else
+            local archive="$log_dir/service-$(date +%Y%m%d-%H%M%S).log"
 
-    # 清空原文件（进程 fd 不变，无需重启）
-    truncate -s 0 "$log_file" 2>/dev/null || : > "$log_file"
-    print_success "日志已清空，服务继续写入 service.log"
+            # 压缩存档当前日志
+            if command_exists gzip; then
+                cp "$log_file" "$archive"
+                gzip -f "$archive"
+                archive="${archive}.gz"
+                print_success "已归档: $archive"
+            else
+                cp "$log_file" "$archive"
+                print_success "已归档: $archive"
+            fi
 
-    # 清理超出保留数量的旧归档
-    local archives
-    if command_exists gzip; then
-        archives=$(ls -t "$log_dir"/service-*.log.gz 2>/dev/null)
-    else
-        archives=$(ls -t "$log_dir"/service-*.log 2>/dev/null | grep -v "^${log_file}$")
-    fi
+            # 清空原文件（进程 fd 不变，无需重启）
+            truncate -s 0 "$log_file" 2>/dev/null || : > "$log_file"
+            print_success "日志已清空，服务继续写入 service.log"
+        fi
 
-    if [ -n "$archives" ]; then
-        echo "$archives" | tail -n "+$((keep + 1))" | while read -r old_file; do
-            rm -f "$old_file"
-            print_info "已删除旧归档: $old_file"
-        done
+        # 清理超出保留数量的旧归档
+        local archives
+        if command_exists gzip; then
+            archives=$(ls -t "$log_dir"/service-*.log.gz 2>/dev/null)
+        else
+            archives=$(ls -t "$log_dir"/service-*.log 2>/dev/null | grep -v "^${log_file}$")
+        fi
+
+        if [ -n "$archives" ]; then
+            echo "$archives" | tail -n "+$((keep + 1))" | while read -r old_file; do
+                rm -f "$old_file"
+                print_info "已删除旧归档: $old_file"
+            done
+        fi
     fi
 
     echo ""
@@ -1668,23 +1880,28 @@ show_help() {
     echo "Claude Relay Service 管理脚本"
     echo ""
     echo "用法: $0 [命令]"
-    echo "      $0 start [--no-pm2] [--instances N|max] [--log-output|--no-log-output]"
-    echo "      $0 restart [--no-pm2] [--instances N|max] [--log-output|--no-log-output]"
-    echo "      $0 update [--no-pm2] [--instances N|max] [--log-output|--no-log-output]"
+    echo "      $0 start [--no-pm2] [--instances N|max] [--node-memory MB] [--max-memory-restart SIZE] [--log-output|--no-log-output]"
+    echo "      $0 restart [--no-pm2] [--instances N|max] [--node-memory MB] [--max-memory-restart SIZE] [--log-output|--no-log-output]"
+    echo "      $0 update [--no-pm2] [--instances N|max] [--node-memory MB] [--max-memory-restart SIZE] [--log-output|--no-log-output]"
     echo ""
     echo "命令:"
     echo "  install        - 安装服务"
     echo "  update         - 更新服务"
     echo "  uninstall      - 卸载服务"
-    echo "  start          - 启动服务（pm2 支持 --instances 多核，直启默认不写 service.log）"
+    echo "  start          - 启动服务（pm2 支持 --instances、多进程内存限制，直启默认不写 service.log）"
     echo "  stop           - 停止服务"
     echo "  restart        - 重启服务（支持透传启动参数）"
     echo "  status         - 查看状态"
     echo "  switch-branch  - 切换分支"
     echo "  update-pricing - 更新模型价格数据"
-    echo "  rotate-log     - 轮转日志（无需重启服务，默认保留7个归档）"
+    echo "  rotate-log     - 轮转 service.log（无需重启服务，默认保留7个归档）"
     echo "  symlink        - 创建 crs 快捷命令"
     echo "  help           - 显示帮助"
+    echo ""
+    echo "pm2 内存默认值:"
+    echo "  多实例: --node-memory ${PM2_CLUSTER_NODE_MAX_OLD_SPACE_SIZE:-$DEFAULT_PM2_CLUSTER_NODE_MAX_OLD_SPACE_SIZE}, --max-memory-restart ${PM2_CLUSTER_MAX_MEMORY_RESTART:-$DEFAULT_PM2_CLUSTER_MAX_MEMORY_RESTART}"
+    echo "  单实例: --node-memory ${PM2_SINGLE_NODE_MAX_OLD_SPACE_SIZE:-$DEFAULT_PM2_SINGLE_NODE_MAX_OLD_SPACE_SIZE}, --max-memory-restart ${PM2_SINGLE_MAX_MEMORY_RESTART:-$DEFAULT_PM2_SINGLE_MAX_MEMORY_RESTART}"
+    echo "  PM2 daemon 日志: $(get_pm2_daemon_log_file)"
     echo ""
 }
 
