@@ -58,6 +58,32 @@ describe('deepseekPlatform', () => {
     })
   })
 
+  describe('buildCompletionsUrl', () => {
+    test('appends beta completions path to bare base', () => {
+      expect(platform.buildCompletionsUrl('https://api.deepseek.com')).toBe(
+        'https://api.deepseek.com/beta/completions'
+      )
+    })
+
+    test('appends /completions to beta base', () => {
+      expect(platform.buildCompletionsUrl('https://api.deepseek.com/beta')).toBe(
+        'https://api.deepseek.com/beta/completions'
+      )
+    })
+
+    test('returns full completions url as-is', () => {
+      expect(platform.buildCompletionsUrl('https://api.deepseek.com/beta/completions')).toBe(
+        'https://api.deepseek.com/beta/completions'
+      )
+    })
+
+    test('converts /v1 suffix to beta completions url', () => {
+      expect(platform.buildCompletionsUrl('https://api.deepseek.com/v1')).toBe(
+        'https://api.deepseek.com/beta/completions'
+      )
+    })
+  })
+
   describe('buildAnthropicMessagesUrl', () => {
     test('appends anthropic path to bare base', () => {
       expect(platform.buildAnthropicMessagesUrl('https://api.deepseek.com')).toBe(
@@ -182,8 +208,7 @@ describe('deepseekPlatform', () => {
         prompt_cache_hit_tokens: 40,
         prompt_cache_miss_tokens: 0
       })
-      // hasCacheBreakdown is true (hitTokens > 0), input = max(0, missTokens) = 0
-      expect(result.input_tokens).toBe(0)
+      expect(result.input_tokens).toBe(60)
       expect(result.cache_read_input_tokens).toBe(40)
     })
   })
@@ -391,11 +416,13 @@ describe('DeepSeekAccountService — pure logic', () => {
 
       const result = await service.createAccount({
         apiKey: 'sk-deepseek-key',
-        name: 'Test DeepSeek'
+        name: 'Test DeepSeek',
+        codeCompletionBaseApi: 'https://api.deepseek.com/beta/'
       })
       expect(result.apiKey).toBe('***')
       expect(result.name).toBe('Test DeepSeek')
       expect(result.platform).toBe('deepseek')
+      expect(result.codeCompletionBaseApi).toBe('https://api.deepseek.com/beta')
     })
   })
 })
@@ -444,7 +471,8 @@ describe('DeepSeekRelayService — helper methods', () => {
     }))
     jest.doMock('../src/utils/userInputExtractor', () => ({
       buildUsageMetadata: jest.fn(() => ({})),
-      buildInputMessagesBlock: jest.fn(() => null)
+      buildInputMessagesBlock: jest.fn(() => null),
+      buildInputPromptBlock: jest.fn(() => null)
     }))
     jest.doMock('../src/services/apiKeyService', () => ({
       hasPermission: jest.fn(() => true),
@@ -581,6 +609,24 @@ describe('DeepSeekRelayService — helper methods', () => {
       const body = { model: 'deepseek-chat', messages: [] }
       svc._buildRequestBody(body, 'deepseek-v4-flash')
       expect(body.model).toBe('deepseek-chat')
+    })
+  })
+
+  describe('_buildCompletionRequestBody', () => {
+    test('sets mapped model on completion body', () => {
+      const result = svc._buildCompletionRequestBody(
+        { model: 'deepseek-v4-pro', prompt: 'pre', suffix: 'post' },
+        'deepseek-v4-pro'
+      )
+      expect(result.model).toBe('deepseek-v4-pro')
+    })
+
+    test('adds stream_options.include_usage for completion streaming', () => {
+      const result = svc._buildCompletionRequestBody(
+        { model: 'deepseek-v4-pro', prompt: 'pre', stream: true },
+        'deepseek-v4-pro'
+      )
+      expect(result.stream_options).toMatchObject({ include_usage: true })
     })
   })
 
@@ -901,6 +947,84 @@ describe('DeepSeekRelayService — helper methods', () => {
     })
   })
 
+  describe('handleCompletions — forwarding paths', () => {
+    test('forwards completions to code completion endpoint and completion handler', async () => {
+      const crypto = require('crypto')
+      const axios = require('axios')
+      const platform = require('../src/services/deepseekPlatform')
+      const deepseekAccountService = require('../src/services/account/deepseekAccountService')
+      const unifiedDeepSeekScheduler = require('../src/services/scheduler/unifiedDeepSeekScheduler')
+
+      unifiedDeepSeekScheduler.selectAccountForApiKey.mockResolvedValue({
+        accountId: 'acc-ds-official-1'
+      })
+      deepseekAccountService.getAccount.mockResolvedValue({
+        id: 'acc-ds-official-1',
+        name: 'DeepSeek Official',
+        apiKey: 'secret-key',
+        baseApi: 'https://proxy.deepseek.example/v1',
+        codeCompletionBaseApi: 'https://api.deepseek.com/beta',
+        supportedModels: { 'deepseek-v4-pro': 'deepseek-v4-pro' },
+        proxy: null
+      })
+      deepseekAccountService.getMappedModel.mockReturnValue('deepseek-v4-pro')
+
+      const upstreamResponse = { status: 200, data: { ok: true, usage: { prompt_tokens: 1 } } }
+      axios.post.mockResolvedValue(upstreamResponse)
+
+      const completionHandlerSpy = jest
+        .spyOn(svc, '_handleCompletionJsonResponse')
+        .mockResolvedValue({ handled: 'completion' })
+
+      const req = {
+        apiKey: { id: 'key-1', permissions: ['deepseek'] },
+        body: { model: 'deepseek-v4-pro', prompt: 'prefix', suffix: 'suffix' },
+        headers: { 'x-session-id': 'sess-completion-1' },
+        once: jest.fn(),
+        on: jest.fn()
+      }
+      const res = {
+        once: jest.fn(),
+        status: jest.fn().mockReturnThis(),
+        json: jest.fn().mockReturnThis()
+      }
+
+      const result = await svc.handleCompletions(req, res)
+      const sessionHash = crypto.createHash('sha256').update('sess-completion-1').digest('hex')
+
+      expect(unifiedDeepSeekScheduler.selectAccountForApiKey).toHaveBeenCalledWith(
+        req.apiKey,
+        sessionHash,
+        'deepseek-v4-pro',
+        'completion'
+      )
+      expect(axios.post).toHaveBeenCalledWith(
+        platform.buildCompletionsUrl('https://api.deepseek.com/beta'),
+        expect.objectContaining({
+          model: 'deepseek-v4-pro',
+          prompt: 'prefix',
+          suffix: 'suffix'
+        }),
+        expect.objectContaining({
+          headers: expect.objectContaining({
+            Authorization: 'Bearer secret-key'
+          })
+        })
+      )
+      expect(completionHandlerSpy).toHaveBeenCalledWith(
+        req,
+        res,
+        expect.objectContaining({
+          upstreamResponse,
+          accountId: 'acc-ds-official-1',
+          requestedModel: 'deepseek-v4-pro',
+          sessionHash
+        })
+      )
+      expect(result).toEqual({ handled: 'completion' })
+    })
+  })
+
   describe('internal response lifecycle helpers', () => {
     const { EventEmitter } = require('events')
 
@@ -1186,7 +1310,8 @@ describe('DeepSeekRelayService — helper methods', () => {
       } = require('../src/utils/requestDetailHelper')
       const {
         buildUsageMetadata,
-        buildInputMessagesBlock
+        buildInputMessagesBlock,
+        buildInputPromptBlock
       } = require('../src/utils/userInputExtractor')
 
       buildInputMessagesBlock.mockReturnValue({
@@ -1242,7 +1367,8 @@ describe('DeepSeekRelayService — helper methods', () => {
       const apiKeyService = require('../src/services/apiKeyService')
       const {
         buildUsageMetadata,
-        buildInputMessagesBlock
+        buildInputMessagesBlock,
+        buildInputPromptBlock
       } = require('../src/utils/userInputExtractor')
 
       buildInputMessagesBlock.mockClear()
@@ -1275,6 +1401,33 @@ describe('DeepSeekRelayService — helper methods', () => {
           assistantContent: [{ type: 'text', text: 'done' }]
         })
       )
+
+      buildInputMessagesBlock.mockClear()
+      buildInputPromptBlock.mockClear()
+      buildUsageMetadata.mockClear()
+
+      await svc._recordUsage(req, {
+        usage: { prompt_tokens: 3, completion_tokens: 2 },
+        body: { prompt: 'prefix', suffix: 'suffix' },
+        model: 'deepseek-v4-pro',
+        accountId: 'acc-ds-1',
+        sessionHash: 'hashed-session',
+        stream: false,
+        statusCode: 200,
+        protocol: 'completion',
+        requestedModel: 'deepseek-v4-pro'
+      })
+
+      expect(buildInputMessagesBlock).not.toHaveBeenCalled()
+      expect(buildInputPromptBlock).toHaveBeenCalledWith({
+        prompt: 'prefix',
+        suffix: 'suffix'
+      })
+      expect(buildUsageMetadata).toHaveBeenCalledWith(
+        expect.objectContaining({
+          format: 'completion'
+        })
+      )
     })
 
     test('marks unauthorized, rate-limited and canceled upstream errors correctly', async () => {
@@ -1287,14 +1440,19 @@ describe('DeepSeekRelayService — helper methods', () => {
         'acc-ds-1',
         'DeepSeek upstream auth failed (401)'
       )
-      expect(unifiedDeepSeekScheduler.clearSessionMapping).toHaveBeenCalledWith('session-hash')
+      expect(unifiedDeepSeekScheduler.clearSessionMapping).toHaveBeenCalledWith(
+        'session-hash',
+        'chat'
+      )
       unifiedDeepSeekScheduler.markAccountUnauthorized.mockClear()
       unifiedDeepSeekScheduler.clearSessionMapping.mockClear()
 
       await svc._handleUpstreamStatus(429, { error: 'rate limited' }, 'acc-ds-1', 'session-hash')
       expect(unifiedDeepSeekScheduler.markAccountRateLimited).toHaveBeenCalledWith(
         'acc-ds-1',
-        'session-hash'
+        'session-hash',
+        null,
+        'chat'
       )
 
       await svc._handleUpstreamStatus(
@@ -1311,7 +1469,10 @@ describe('DeepSeekRelayService — helper methods', () => {
         { response: { error: { message: 'Insufficient Balance', code: 'insufficient_balance' } } }
       )
       expect(unifiedDeepSeekScheduler.markAccountUnauthorized).not.toHaveBeenCalled()
-      expect(unifiedDeepSeekScheduler.clearSessionMapping).toHaveBeenCalledWith('session-hash')
+      expect(unifiedDeepSeekScheduler.clearSessionMapping).toHaveBeenCalledWith(
+        'session-hash',
+        'chat'
+      )
 
       await svc._handleUpstreamStatus(529, { error: 'overloaded' }, 'acc-ds-1', 'session-hash')
       expect(upstreamErrorHelper.markTempUnavailable).toHaveBeenCalledWith(

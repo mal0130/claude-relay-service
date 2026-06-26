@@ -2039,6 +2039,22 @@
                 </p>
               </div>
 
+              <div>
+                <label class="mb-3 block text-sm font-semibold text-gray-700 dark:text-gray-300"
+                  >代码补全接口地址（可选）</label
+                >
+                <input
+                  v-model="form.codeCompletionBaseApi"
+                  class="form-input w-full border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200 dark:placeholder-gray-400"
+                  placeholder="https://api.deepseek.com/beta"
+                  type="url"
+                />
+                <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                  留空表示该账号不支持代码补全。支持填写
+                  <code>.../beta</code>、<code>.../beta/completions</code> 或官方根地址。
+                </p>
+              </div>
+
               <input v-model.number="form.rateLimitDuration" type="hidden" value="60" />
 
               <!-- 模型映射配置 -->
@@ -4534,6 +4550,21 @@
               <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">留空表示不更新 API Key</p>
             </div>
 
+            <div>
+              <label class="mb-3 block text-sm font-semibold text-gray-700 dark:text-gray-300"
+                >代码补全接口地址（可选）</label
+              >
+              <input
+                v-model="form.codeCompletionBaseApi"
+                class="form-input w-full border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200"
+                placeholder="https://api.deepseek.com/beta"
+                type="url"
+              />
+              <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                留空表示该账号不支持代码补全；填写后仅此账号可参与 DeepSeek 补全调度。
+              </p>
+            </div>
+
             <div class="grid grid-cols-2 gap-4">
               <div>
                 <label class="mb-3 block text-sm font-semibold text-gray-700 dark:text-gray-300">
@@ -6065,6 +6096,7 @@ const form = ref({
   baseApi:
     props.account?.baseApi ||
     (props.account?.platform === 'deepseek' ? DEEPSEEK_DEFAULT_BASE_API : ''),
+  codeCompletionBaseApi: props.account?.codeCompletionBaseApi || '',
   providerEndpoint: props.account?.providerEndpoint || 'responses',
   // Gemini-API 特定字段
   baseUrl: props.account?.baseUrl || 'https://generativelanguage.googleapis.com',
@@ -7294,6 +7326,7 @@ const createAccount = async () => {
       data.quotaResetTime = form.value.quotaResetTime || '00:00'
     } else if (form.value.platform === 'deepseek') {
       data.baseApi = form.value.baseApi || DEEPSEEK_DEFAULT_BASE_API
+      data.codeCompletionBaseApi = form.value.codeCompletionBaseApi || ''
       data.apiKey = form.value.apiKey
       data.priority = form.value.priority || 50
       data.rateLimitDuration = form.value.rateLimitDuration || 60
@@ -7718,6 +7751,7 @@ const updateAccount = async () => {
 
     if (props.account.platform === 'deepseek') {
       data.baseApi = form.value.baseApi || DEEPSEEK_DEFAULT_BASE_API
+      data.codeCompletionBaseApi = form.value.codeCompletionBaseApi || ''
       if (form.value.apiKey && form.value.apiKey.trim()) {
         data.apiKey = form.value.apiKey
       }
@@ -8431,6 +8465,7 @@ watch(
         deploymentName: newAccount.deploymentName || '',
         // OpenAI-Responses 特定字段
         baseApi: newAccount.baseApi || '',
+        codeCompletionBaseApi: newAccount.codeCompletionBaseApi || '',
         providerEndpoint: newAccount.providerEndpoint || 'responses',
         // Gemini-API 特定字段
         baseUrl: newAccount.baseUrl || 'https://generativelanguage.googleapis.com',

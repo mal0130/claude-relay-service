@@ -25,12 +25,17 @@ function extractUserInput(body, format = 'anthropic') {
       case 'openai':
         result = extractFromOpenAI(body)
         break
+      case 'completion':
+        result = extractFromCompletion(body)
+        break
       case 'gemini':
         result = extractFromGemini(body)
         break
       default:
         if (body.contents) {
           result = extractFromGemini(body)
+        } else if (body.prompt !== undefined || body.suffix !== undefined) {
+          result = extractFromCompletion(body)
         } else if (body.input || body.messages) {
           result = extractFromOpenAI(body)
         }
@@ -115,6 +120,24 @@ function extractFromOpenAI(body) {
         result.push(text)
       }
     }
+  }
+
+  return result
+}
+
+function extractFromCompletion(body) {
+  if (!body || typeof body !== 'object') {
+    return []
+  }
+
+  const result = []
+
+  if (typeof body.prompt === 'string' && body.prompt) {
+    result.push(body.prompt)
+  }
+
+  if (typeof body.suffix === 'string' && body.suffix) {
+    result.push(body.suffix)
   }
 
   return result
@@ -406,11 +429,43 @@ function buildInputMessagesBlock(body) {
   return { type: 'input_messages', messages }
 }
 
+function buildInputPromptBlock(body) {
+  if (process.env.STORE_INPUT_MESSAGES === 'false') {
+    return null
+  }
+
+  if (!body || typeof body !== 'object') {
+    return null
+  }
+
+  const prompt = typeof body.prompt === 'string' ? body.prompt : null
+  const suffix = typeof body.suffix === 'string' ? body.suffix : null
+
+  if (!prompt && !suffix) {
+    return null
+  }
+
+  const block = {
+    type: 'input_prompt'
+  }
+
+  if (prompt) {
+    block.prompt = prompt
+  }
+
+  if (suffix) {
+    block.suffix = suffix
+  }
+
+  return block
+}
+
 module.exports = {
   extractUserInput,
   extractUserIp,
   extractProcessType,
   buildUsageMetadata,
   classifyProjectType,
-  buildInputMessagesBlock
+  buildInputMessagesBlock,
+  buildInputPromptBlock
 }

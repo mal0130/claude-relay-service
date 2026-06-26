@@ -1,5 +1,6 @@
 const DEEPSEEK_DEFAULT_BASE_API = 'https://api.deepseek.com'
 const DEEPSEEK_DEFAULT_MODEL = 'deepseek-v4-flash'
+const DEEPSEEK_COMPLETION_DEFAULT_MODEL = 'deepseek-v4-pro'
 
 const DEEPSEEK_PLATFORM = {
   key: 'deepseek',
@@ -12,6 +13,7 @@ const DEEPSEEK_PLATFORM = {
   protocol: 'openai-compatible-chat',
   protocols: ['openai-compatible-chat', 'anthropic-messages'],
   chatPath: '/chat/completions',
+  completionPath: '/beta/completions',
   anthropicMessagesPath: '/anthropic/v1/messages',
   modelPatterns: ['deepseek-*'],
   modelAliases: {
@@ -35,6 +37,41 @@ function normalizeBaseApi(baseApi = DEEPSEEK_DEFAULT_BASE_API) {
 
 function buildChatCompletionsUrl(baseApi) {
   return `${normalizeBaseApi(baseApi)}${DEEPSEEK_PLATFORM.chatPath}`
+}
+
+function normalizeOptionalBaseApi(baseApi) {
+  if (baseApi === undefined || baseApi === null) {
+    return ''
+  }
+
+  const value = String(baseApi).trim()
+  if (!value) {
+    return ''
+  }
+
+  return value.endsWith('/') ? value.slice(0, -1) : value
+}
+
+function buildCompletionsUrl(baseApi) {
+  const normalized = normalizeOptionalBaseApi(baseApi)
+
+  if (!normalized) {
+    return ''
+  }
+
+  if (normalized.endsWith('/beta/completions') || normalized.endsWith('/completions')) {
+    return normalized
+  }
+
+  if (normalized.endsWith('/beta')) {
+    return `${normalized}/completions`
+  }
+
+  if (normalized.endsWith('/v1')) {
+    return `${normalized.slice(0, -3)}${DEEPSEEK_PLATFORM.completionPath}`
+  }
+
+  return `${normalized}${DEEPSEEK_PLATFORM.completionPath}`
 }
 
 function buildAnthropicMessagesUrl(baseApi) {
@@ -117,8 +154,11 @@ module.exports = {
   DEEPSEEK_PLATFORM,
   DEEPSEEK_DEFAULT_BASE_API,
   DEEPSEEK_DEFAULT_MODEL,
+  DEEPSEEK_COMPLETION_DEFAULT_MODEL,
   normalizeBaseApi,
+  normalizeOptionalBaseApi,
   buildChatCompletionsUrl,
+  buildCompletionsUrl,
   buildAnthropicMessagesUrl,
   isDeepSeekModel,
   normalizeDeepSeekModel,

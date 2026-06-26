@@ -6,7 +6,8 @@ const upstreamErrorHelper = require('../../utils/upstreamErrorHelper')
 const {
   DEEPSEEK_PLATFORM,
   DEEPSEEK_DEFAULT_BASE_API,
-  normalizeBaseApi
+  normalizeBaseApi,
+  normalizeOptionalBaseApi
 } = require('../deepseekPlatform')
 
 const encryptor = createEncryptor('deepseek-api-salt')
@@ -23,6 +24,7 @@ class DeepSeekAccountService {
       name = 'DeepSeek Account',
       description = '',
       baseApi = DEEPSEEK_DEFAULT_BASE_API,
+      codeCompletionBaseApi = '',
       apiKey = '',
       priority = 50,
       proxy = null,
@@ -50,6 +52,7 @@ class DeepSeekAccountService {
       name,
       description,
       baseApi: normalizeBaseApi(baseApi),
+      codeCompletionBaseApi: normalizeOptionalBaseApi(codeCompletionBaseApi),
       apiKey: encryptor.encrypt(apiKey),
       priority: priority.toString(),
       proxy: proxy ? JSON.stringify(proxy) : '',
@@ -89,6 +92,7 @@ class DeepSeekAccountService {
 
     accountData.apiKey = encryptor.decrypt(accountData.apiKey)
     accountData.baseApi = normalizeBaseApi(accountData.baseApi)
+    accountData.codeCompletionBaseApi = normalizeOptionalBaseApi(accountData.codeCompletionBaseApi)
 
     if (accountData.proxy) {
       try {
@@ -129,6 +133,12 @@ class DeepSeekAccountService {
 
     if (normalizedUpdates.baseApi !== undefined) {
       normalizedUpdates.baseApi = normalizeBaseApi(normalizedUpdates.baseApi)
+    }
+
+    if (normalizedUpdates.codeCompletionBaseApi !== undefined) {
+      normalizedUpdates.codeCompletionBaseApi = normalizeOptionalBaseApi(
+        normalizedUpdates.codeCompletionBaseApi
+      )
     }
 
     if (normalizedUpdates.disableAutoProtection !== undefined) {
@@ -210,6 +220,9 @@ class DeepSeekAccountService {
 
       accountData.apiKey = '***'
       accountData.baseApi = normalizeBaseApi(accountData.baseApi)
+      accountData.codeCompletionBaseApi = normalizeOptionalBaseApi(
+        accountData.codeCompletionBaseApi
+      )
       accountData.platform = accountData.platform || 'deepseek'
       accountData.accountSubType = accountData.accountSubType || DEEPSEEK_PLATFORM.accountSubType
 

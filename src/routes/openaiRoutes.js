@@ -221,10 +221,10 @@ function logOpenAIUpstreamError(status, accountId, requestedModel, payload) {
 function sanitizeOpenAIErrorResponse(status, errorData, fallbackError = null) {
   const source = errorData ||
     fallbackError || {
-    error: {
-      message: getSafeMessage({ response: { status } })
+      error: {
+        message: getSafeMessage({ response: { status } })
+      }
     }
-  }
 
   const sanitized = sanitizeErrorForClient(source)
   const hasSanitizedMessage =
@@ -622,7 +622,7 @@ const handleResponses = async (req, res) => {
     }
 
     // 使用调度器选择账户
-    ; ({ accessToken, accountId, accountType, proxy, account } = await getOpenAIAuthToken(
+    ;({ accessToken, accountId, accountType, proxy, account } = await getOpenAIAuthToken(
       apiKeyData,
       sessionId,
       schedulerModel
@@ -853,8 +853,8 @@ const handleResponses = async (req, res) => {
           typeof rawErrorResponse === 'string' && rawErrorResponse.trim()
             ? rawErrorResponse.trim()
             : rawErrorResponse.error &&
-              typeof rawErrorResponse.error.message === 'string' &&
-              rawErrorResponse.error.message.trim()
+                typeof rawErrorResponse.error.message === 'string' &&
+                rawErrorResponse.error.message.trim()
               ? rawErrorResponse.error.message.trim()
               : typeof rawErrorResponse.message === 'string' && rawErrorResponse.message.trim()
                 ? rawErrorResponse.message.trim()
@@ -1280,10 +1280,10 @@ const handleResponses = async (req, res) => {
           ? {}
           : completedResponse || completedOutputItems.length
             ? {
-              response: completedResponse
-                ? { ...completedResponse, output: completedOutputItems }
-                : { output: completedOutputItems }
-            }
+                response: completedResponse
+                  ? { ...completedResponse, output: completedOutputItems }
+                  : { output: completedOutputItems }
+              }
             : streamErrors.length
               ? { streamErrors }
               : {}

@@ -11,19 +11,25 @@ const {
   buildCompletionUsageSummary,
   formatCompletionUsageLog
 } = require('../../utils/requestDetailHelper')
-const { buildUsageMetadata, buildInputMessagesBlock } = require('../../utils/userInputExtractor')
+const {
+  buildUsageMetadata,
+  buildInputMessagesBlock,
+  buildInputPromptBlock
+} = require('../../utils/userInputExtractor')
 const apiKeyService = require('../apiKeyService')
 const deepseekAccountService = require('../account/deepseekAccountService')
 const unifiedDeepSeekScheduler = require('../scheduler/unifiedDeepSeekScheduler')
 const upstreamErrorHelper = require('../../utils/upstreamErrorHelper')
 const {
   buildChatCompletionsUrl,
+  buildCompletionsUrl,
   buildAnthropicMessagesUrl,
   normalizeDeepSeekUsage,
   normalizeDeepSeekAnthropicUsage,
   isDeepSeekModel,
   normalizeDeepSeekModel,
-  DEEPSEEK_DEFAULT_MODEL
+  DEEPSEEK_DEFAULT_MODEL,
+  DEEPSEEK_COMPLETION_DEFAULT_MODEL
 } = require('../deepseekPlatform')
 
 class DeepSeekRelayService {
@@ -151,6 +157,139 @@ class DeepSeekRelayService {
       })
     } catch (error) {
       return await this._handleRequestError(req, res, error, accountId, sessionHash)
+    }
+  }
+
+  async handleCompletions(req, res) {
+    const apiKeyData = req.apiKey
+    const requestedModel = this._normalizeCompletionRequestModel(req.body?.model)
+    const sessionId =
+      req.headers['session_id'] ||
+      req.headers['x-session-id'] ||
+      req.body?.session_id ||
+      req.body?.conversation_id ||
+      null
+    const sessionHash = sessionId
+      ? crypto.createHash('sha256').update(String(sessionId)).digest('hex')
+      : null
+
+    let accountId = null
+    let upstreamResponse = null
+    const startTime = Date.now()
+
+    try {
+      if (!apiKeyService.hasPermission(apiKeyData?.permissions, 'deepseek')) {
+        return res.status(403).json({
+          error: {
+            message: 'This API key does not have permission to access DeepSeek',
+            type: 'permission_denied',
+            code: 'permission_denied'
+          }
+        })
+      }
+
+      if (this._isModelRestricted(apiKeyData, requestedModel)) {
+        return res.status(403).json({
+          error: {
+            message: `Model ${requestedModel} is not allowed for this API key`,
+            type: 'invalid_request_error',
+            code: 'model_not_allowed'
+          }
+        })
+      }
+
+      const selection = await unifiedDeepSeekScheduler.selectAccountForApiKey(
+        apiKeyData,
+        sessionHash,
+        requestedModel,
+        'completion'
+      )
+      const { accountId: selectedAccountId } = selection
+      accountId = selectedAccountId
+      const account = await deepseekAccountService.getAccount(accountId)
+      if (!account) {
+        throw new Error('DeepSeek account not found')
+      }
+      if (!account.apiKey) {
+        throw new Error('DeepSeek account API Key not found or decryption failed')
+      }
+      if (!account.codeCompletionBaseApi) {
+        throw new Error('DeepSeek account code completion endpoint is not configured')
+      }
+
+      const targetUrl = buildCompletionsUrl(account.codeCompletionBaseApi)
+      if (!targetUrl) {
+        throw new Error('DeepSeek account code completion endpoint is invalid')
+      }
+
+      const mappedModel =
+        account.supportedModels &&
+        typeof account.supportedModels === 'object' &&
+        !Array.isArray(account.supportedModels)
+          ? deepseekAccountService.getMappedModel(account.supportedModels, requestedModel)
+          : requestedModel
+      const body = this._buildCompletionRequestBody(req.body || {}, mappedModel)
+      const isStream = body.stream === true
+      const abortController = new AbortController()
+
+      const onClientDisconnect = () => {
+        if (!abortController.signal.aborted) {
+          abortController.abort()
+        }
+      }
+      req.once('close', onClientDisconnect)
+      res.once('close', onClientDisconnect)
+
+      const requestConfig = {
+        headers: {
+          ...filterForOpenAI(req.headers || {}),
+          Authorization: `Bearer ${account.apiKey}`,
+          'Content-Type': 'application/json',
+          'accept-encoding': 'identity'
+        },
+        timeout: this.defaultTimeout,
+        validateStatus: () => true,
+        signal: abortController.signal
+      }
+
+      if (account.proxy) {
+        const agent = ProxyHelper.createProxyAgent(account.proxy)
+        if (agent) {
+          requestConfig.httpAgent = agent
+          requestConfig.httpsAgent = agent
+        }
+      }
+
+      if (isStream) {
+        requestConfig.responseType = 'stream'
+      }
+
+      logger.info(
+        `🎯 Forwarding DeepSeek completion request to ${targetUrl}, model=${requestedModel}`
+      )
+      upstreamResponse = await axios.post(targetUrl, body, requestConfig)
+
+      if (isStream) {
+        return await this._handleCompletionStreamResponse(req, res, {
+          upstreamResponse,
+          body,
+          accountId,
+          requestedModel,
+          sessionHash,
+          startTime
+        })
+      }
+
+      return await this._handleCompletionJsonResponse(req, res, {
+        upstreamResponse,
+        body,
+        accountId,
+        requestedModel,
+        sessionHash,
+        startTime
+      })
+    } catch (error) {
+      return await this._handleRequestError(req, res, error, accountId, sessionHash, 'completion')
     }
   }
 
@@ -295,6 +434,20 @@ class DeepSeekRelayService {
     return normalized
   }
 
+  _buildCompletionRequestBody(body, mappedModel) {
+    const normalized = { ...body }
+    normalized.model = mappedModel || this._normalizeCompletionRequestModel(normalized.model)
+
+    if (normalized.stream === true) {
+      normalized.stream_options = {
+        ...(normalized.stream_options || {}),
+        include_usage: true
+      }
+    }
+
+    return normalized
+  }
+
   _buildAnthropicRequestBody(body, mappedModel) {
     const normalized = { ...body }
     normalized.model = mappedModel || this._normalizeRequestModel(normalized.model)
@@ -335,6 +488,58 @@ class DeepSeekRelayService {
       })
     } else {
       logger.warn(`⚠️ DeepSeek non-stream response missing usage, model=${model}`)
+    }
+
+    logger.info(
+      formatCompletionUsageLog({
+        completionType: '非流式完成',
+        platform: 'deepseek',
+        elapsedMs: Date.now() - startTime,
+        usageSummary: completionUsageSummary,
+        model,
+        requestedModel
+      }),
+      config.logging.truncate ? {} : { response: responseData }
+    )
+    return res.status(upstreamResponse.status).json(responseData)
+  }
+
+  async _handleCompletionJsonResponse(req, res, context) {
+    const { upstreamResponse, body, accountId, requestedModel, sessionHash, startTime } = context
+    const responseData = upstreamResponse.data
+
+    if (upstreamResponse.status >= 400) {
+      await this._handleUpstreamStatus(
+        upstreamResponse.status,
+        responseData,
+        accountId,
+        sessionHash,
+        'completion'
+      )
+      return res
+        .status(upstreamResponse.status)
+        .json(upstreamErrorHelper.sanitizeRelayErrorResponse(upstreamResponse.status, responseData))
+    }
+
+    const usage = responseData?.usage
+    const model = this._normalizeCompletionRequestModel(responseData?.model || requestedModel)
+    let completionUsageSummary = this._buildUsageSummary()
+
+    if (usage) {
+      completionUsageSummary = await this._recordUsage(req, {
+        usage,
+        body,
+        model,
+        accountId,
+        sessionHash,
+        requestedModel,
+        stream: false,
+        statusCode: upstreamResponse.status,
+        protocol: 'completion',
+        assistantContent: responseData?.choices?.map((choice) => choice?.text || '').join('')
+      })
+    } else {
+      logger.warn(`⚠️ DeepSeek completion response missing usage, model=${model}`)
     }
 
     logger.info(
@@ -526,6 +731,138 @@ class DeepSeekRelayService {
     })
   }
 
+  async _handleCompletionStreamResponse(req, res, context) {
+    const { upstreamResponse, body, accountId, requestedModel, sessionHash, startTime } = context
+
+    if (upstreamResponse.status >= 400) {
+      const errorBody = await this._readStreamToString(upstreamResponse.data)
+      const parsed = this._parseJsonSafe(errorBody) || { error: { message: errorBody } }
+      await this._handleUpstreamStatus(
+        upstreamResponse.status,
+        parsed,
+        accountId,
+        sessionHash,
+        'completion'
+      )
+      return res
+        .status(upstreamResponse.status)
+        .json(
+          upstreamErrorHelper.sanitizeRelayErrorResponse(upstreamResponse.status, parsed, errorBody)
+        )
+    }
+
+    res.status(upstreamResponse.status)
+    res.setHeader('Content-Type', 'text/event-stream')
+    res.setHeader('Cache-Control', 'no-cache, no-transform')
+    res.setHeader('Connection', 'keep-alive')
+    res.setHeader('X-Accel-Buffering', 'no')
+    if (typeof res.flushHeaders === 'function') {
+      res.flushHeaders()
+    }
+
+    const parser = new IncrementalSSEParser()
+    let capturedUsage = null
+    let actualModel = requestedModel
+    let completionUsageSummary = this._buildUsageSummary()
+    const streamResponseState = { choices: new Map() }
+
+    upstreamResponse.data.on('data', (chunk) => {
+      if (!res.destroyed) {
+        res.write(chunk)
+      }
+
+      const events = parser.feed(chunk.toString())
+      for (const event of events) {
+        if (event.type === 'data' && event.data) {
+          if (event.data.model) {
+            actualModel = event.data.model
+          }
+          if (event.data.usage) {
+            capturedUsage = event.data.usage
+          }
+          this._collectCompletionStreamResponse(event.data, streamResponseState)
+        }
+      }
+    })
+
+    upstreamResponse.data.on('end', async () => {
+      try {
+        if (parser.getRemaining().trim()) {
+          const events = parser.feed('\n\n')
+          for (const event of events) {
+            if (event.type === 'data' && event.data) {
+              if (event.data.model) {
+                actualModel = event.data.model
+              }
+              if (event.data.usage) {
+                capturedUsage = event.data.usage
+              }
+              this._collectCompletionStreamResponse(event.data, streamResponseState)
+            }
+          }
+        }
+
+        if (capturedUsage) {
+          completionUsageSummary = await this._recordUsage(req, {
+            usage: capturedUsage,
+            body,
+            model: this._normalizeCompletionRequestModel(actualModel || requestedModel),
+            accountId,
+            sessionHash,
+            requestedModel,
+            stream: true,
+            statusCode: res.statusCode,
+            protocol: 'completion',
+            assistantContent: this._buildCompletionStreamText(streamResponseState)
+          })
+        } else {
+          logger.warn(`⚠️ DeepSeek completion stream missing usage, model=${actualModel}`)
+        }
+
+        if (await unifiedDeepSeekScheduler.isAccountRateLimited(accountId)) {
+          await unifiedDeepSeekScheduler.removeAccountRateLimit(accountId)
+        }
+      } catch (error) {
+        logger.error('Failed to finalize DeepSeek completion stream usage:', error)
+      }
+
+      const responseForLog = this._buildCompletionStreamResponse(
+        streamResponseState,
+        capturedUsage,
+        this._normalizeCompletionRequestModel(actualModel || requestedModel)
+      )
+      logger.info(
+        formatCompletionUsageLog({
+          completionType: '流式完成',
+          platform: 'deepseek',
+          elapsedMs: Date.now() - startTime,
+          usageSummary: completionUsageSummary,
+          model: this._normalizeCompletionRequestModel(actualModel || requestedModel),
+          requestedModel
+        }),
+        this._buildResponseLogMeta(responseForLog)
+      )
+      res.end()
+    })
+
+    upstreamResponse.data.on('error', (error) => {
+      logger.error('DeepSeek completion upstream stream error:', error)
+      if (!res.headersSent) {
+        res.status(502).json({ error: { message: 'Upstream stream error' } })
+      } else {
+        res.end()
+      }
+    })
+
+    req.on('close', () => {
+      try {
+        upstreamResponse.data?.destroy?.()
+      } catch (_) {
+        // ignore
+      }
+    })
+  }
+
   async _handleAnthropicStreamResponse(req, res, context) {
     const { upstreamResponse, body, accountId, requestedModel, sessionHash, startTime } = context
 
@@ -675,6 +1012,14 @@ class DeepSeekRelayService {
   _normalizeRequestModel(model) {
     const normalized = normalizeDeepSeekModel(model || DEEPSEEK_DEFAULT_MODEL)
     return isDeepSeekModel(normalized) ? normalized : DEEPSEEK_DEFAULT_MODEL
+  }
+
+  _normalizeCompletionRequestModel(model) {
+    if (!model || typeof model !== 'string') {
+      return DEEPSEEK_COMPLETION_DEFAULT_MODEL
+    }
+
+    return isDeepSeekModel(model) ? model : DEEPSEEK_COMPLETION_DEFAULT_MODEL
   }
 
   _isModelRestricted(apiKeyData, model) {
@@ -908,6 +1253,89 @@ class DeepSeekRelayService {
     return response
   }
 
+  _collectCompletionStreamResponse(data, streamResponseState) {
+    if (!data || typeof data !== 'object' || !Array.isArray(data.choices)) {
+      return
+    }
+
+    if (data.id && !streamResponseState.id) {
+      streamResponseState.id = data.id
+    }
+    if (data.created && !streamResponseState.created) {
+      streamResponseState.created = data.created
+    }
+    if (data.model) {
+      streamResponseState.model = data.model
+    }
+    if (data.system_fingerprint) {
+      streamResponseState.system_fingerprint = data.system_fingerprint
+    }
+    if (data.object) {
+      streamResponseState.object = data.object
+    }
+
+    for (const choice of data.choices) {
+      const choiceIndex = Number.isInteger(choice?.index) ? choice.index : 0
+      const currentChoice = streamResponseState.choices.get(choiceIndex) || {
+        index: choiceIndex,
+        text: '',
+        finish_reason: null,
+        logprobs: null
+      }
+
+      if (typeof choice?.text === 'string') {
+        currentChoice.text += choice.text
+      }
+      if (choice?.logprobs !== undefined) {
+        currentChoice.logprobs = choice.logprobs
+      }
+      if (choice?.finish_reason !== undefined) {
+        currentChoice.finish_reason = choice.finish_reason
+      }
+
+      streamResponseState.choices.set(choiceIndex, currentChoice)
+    }
+  }
+
+  _buildCompletionStreamText(streamResponseState) {
+    return Array.from(streamResponseState.choices.values())
+      .sort((left, right) => left.index - right.index)
+      .map((choice) => choice.text || '')
+      .join('')
+  }
+
+  _buildCompletionStreamResponse(streamResponseState, usage, fallbackModel) {
+    const choices = Array.from(streamResponseState.choices.values())
+      .sort((left, right) => left.index - right.index)
+      .map((choice) => ({
+        text: choice.text || '',
+        index: choice.index,
+        logprobs: choice.logprobs ?? null,
+        finish_reason: choice.finish_reason ?? null
+      }))
+
+    if (!streamResponseState.id && choices.length === 0 && !usage) {
+      return null
+    }
+
+    const response = {
+      id: streamResponseState.id,
+      object: streamResponseState.object || 'text_completion',
+      created: streamResponseState.created,
+      model: streamResponseState.model || fallbackModel,
+      choices
+    }
+
+    if (streamResponseState.system_fingerprint) {
+      response.system_fingerprint = streamResponseState.system_fingerprint
+    }
+    if (usage) {
+      response.usage = usage
+    }
+
+    return response
+  }
+
   _collectAnthropicStreamResponseMeta(data, anthropicResponseMeta) {
     if (!data || typeof data !== 'object') {
       return
@@ -997,14 +1425,19 @@ class DeepSeekRelayService {
       body?.conversation_id ||
       null
     const isAnthropicProtocol = protocol === 'anthropic'
+    const isCompletionProtocol = protocol === 'completion'
     const normalizedUsage = isAnthropicProtocol
       ? normalizeDeepSeekAnthropicUsage(usage)
       : normalizeDeepSeekUsage(usage)
     const usageSummary = this._buildUsageSummary(normalizedUsage)
-    const inputBlock = isAnthropicProtocol ? null : buildInputMessagesBlock(body)
+    const inputBlock = isAnthropicProtocol
+      ? null
+      : isCompletionProtocol
+        ? buildInputPromptBlock(body)
+        : buildInputMessagesBlock(body)
     const usageExtra = buildUsageMetadata({
       body,
-      format: isAnthropicProtocol ? 'anthropic' : 'openai',
+      format: isAnthropicProtocol ? 'anthropic' : isCompletionProtocol ? 'completion' : 'openai',
       headers: req.headers,
       requestIp: req,
       sessionId: sessionHash || null,
@@ -1045,7 +1478,7 @@ class DeepSeekRelayService {
     return usageSummary
   }
 
-  async _handleUpstreamStatus(status, responseBody, accountId, sessionHash) {
+  async _handleUpstreamStatus(status, responseBody, accountId, sessionHash, endpointType = 'chat') {
     if (!accountId) {
       return
     }
@@ -1055,7 +1488,7 @@ class DeepSeekRelayService {
         response: responseBody
       })
       if (sessionHash) {
-        await unifiedDeepSeekScheduler.clearSessionMapping(sessionHash)
+        await unifiedDeepSeekScheduler.clearSessionMapping(sessionHash, endpointType)
       }
       return
     }
@@ -1066,13 +1499,18 @@ class DeepSeekRelayService {
         `DeepSeek upstream auth failed (${status})`
       )
       if (sessionHash) {
-        await unifiedDeepSeekScheduler.clearSessionMapping(sessionHash)
+        await unifiedDeepSeekScheduler.clearSessionMapping(sessionHash, endpointType)
       }
       return
     }
 
     if (status === 429) {
-      await unifiedDeepSeekScheduler.markAccountRateLimited(accountId, sessionHash)
+      await unifiedDeepSeekScheduler.markAccountRateLimited(
+        accountId,
+        sessionHash,
+        null,
+        endpointType
+      )
       return
     }
 
@@ -1081,12 +1519,12 @@ class DeepSeekRelayService {
         response: responseBody
       })
       if (sessionHash) {
-        await unifiedDeepSeekScheduler.clearSessionMapping(sessionHash)
+        await unifiedDeepSeekScheduler.clearSessionMapping(sessionHash, endpointType)
       }
     }
   }
 
-  async _handleRequestError(req, res, error, accountId, sessionHash) {
+  async _handleRequestError(req, res, error, accountId, sessionHash, endpointType = 'chat') {
     if (axios.isCancel(error) || error.code === 'ERR_CANCELED') {
       logger.info('🔌 DeepSeek request canceled')
       if (!res.headersSent) {
@@ -1099,7 +1537,7 @@ class DeepSeekRelayService {
     const responseBody = error.response?.data || { error: { message: error.message } }
     logger.error('❌ DeepSeek relay request failed:', error.message)
 
-    await this._handleUpstreamStatus(status, responseBody, accountId, sessionHash)
+    await this._handleUpstreamStatus(status, responseBody, accountId, sessionHash, endpointType)
 
     if (!res.headersSent) {
       return res

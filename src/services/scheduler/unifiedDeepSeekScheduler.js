@@ -10,29 +10,41 @@ class UnifiedDeepSeekScheduler {
     this.SESSION_MAPPING_PREFIX = 'deepseek_session_mapping:'
   }
 
-  async selectAccountForApiKey(apiKeyData, sessionHash = null, requestedModel = null) {
+  async selectAccountForApiKey(
+    apiKeyData,
+    sessionHash = null,
+    requestedModel = null,
+    endpointType = 'chat'
+  ) {
     if (sessionHash) {
-      const mapped = await this._getSessionMapping(sessionHash)
-      if (mapped && (await this._isAccountAvailable(mapped.accountId))) {
-        await this._extendSessionMappingTTL(sessionHash)
+      const mapped = await this._getSessionMapping(sessionHash, endpointType)
+      if (
+        mapped &&
+        (await this._isAccountAvailable(mapped.accountId, requestedModel, endpointType))
+      ) {
+        await this._extendSessionMappingTTL(sessionHash, endpointType)
         await deepseekAccountService.markAccountUsed(mapped.accountId)
         logger.info(`🎯 Using sticky DeepSeek account: ${mapped.accountId}`)
         return { accountId: mapped.accountId, accountType: 'deepseek' }
       }
       if (mapped) {
-        await this.clearSessionMapping(sessionHash)
+        await this.clearSessionMapping(sessionHash, endpointType)
       }
     }
 
-    const accounts = await this._getAllAvailableAccounts(apiKeyData, requestedModel)
+    const accounts = await this._getAllAvailableAccounts(apiKeyData, requestedModel, endpointType)
     if (accounts.length === 0) {
-      throw new Error('No available DeepSeek accounts')
+      throw new Error(
+        endpointType === 'completion'
+          ? 'No available DeepSeek completion accounts'
+          : 'No available DeepSeek accounts'
+      )
     }
 
     const selected = sortAccountsByPriority(accounts)[0]
 
     if (sessionHash) {
-      await this._setSessionMapping(sessionHash, selected.id)
+      await this._setSessionMapping(sessionHash, selected.id, endpointType)
     }
 
     await deepseekAccountService.markAccountUsed(selected.id)
@@ -43,12 +55,18 @@ class UnifiedDeepSeekScheduler {
     return { accountId: selected.id, accountType: 'deepseek' }
   }
 
-  async _getAllAvailableAccounts(apiKeyData, requestedModel = null) {
+  async _getAllAvailableAccounts(apiKeyData, requestedModel = null, endpointType = 'chat') {
     const binding = this._getDeepSeekBinding(apiKeyData)
     if (binding?.accountId) {
       const account = await deepseekAccountService.getAccount(binding.accountId)
-      if (account && (await this._isAccountUsable(account, requestedModel))) {
+      if (account && (await this._isAccountUsable(account, requestedModel, endpointType))) {
         return [account]
+      }
+      if (endpointType === 'completion') {
+        logger.warn(
+          `⚠️ Bound DeepSeek completion account ${binding.accountId} unavailable, keeping binding strict`
+        )
+        return []
       }
       logger.warn(
         `⚠️ Bound DeepSeek account ${binding.accountId} unavailable, falling back to pool`
@@ -56,16 +74,23 @@ class UnifiedDeepSeekScheduler {
     }
 
     if (binding?.groupId) {
-      return await this.selectAccountFromGroup(binding.groupId, null, requestedModel, apiKeyData, {
-        returnCandidates: true
-      })
+      return await this.selectAccountFromGroup(
+        binding.groupId,
+        null,
+        requestedModel,
+        apiKeyData,
+        {
+          returnCandidates: true
+        },
+        endpointType
+      )
     }
 
     const accounts = await deepseekAccountService.getAllAccounts(false)
     const available = []
 
     for (const account of accounts) {
-      if (await this._isAccountUsable(account, requestedModel)) {
+      if (await this._isAccountUsable(account, requestedModel, endpointType)) {
         available.push(account)
       }
     }
@@ -78,14 +103,15 @@ class UnifiedDeepSeekScheduler {
     sessionHash = null,
     requestedModel = null,
     apiKeyData = null,
-    options = {}
+    options = {},
+    endpointType = 'chat'
   ) {
     const members = await accountGroupService.getGroupMembers(groupId)
     const accounts = []
 
     for (const accountId of members) {
       const account = await deepseekAccountService.getAccount(accountId)
-      if (account && (await this._isAccountUsable(account, requestedModel))) {
+      if (account && (await this._isAccountUsable(account, requestedModel, endpointType))) {
         accounts.push(account)
       }
     }
@@ -100,14 +126,14 @@ class UnifiedDeepSeekScheduler {
 
     const selected = sortAccountsByPriority(accounts)[0]
     if (sessionHash) {
-      await this._setSessionMapping(sessionHash, selected.id)
+      await this._setSessionMapping(sessionHash, selected.id, endpointType)
     }
     await deepseekAccountService.markAccountUsed(selected.id)
 
     return { accountId: selected.id, accountType: 'deepseek' }
   }
 
-  async _isAccountUsable(account, requestedModel = null) {
+  async _isAccountUsable(account, requestedModel = null, endpointType = 'chat') {
     if (!account) {
       return false
     }
@@ -149,6 +175,10 @@ class UnifiedDeepSeekScheduler {
       return false
     }
 
+    if (endpointType === 'completion' && !account.codeCompletionBaseApi) {
+      return false
+    }
+
     if (
       requestedModel &&
       account.supportedModels &&
@@ -170,9 +200,9 @@ class UnifiedDeepSeekScheduler {
     return true
   }
 
-  async _isAccountAvailable(accountId) {
+  async _isAccountAvailable(accountId, requestedModel = null, endpointType = 'chat') {
     const account = await deepseekAccountService.getAccount(accountId)
-    return this._isAccountUsable(account)
+    return this._isAccountUsable(account, requestedModel, endpointType)
   }
 
   async isAccountRateLimited(accountId) {
@@ -192,10 +222,15 @@ class UnifiedDeepSeekScheduler {
     return !cleared
   }
 
-  async markAccountRateLimited(accountId, sessionHash = null, duration = null) {
+  async markAccountRateLimited(
+    accountId,
+    sessionHash = null,
+    duration = null,
+    endpointType = 'chat'
+  ) {
     await deepseekAccountService.setAccountRateLimited(accountId, true, duration)
     if (sessionHash) {
-      await this.clearSessionMapping(sessionHash)
+      await this.clearSessionMapping(sessionHash, endpointType)
     }
   }
 
@@ -231,8 +266,18 @@ class UnifiedDeepSeekScheduler {
     return null
   }
 
-  async _getSessionMapping(sessionHash) {
-    const data = await redis.getClientSafe().get(`${this.SESSION_MAPPING_PREFIX}${sessionHash}`)
+  _buildSessionMappingKey(sessionHash, endpointType = 'chat') {
+    if (endpointType === 'completion') {
+      return `${this.SESSION_MAPPING_PREFIX}completion:${sessionHash}`
+    }
+
+    return `${this.SESSION_MAPPING_PREFIX}${sessionHash}`
+  }
+
+  async _getSessionMapping(sessionHash, endpointType = 'chat') {
+    const data = await redis
+      .getClientSafe()
+      .get(this._buildSessionMappingKey(sessionHash, endpointType))
     if (!data) {
       return null
     }
@@ -243,26 +288,31 @@ class UnifiedDeepSeekScheduler {
     }
   }
 
-  async _setSessionMapping(sessionHash, accountId) {
+  async _setSessionMapping(sessionHash, accountId, endpointType = 'chat') {
     const ttl = 24 * 60 * 60
+    await redis.getClientSafe().setex(
+      this._buildSessionMappingKey(sessionHash, endpointType),
+      ttl,
+      JSON.stringify({
+        accountId,
+        accountType: 'deepseek',
+        endpointType,
+        createdAt: new Date().toISOString()
+      })
+    )
+  }
+
+  async _extendSessionMappingTTL(sessionHash, endpointType = 'chat') {
     await redis
       .getClientSafe()
-      .setex(
-        `${this.SESSION_MAPPING_PREFIX}${sessionHash}`,
-        ttl,
-        JSON.stringify({ accountId, accountType: 'deepseek', createdAt: new Date().toISOString() })
-      )
+      .expire(this._buildSessionMappingKey(sessionHash, endpointType), 24 * 60 * 60)
   }
 
-  async _extendSessionMappingTTL(sessionHash) {
-    await redis.getClientSafe().expire(`${this.SESSION_MAPPING_PREFIX}${sessionHash}`, 24 * 60 * 60)
-  }
-
-  async clearSessionMapping(sessionHash) {
+  async clearSessionMapping(sessionHash, endpointType = 'chat') {
     if (!sessionHash) {
       return
     }
-    await redis.getClientSafe().del(`${this.SESSION_MAPPING_PREFIX}${sessionHash}`)
+    await redis.getClientSafe().del(this._buildSessionMappingKey(sessionHash, endpointType))
   }
 }
 

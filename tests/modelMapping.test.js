@@ -57,7 +57,13 @@ jest.mock('../src/services/deepseekPlatform', () => ({
   DEEPSEEK_PLATFORM: { accountSubType: 'deepseek', chatPath: '/chat/completions' },
   DEEPSEEK_DEFAULT_BASE_API: 'https://api.deepseek.com/v1',
   DEEPSEEK_DEFAULT_MODEL: 'deepseek-chat',
-  normalizeBaseApi: jest.fn((v) => v || 'https://api.deepseek.com/v1')
+  normalizeBaseApi: jest.fn((v) => v || 'https://api.deepseek.com/v1'),
+  normalizeOptionalBaseApi: jest.fn((v) => {
+    if (v === undefined || v === null) {
+      return ''
+    }
+    return String(v).replace(/\/$/, '')
+  })
 }))
 
 jest.mock('../src/services/glmPlatform', () => ({
@@ -881,7 +887,11 @@ describe('GLM / Kimi / DeepSeek schedulers reuse the same sticky-session flow', 
         const result = await scheduler.selectAccountForApiKey({ id: 'key-1' }, 'session-hash')
 
         expect(result).toEqual({ accountId: 'acct-sticky', accountType: config.accountType })
-        expect(scheduler._extendSessionMappingTTL).toHaveBeenCalledWith('session-hash')
+        if (config.accountType === 'deepseek') {
+          expect(scheduler._extendSessionMappingTTL).toHaveBeenCalledWith('session-hash', 'chat')
+        } else {
+          expect(scheduler._extendSessionMappingTTL).toHaveBeenCalledWith('session-hash')
+        }
         expect(markAccountUsedSpy).toHaveBeenCalledWith('acct-sticky')
       })
 
@@ -897,8 +907,17 @@ describe('GLM / Kimi / DeepSeek schedulers reuse the same sticky-session flow', 
 
         const result = await scheduler.selectAccountForApiKey({ id: 'key-1' }, 'session-hash')
 
-        expect(scheduler.clearSessionMapping).toHaveBeenCalledWith('session-hash')
-        expect(scheduler._setSessionMapping).toHaveBeenCalledWith('session-hash', 'acct-new')
+        if (config.accountType === 'deepseek') {
+          expect(scheduler.clearSessionMapping).toHaveBeenCalledWith('session-hash', 'chat')
+          expect(scheduler._setSessionMapping).toHaveBeenCalledWith(
+            'session-hash',
+            'acct-new',
+            'chat'
+          )
+        } else {
+          expect(scheduler.clearSessionMapping).toHaveBeenCalledWith('session-hash')
+          expect(scheduler._setSessionMapping).toHaveBeenCalledWith('session-hash', 'acct-new')
+        }
         expect(result).toEqual({ accountId: 'acct-new', accountType: config.accountType })
       })
 
@@ -918,15 +937,28 @@ describe('GLM / Kimi / DeepSeek schedulers reuse the same sticky-session flow', 
           'model-a'
         )
 
-        expect(selectAccountFromGroupSpy).toHaveBeenCalledWith(
-          'group-1',
-          null,
-          'model-a',
-          expect.objectContaining({
-            accountBindings: expect.any(Object)
-          }),
-          { returnCandidates: true }
-        )
+        if (config.accountType === 'deepseek') {
+          expect(selectAccountFromGroupSpy).toHaveBeenCalledWith(
+            'group-1',
+            null,
+            'model-a',
+            expect.objectContaining({
+              accountBindings: expect.any(Object)
+            }),
+            { returnCandidates: true },
+            'chat'
+          )
+        } else {
+          expect(selectAccountFromGroupSpy).toHaveBeenCalledWith(
+            'group-1',
+            null,
+            'model-a',
+            expect.objectContaining({
+              accountBindings: expect.any(Object)
+            }),
+            { returnCandidates: true }
+          )
+        }
         expect(result).toEqual([{ id: 'acct-group-1' }])
       })
 
@@ -955,7 +987,11 @@ describe('GLM / Kimi / DeepSeek schedulers reuse the same sticky-session flow', 
         await scheduler.markAccountRateLimited('acct-1', 'session-hash', 30)
 
         expect(setAccountRateLimitedSpy).toHaveBeenCalledWith('acct-1', true, 30)
-        expect(scheduler.clearSessionMapping).toHaveBeenCalledWith('session-hash')
+        if (config.accountType === 'deepseek') {
+          expect(scheduler.clearSessionMapping).toHaveBeenCalledWith('session-hash', 'chat')
+        } else {
+          expect(scheduler.clearSessionMapping).toHaveBeenCalledWith('session-hash')
+        }
       })
 
       it('parses redis-backed session mappings safely and can clear them', async () => {
@@ -1108,7 +1144,10 @@ describe('All platform schedulers cover binding, rate-limit, and redis helper br
           .mockResolvedValue(makeAccount({ id: 'acct-bound', status: 'rateLimited' }))
         jest
           .spyOn(accountService, 'getAllAccounts')
-          .mockResolvedValue([makeAccount({ id: 'acct-pool-1' }), makeAccount({ id: 'acct-pool-2' })])
+          .mockResolvedValue([
+            makeAccount({ id: 'acct-pool-1' }),
+            makeAccount({ id: 'acct-pool-2' })
+          ])
         jest
           .spyOn(scheduler, '_isAccountUsable')
           .mockResolvedValueOnce(false)
@@ -1130,6 +1169,33 @@ describe('All platform schedulers cover binding, rate-limit, and redis helper br
         expect(result).toEqual([expect.objectContaining({ id: 'acct-pool-1' })])
       })
 
+      if (config.accountType === 'deepseek') {
+        it('keeps explicit completion bindings strict when the bound account is unusable', async () => {
+          jest
+            .spyOn(accountService, 'getAccount')
+            .mockResolvedValue(makeAccount({ id: 'acct-bound', status: 'rateLimited' }))
+          jest
+            .spyOn(accountService, 'getAllAccounts')
+            .mockResolvedValue([makeAccount({ id: 'acct-pool-1' })])
+          jest.spyOn(scheduler, '_isAccountUsable').mockResolvedValue(false)
+
+          const result = await scheduler._getAllAvailableAccounts(
+            {
+              accountBindings: {
+                [config.bindingKey]: {
+                  accountId: 'acct-bound'
+                }
+              }
+            },
+            'model-a',
+            'completion'
+          )
+
+          expect(accountService.getAllAccounts).not.toHaveBeenCalled()
+          expect(result).toEqual([])
+        })
+      }
+
       it('selects the first usable group account and stores sticky mapping when requested', async () => {
         jest.spyOn(accountGroupService, 'getGroupMembers').mockResolvedValue(['acct-1', 'acct-2'])
         jest
@@ -1145,7 +1211,15 @@ describe('All platform schedulers cover binding, rate-limit, and redis helper br
         const result = await scheduler.selectAccountFromGroup('group-1', 'session-hash', 'model-a')
 
         expect(result).toEqual({ accountId: 'acct-1', accountType: config.accountType })
-        expect(scheduler._setSessionMapping).toHaveBeenCalledWith('session-hash', 'acct-1')
+        if (config.accountType === 'deepseek') {
+          expect(scheduler._setSessionMapping).toHaveBeenCalledWith(
+            'session-hash',
+            'acct-1',
+            'chat'
+          )
+        } else {
+          expect(scheduler._setSessionMapping).toHaveBeenCalledWith('session-hash', 'acct-1')
+        }
         expect(markAccountUsedSpy).toHaveBeenCalledWith('acct-1')
       })
 
@@ -1232,10 +1306,7 @@ describe('All platform schedulers cover binding, rate-limit, and redis helper br
         await scheduler.markAccountUnauthorized('acct-1')
 
         expect(setAccountRateLimitedSpy).toHaveBeenCalledWith('acct-1', false)
-        expect(markAccountUnauthorizedSpy).toHaveBeenCalledWith(
-          'acct-1',
-          config.unauthorizedReason
-        )
+        expect(markAccountUnauthorizedSpy).toHaveBeenCalledWith('acct-1', config.unauthorizedReason)
       })
 
       it('parses account bindings from accountId, groupId, and group-prefixed accountIds', () => {
@@ -1301,6 +1372,27 @@ describe('All platform schedulers cover binding, rate-limit, and redis helper br
         )
         expect(redisClient.del).not.toHaveBeenCalled()
       })
+
+      if (config.accountType === 'deepseek') {
+        it('uses completion-scoped sticky keys only for completion mappings', async () => {
+          await scheduler._setSessionMapping('hash-completion', 'acct-1', 'completion')
+          await scheduler._extendSessionMappingTTL('hash-completion', 'completion')
+          await scheduler.clearSessionMapping('hash-completion', 'completion')
+
+          expect(redisClient.setex).toHaveBeenCalledWith(
+            'deepseek_session_mapping:completion:hash-completion',
+            24 * 60 * 60,
+            expect.any(String)
+          )
+          expect(redisClient.expire).toHaveBeenCalledWith(
+            'deepseek_session_mapping:completion:hash-completion',
+            24 * 60 * 60
+          )
+          expect(redisClient.del).toHaveBeenCalledWith(
+            'deepseek_session_mapping:completion:hash-completion'
+          )
+        })
+      }
     })
   }
 })

@@ -29,6 +29,20 @@ function validateMessagesBody(req, res, format = 'openai') {
   return null
 }
 
+function validatePromptBody(req, res) {
+  if (!req.body || typeof req.body.prompt !== 'string' || req.body.prompt.length === 0) {
+    return res.status(400).json({
+      error: {
+        message: 'Prompt is required and cannot be empty',
+        type: 'invalid_request_error',
+        code: 'invalid_request'
+      }
+    })
+  }
+
+  return null
+}
+
 router.post('/v1/chat/completions', authenticateApiKey, async (req, res) => {
   try {
     const validationResponse = validateMessagesBody(req, res)
@@ -39,6 +53,29 @@ router.post('/v1/chat/completions', authenticateApiKey, async (req, res) => {
     return await deepseekRelayService.handleChatCompletions(req, res)
   } catch (error) {
     logger.error('❌ DeepSeek chat/completions route error:', error)
+    if (!res.headersSent) {
+      return res.status(500).json({
+        error: {
+          message: 'Internal server error',
+          type: 'server_error',
+          code: 'internal_error'
+        }
+      })
+    }
+    return res.end()
+  }
+})
+
+router.post('/v1/completions', authenticateApiKey, async (req, res) => {
+  try {
+    const validationResponse = validatePromptBody(req, res)
+    if (validationResponse) {
+      return validationResponse
+    }
+
+    return await deepseekRelayService.handleCompletions(req, res)
+  } catch (error) {
+    logger.error('❌ DeepSeek completions route error:', error)
     if (!res.headersSent) {
       return res.status(500).json({
         error: {
