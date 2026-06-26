@@ -327,7 +327,7 @@ function buildOpenAIOverloadFriendlyMessage(requestedModel = null) {
 
   return (
     '由于 AI 模型厂商（上游服务商）目前的算力受限，导致本次请求未能成功，不会扣减积分、额度。建议按如下方案尝试解决：' +
-    `1. 点击“重试”或开启新会话；2. ${retrySuggestion}；3. 切换成聚合中转或DeepSeek等模型重试。` +
+    `1. 点击“重试”或开启新会话；2. ${retrySuggestion}；3. 切换成聚合中转、DeepSeek、GLM等模型重试。` +
     '切换模型参考文档：https://uniapp.dcloud.net.cn/ai/uni-agent.html#intelligencelevel'
   )
 }
