@@ -1985,7 +1985,21 @@
               </div>
 
               <!-- 限流时长字段 - 隐藏不显示，使用默认值60 -->
-              <input v-model.number="form.rateLimitDuration" type="hidden" value="60" />
+              <div>
+                <label class="mb-3 block text-sm font-semibold text-gray-700 dark:text-gray-300"
+                  >429 限流时长 (分钟)</label
+                >
+                <input
+                  v-model.number="form.rateLimitDuration"
+                  class="form-input w-full border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200 dark:placeholder-gray-400"
+                  min="1"
+                  placeholder="默认60分钟"
+                  type="number"
+                />
+                <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                  账号返回 429 错误后暂停调度的时间，默认 60 分钟。
+                </p>
+              </div>
             </div>
 
             <!-- DeepSeek API 配置 -->
@@ -2055,7 +2069,21 @@
                 </p>
               </div>
 
-              <input v-model.number="form.rateLimitDuration" type="hidden" value="60" />
+              <div>
+                <label class="mb-3 block text-sm font-semibold text-gray-700 dark:text-gray-300"
+                  >429 限流时长 (分钟)</label
+                >
+                <input
+                  v-model.number="form.rateLimitDuration"
+                  class="form-input w-full border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200 dark:placeholder-gray-400"
+                  min="1"
+                  placeholder="默认60分钟"
+                  type="number"
+                />
+                <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                  账号返回 429 错误后暂停调度的时间，默认 60 分钟。
+                </p>
+              </div>
 
               <!-- 模型映射配置 -->
               <div>
@@ -2221,7 +2249,21 @@
                 </p>
               </div>
 
-              <input v-model.number="form.rateLimitDuration" type="hidden" value="60" />
+              <div>
+                <label class="mb-3 block text-sm font-semibold text-gray-700 dark:text-gray-300"
+                  >429 限流时长 (分钟)</label
+                >
+                <input
+                  v-model.number="form.rateLimitDuration"
+                  class="form-input w-full border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200 dark:placeholder-gray-400"
+                  min="1"
+                  placeholder="默认60分钟"
+                  type="number"
+                />
+                <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                  账号返回 429 错误后暂停调度的时间，默认 60 分钟。
+                </p>
+              </div>
 
               <!-- 模型映射配置 -->
               <div>
@@ -2387,7 +2429,21 @@
                 </p>
               </div>
 
-              <input v-model.number="form.rateLimitDuration" type="hidden" value="60" />
+              <div>
+                <label class="mb-3 block text-sm font-semibold text-gray-700 dark:text-gray-300"
+                  >429 限流时长 (分钟)</label
+                >
+                <input
+                  v-model.number="form.rateLimitDuration"
+                  class="form-input w-full border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200 dark:placeholder-gray-400"
+                  min="1"
+                  placeholder="默认60分钟"
+                  type="number"
+                />
+                <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                  账号返回 429 错误后暂停调度的时间，默认 60 分钟。
+                </p>
+              </div>
 
               <!-- 模型映射配置 -->
               <div>
@@ -4565,6 +4621,22 @@
               </p>
             </div>
 
+            <div>
+              <label class="mb-3 block text-sm font-semibold text-gray-700 dark:text-gray-300"
+                >429 限流时长 (分钟)</label
+              >
+              <input
+                v-model.number="form.rateLimitDuration"
+                class="form-input w-full border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200"
+                min="1"
+                placeholder="默认60分钟"
+                type="number"
+              />
+              <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                账号返回 429 错误后暂停调度的时间，默认 60 分钟。
+              </p>
+            </div>
+
             <div class="grid grid-cols-2 gap-4">
               <div>
                 <label class="mb-3 block text-sm font-semibold text-gray-700 dark:text-gray-300">
@@ -4746,6 +4818,22 @@
                 </button>
               </div>
               <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">留空表示不更新 API Key</p>
+            </div>
+
+            <div>
+              <label class="mb-3 block text-sm font-semibold text-gray-700 dark:text-gray-300"
+                >429 限流时长 (分钟)</label
+              >
+              <input
+                v-model.number="form.rateLimitDuration"
+                class="form-input w-full border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200"
+                min="1"
+                placeholder="默认60分钟"
+                type="number"
+              />
+              <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                账号返回 429 错误后暂停调度的时间，默认 60 分钟。
+              </p>
             </div>
 
             <div class="grid grid-cols-2 gap-4">
@@ -4931,6 +5019,22 @@
               <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">留空表示不更新 API Key</p>
             </div>
 
+            <div>
+              <label class="mb-3 block text-sm font-semibold text-gray-700 dark:text-gray-300"
+                >429 限流时长 (分钟)</label
+              >
+              <input
+                v-model.number="form.rateLimitDuration"
+                class="form-input w-full border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200"
+                min="1"
+                placeholder="默认60分钟"
+                type="number"
+              />
+              <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                账号返回 429 错误后暂停调度的时间，默认 60 分钟。
+              </p>
+            </div>
+
             <div class="grid grid-cols-2 gap-4">
               <div>
                 <label class="mb-3 block text-sm font-semibold text-gray-700 dark:text-gray-300">
@@ -5112,6 +5216,22 @@
                 </button>
               </div>
               <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">留空表示不更新 API Key</p>
+            </div>
+
+            <div>
+              <label class="mb-3 block text-sm font-semibold text-gray-700 dark:text-gray-300"
+                >429 限流时长 (分钟)</label
+              >
+              <input
+                v-model.number="form.rateLimitDuration"
+                class="form-input w-full border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200"
+                min="1"
+                placeholder="默认60分钟"
+                type="number"
+              />
+              <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                账号返回 429 错误后暂停调度的时间，默认 60 分钟。
+              </p>
             </div>
 
             <div class="grid grid-cols-2 gap-4">
