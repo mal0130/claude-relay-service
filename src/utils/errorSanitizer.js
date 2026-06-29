@@ -32,6 +32,13 @@ const ACCOUNT_BILLING_UNAVAILABLE_PATTERN =
 
 // 错误特征匹配规则（按优先级排序）
 const ERROR_MATCHERS = [
+  // 代理 / 网关短路错误
+  {
+    pattern:
+      /upstream connect error|disconnect\/reset before headers|reset reason:\s*connection termination/i,
+    code: 'E001'
+  },
+
   // 网络层错误
   { pattern: /ENOTFOUND|DNS|getaddrinfo/i, code: 'E002' },
   { pattern: /ECONNREFUSED|ECONNRESET|connection refused/i, code: 'E002' },

@@ -57,6 +57,17 @@ describe('errorSanitizer account-related interception', () => {
     expect(getSafeMessage('requested model not supported by upstream')).toBe('Model not available')
   })
 
+  test('maps envoy upstream reset errors to service temporarily unavailable', () => {
+    const message =
+      'Service Unavailable: upstream connect error or disconnect/reset before headers. reset reason: connection termination'
+
+    expect(getSafeMessage(message)).toBe('Service temporarily unavailable')
+    expect(mapToErrorCode(message)).toMatchObject({
+      code: 'E001',
+      status: 503
+    })
+  })
+
   test('detects disabled-account style upstream 400 responses', () => {
     expect(
       isAccountDisabledError(400, {
