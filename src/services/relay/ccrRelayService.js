@@ -760,8 +760,6 @@ class CcrRelayService {
 
           // 处理流数据和使用统计收集
           let rawBuffer = ''
-          let responseText = ''
-          let thinkingText = ''
           const collectedUsage = {}
 
           response.data.on('data', (chunk) => {
@@ -784,21 +782,6 @@ class CcrRelayService {
                   if (usageData) {
                     Object.assign(collectedUsage, usageData)
                   }
-
-                  if (line.startsWith('data: ')) {
-                    try {
-                      const parsed = JSON.parse(line.substring(6).trim())
-                      if (parsed.type === 'content_block_delta' && parsed.delta?.text) {
-                        responseText += parsed.delta.text
-                      }
-                      if (parsed.type === 'content_block_delta' && parsed.delta?.thinking) {
-                        thinkingText += parsed.delta.thinking
-                      }
-                    } catch (_parseError) {
-                      // 忽略非 JSON 或不完整的 SSE 行
-                    }
-                  }
-
                   // 应用流转换器（如果提供）
                   let outputLine = line
                   if (streamTransformer && typeof streamTransformer === 'function') {
@@ -831,15 +814,10 @@ class CcrRelayService {
             if (usageCallback && Object.keys(collectedUsage).length > 0) {
               try {
                 logger.debug(`📊 Collected usage data: ${JSON.stringify(collectedUsage)}`)
-                // 在 usage 回调中包含模型信息和流式回复内容
-                const assistantBlocks = []
-                if (thinkingText) assistantBlocks.push({ type: 'thinking', thinking: thinkingText })
-                if (responseText) assistantBlocks.push({ type: 'text', text: responseText })
                 usageCallback({
                   ...collectedUsage,
                   accountId,
-                  model: body.model,
-                  assistantContent: assistantBlocks.length > 0 ? assistantBlocks : undefined
+                  model: body.model
                 })
               } catch (err) {
                 logger.error('❌ Error in usage callback:', err)

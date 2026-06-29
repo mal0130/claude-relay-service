@@ -1,6 +1,3 @@
-const express = require('express')
-const request = require('supertest')
-
 jest.mock('../src/middleware/auth', () => ({
   authenticateAdmin: (req, res, next) => next()
 }))
@@ -32,11 +29,41 @@ const claudeConsoleRelayService = require('../src/services/relay/claudeConsoleRe
 const claudeConsoleAccountsRouter = require('../src/routes/admin/claudeConsoleAccounts')
 
 describe('POST /admin/claude-console-accounts/:accountId/test', () => {
-  const buildApp = () => {
-    const app = express()
-    app.use(express.json())
-    app.use('/admin', claudeConsoleAccountsRouter)
-    return app
+  const getRouteHandler = () => {
+    const layer = claudeConsoleAccountsRouter.stack.find(
+      (item) => item.route?.path === '/claude-console-accounts/:accountId/test'
+    )
+
+    if (!layer) {
+      throw new Error('Test route handler not found')
+    }
+
+    return layer.route.stack[layer.route.stack.length - 1].handle
+  }
+
+  const createRes = () => ({
+    statusCode: 200,
+    body: null,
+    status(code) {
+      this.statusCode = code
+      return this
+    },
+    json(payload) {
+      this.body = payload
+      return this
+    }
+  })
+
+  const invokeHandler = async (body) => {
+    const handler = getRouteHandler()
+    const req = {
+      params: { accountId: 'account-1' },
+      body
+    }
+    const res = createRes()
+
+    await handler(req, res)
+    return { req, res }
   }
 
   beforeEach(() => {
@@ -44,29 +71,21 @@ describe('POST /admin/claude-console-accounts/:accountId/test', () => {
   })
 
   it('returns 400 when model is missing', async () => {
-    const app = buildApp()
+    const { res } = await invokeHandler({})
 
-    const response = await request(app)
-      .post('/admin/claude-console-accounts/account-1/test')
-      .send({})
-
-    expect(response.status).toBe(400)
-    expect(response.body).toEqual({ error: 'model is required' })
+    expect(res.statusCode).toBe(400)
+    expect(res.body).toEqual({ error: 'model is required' })
     expect(claudeConsoleRelayService.testAccountConnection).not.toHaveBeenCalled()
   })
 
   it('passes model through to relay service when provided', async () => {
-    const app = buildApp()
+    const { res } = await invokeHandler({ model: 'claude-sonnet-4-6' })
 
-    const response = await request(app)
-      .post('/admin/claude-console-accounts/account-1/test')
-      .send({ model: 'claude-sonnet-4-6' })
-
-    expect(response.status).toBe(200)
+    expect(res.statusCode).toBe(200)
     expect(claudeConsoleRelayService.testAccountConnection).toHaveBeenCalledTimes(1)
     expect(claudeConsoleRelayService.testAccountConnection).toHaveBeenCalledWith(
       'account-1',
-      expect.any(Object),
+      res,
       'claude-sonnet-4-6'
     )
   })

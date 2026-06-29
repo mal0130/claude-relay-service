@@ -1286,13 +1286,10 @@ describe('DeepSeekRelayService — helper methods', () => {
         req,
         expect.objectContaining({
           accountId: 'acc-ds-1',
-          protocol: 'anthropic',
-          assistantContent: [
-            { type: 'thinking', thinking: 'hmm' },
-            { type: 'text', text: 'done' }
-          ]
+          protocol: 'anthropic'
         })
       )
+      expect(recordUsageSpy.mock.calls[0][1].assistantContent).toBeUndefined()
       expect(unifiedDeepSeekScheduler.removeAccountRateLimit).toHaveBeenCalledWith('acc-ds-1')
       expect(upstreamStream.destroy).toHaveBeenCalled()
       expect(res.end).toHaveBeenCalled()
@@ -1300,7 +1297,7 @@ describe('DeepSeekRelayService — helper methods', () => {
   })
 
   describe('_recordUsage and upstream error helpers', () => {
-    test('records OpenAI usage with synthesized input block metadata', async () => {
+    test('records OpenAI usage without assistant content metadata', async () => {
       const apiKeyService = require('../src/services/apiKeyService')
       const deepseekAccountService = require('../src/services/account/deepseekAccountService')
       const { updateRateLimitCounters } = require('../src/utils/rateLimitHelper')
@@ -1314,10 +1311,6 @@ describe('DeepSeekRelayService — helper methods', () => {
         buildInputPromptBlock
       } = require('../src/utils/userInputExtractor')
 
-      buildInputMessagesBlock.mockReturnValue({
-        type: 'input_messages',
-        messages: [{ role: 'user' }]
-      })
       buildUsageMetadata.mockReturnValue({ meta: 'openai' })
       createRequestDetailMeta.mockReturnValue({ detail: true })
       buildCompletionUsageSummary.mockReturnValue({ totalInputTokens: 3, outputTokens: 2 })
@@ -1340,13 +1333,14 @@ describe('DeepSeekRelayService — helper methods', () => {
         requestedModel: 'deepseek-v4-flash'
       })
 
-      expect(buildInputMessagesBlock).toHaveBeenCalled()
+      expect(buildInputMessagesBlock).not.toHaveBeenCalled()
+      expect(buildInputPromptBlock).not.toHaveBeenCalled()
       expect(buildUsageMetadata).toHaveBeenCalledWith(
         expect.objectContaining({
           format: 'openai',
           sessionId: 'hashed-session',
           rawSessionId: 'raw-session',
-          assistantContent: [{ type: 'input_messages', messages: [{ role: 'user' }] }]
+          assistantContent: null
         })
       )
       expect(apiKeyService.recordUsageWithDetails).toHaveBeenCalledWith(
@@ -1363,7 +1357,7 @@ describe('DeepSeekRelayService — helper methods', () => {
       expect(result).toEqual({ totalInputTokens: 3, outputTokens: 2 })
     })
 
-    test('records Anthropic usage with provided assistant content', async () => {
+    test('records Anthropic usage without assistant content metadata', async () => {
       const apiKeyService = require('../src/services/apiKeyService')
       const {
         buildUsageMetadata,
@@ -1395,10 +1389,11 @@ describe('DeepSeekRelayService — helper methods', () => {
       })
 
       expect(buildInputMessagesBlock).not.toHaveBeenCalled()
+      expect(buildInputPromptBlock).not.toHaveBeenCalled()
       expect(buildUsageMetadata).toHaveBeenCalledWith(
         expect.objectContaining({
           format: 'anthropic',
-          assistantContent: [{ type: 'text', text: 'done' }]
+          assistantContent: null
         })
       )
 
@@ -1419,13 +1414,11 @@ describe('DeepSeekRelayService — helper methods', () => {
       })
 
       expect(buildInputMessagesBlock).not.toHaveBeenCalled()
-      expect(buildInputPromptBlock).toHaveBeenCalledWith({
-        prompt: 'prefix',
-        suffix: 'suffix'
-      })
+      expect(buildInputPromptBlock).not.toHaveBeenCalled()
       expect(buildUsageMetadata).toHaveBeenCalledWith(
         expect.objectContaining({
-          format: 'completion'
+          format: 'completion',
+          assistantContent: null
         })
       )
     })

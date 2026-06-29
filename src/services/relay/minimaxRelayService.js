@@ -11,7 +11,7 @@ const {
   buildCompletionUsageSummary,
   formatCompletionUsageLog
 } = require('../../utils/requestDetailHelper')
-const { buildUsageMetadata, buildInputMessagesBlock } = require('../../utils/userInputExtractor')
+const { buildUsageMetadata } = require('../../utils/userInputExtractor')
 const apiKeyService = require('../apiKeyService')
 const minimaxAccountService = require('../account/minimaxAccountService')
 const unifiedMiniMaxScheduler = require('../scheduler/unifiedMinimaxScheduler')
@@ -379,8 +379,7 @@ class MiniMaxRelayService {
         requestedModel,
         stream: false,
         statusCode: upstreamResponse.status,
-        protocol: 'anthropic',
-        assistantContent: responseData?.content
+        protocol: 'anthropic'
       })
     } else {
       logger.warn(`⚠️ MiniMax Anthropic non-stream response missing usage, model=${model}`)
@@ -553,8 +552,6 @@ class MiniMaxRelayService {
     const parser = new IncrementalSSEParser()
     let capturedUsage = null
     let actualModel = requestedModel
-    const streamedAssistantText = []
-    const streamedThinkingText = []
     let completionUsageSummary = this._buildUsageSummary()
     const anthropicResponseMeta = {}
 
@@ -570,11 +567,6 @@ class MiniMaxRelayService {
           capturedUsage = this._mergeAnthropicUsage(
             capturedUsage,
             this._extractAnthropicUsage(event.data)
-          )
-          this._collectAnthropicStreamContent(
-            event.data,
-            streamedAssistantText,
-            streamedThinkingText
           )
           this._collectAnthropicStreamResponseMeta(event.data, anthropicResponseMeta)
         }
@@ -592,11 +584,6 @@ class MiniMaxRelayService {
                 capturedUsage,
                 this._extractAnthropicUsage(event.data)
               )
-              this._collectAnthropicStreamContent(
-                event.data,
-                streamedAssistantText,
-                streamedThinkingText
-              )
             }
           }
         }
@@ -611,11 +598,7 @@ class MiniMaxRelayService {
             requestedModel,
             stream: true,
             statusCode: res.statusCode,
-            protocol: 'anthropic',
-            assistantContent: this._buildAnthropicAssistantContent(
-              streamedAssistantText,
-              streamedThinkingText
-            )
+            protocol: 'anthropic'
           })
         } else {
           logger.warn(`⚠️ MiniMax Anthropic stream response missing usage, model=${actualModel}`)
@@ -630,7 +613,7 @@ class MiniMaxRelayService {
 
       const responseForLog = this._buildAnthropicStreamResponse(
         anthropicResponseMeta,
-        this._buildAnthropicAssistantContent(streamedAssistantText, streamedThinkingText),
+        null,
         capturedUsage,
         this._normalizeRequestModel(actualModel || requestedModel)
       )
@@ -722,36 +705,6 @@ class MiniMaxRelayService {
 
   _extractAnthropicModel(data = {}, fallback = MINIMAX_DEFAULT_MODEL) {
     return data?.message?.model || data?.model || fallback
-  }
-
-  _collectAnthropicStreamContent(data, streamedAssistantText, streamedThinkingText) {
-    const delta = data?.delta
-    if (!delta || typeof delta !== 'object') {
-      return
-    }
-
-    if (typeof delta.text === 'string' && delta.text) {
-      streamedAssistantText.push(delta.text)
-    }
-
-    if (typeof delta.thinking === 'string' && delta.thinking) {
-      streamedThinkingText.push(delta.thinking)
-    }
-  }
-
-  _buildAnthropicAssistantContent(streamedAssistantText, streamedThinkingText) {
-    const blocks = []
-    const thinking = streamedThinkingText.join('')
-    if (thinking) {
-      blocks.push({ type: 'thinking', thinking })
-    }
-
-    const text = streamedAssistantText.join('')
-    if (text) {
-      blocks.push({ type: 'text', text })
-    }
-
-    return blocks.length > 0 ? blocks : undefined
   }
 
   _buildResponseLogMeta(response) {
@@ -910,7 +863,7 @@ class MiniMaxRelayService {
       return
     }
 
-    const message = data.message
+    const { message } = data
     if (message && typeof message === 'object') {
       if (message.id) {
         anthropicResponseMeta.id = message.id
@@ -985,7 +938,6 @@ class MiniMaxRelayService {
       stream,
       statusCode,
       protocol = 'openai',
-      assistantContent,
       requestedModel
     } = options
     // 计费使用请求模型（用户配置的），避免上游返回免费模型导致费用为0
@@ -1001,7 +953,6 @@ class MiniMaxRelayService {
       ? normalizeMiniMaxAnthropicUsage(usage)
       : normalizeMiniMaxUsage(usage)
     const usageSummary = this._buildUsageSummary(normalizedUsage)
-    const inputBlock = isAnthropicProtocol ? null : buildInputMessagesBlock(body)
     const usageExtra = buildUsageMetadata({
       body,
       format: isAnthropicProtocol ? 'anthropic' : 'openai',
@@ -1009,7 +960,7 @@ class MiniMaxRelayService {
       requestIp: req,
       sessionId: sessionHash || null,
       rawSessionId: resolvedRawSessionId,
-      assistantContent: assistantContent || (inputBlock ? [inputBlock] : undefined)
+      assistantContent: null
     })
 
     const costs = await apiKeyService.recordUsageWithDetails(

@@ -11,7 +11,7 @@ const {
   buildCompletionUsageSummary,
   formatCompletionUsageLog
 } = require('../../utils/requestDetailHelper')
-const { buildUsageMetadata, buildInputMessagesBlock } = require('../../utils/userInputExtractor')
+const { buildUsageMetadata } = require('../../utils/userInputExtractor')
 const apiKeyService = require('../apiKeyService')
 const glmAccountService = require('../account/glmAccountService')
 const unifiedGlmScheduler = require('../scheduler/unifiedGlmScheduler')
@@ -511,8 +511,7 @@ class GlmRelayService {
         requestedModel,
         stream: false,
         statusCode: upstreamResponse.status,
-        protocol: 'anthropic',
-        assistantContent: responseData?.content
+        protocol: 'anthropic'
       })
     } else {
       logger.warn(`⚠️ GLM Anthropic non-stream response missing usage, model=${model}`)
@@ -561,8 +560,6 @@ class GlmRelayService {
     const parser = new IncrementalSSEParser()
     let capturedUsage = null
     let actualModel = requestedModel
-    const streamedAssistantText = []
-    const streamedThinkingText = []
     let completionUsageSummary = this._buildUsageSummary()
     const anthropicResponseMeta = {}
 
@@ -578,11 +575,6 @@ class GlmRelayService {
           capturedUsage = this._mergeAnthropicUsage(
             capturedUsage,
             this._extractAnthropicUsage(event.data)
-          )
-          this._collectAnthropicStreamContent(
-            event.data,
-            streamedAssistantText,
-            streamedThinkingText
           )
           this._collectAnthropicStreamResponseMeta(event.data, anthropicResponseMeta)
         }
@@ -600,11 +592,6 @@ class GlmRelayService {
                 capturedUsage,
                 this._extractAnthropicUsage(event.data)
               )
-              this._collectAnthropicStreamContent(
-                event.data,
-                streamedAssistantText,
-                streamedThinkingText
-              )
             }
           }
         }
@@ -619,11 +606,7 @@ class GlmRelayService {
             requestedModel,
             stream: true,
             statusCode: res.statusCode,
-            protocol: 'anthropic',
-            assistantContent: this._buildAnthropicAssistantContent(
-              streamedAssistantText,
-              streamedThinkingText
-            )
+            protocol: 'anthropic'
           })
         } else {
           logger.warn(`⚠️ GLM Anthropic stream response missing usage, model=${actualModel}`)
@@ -638,7 +621,7 @@ class GlmRelayService {
 
       const responseForLog = this._buildAnthropicStreamResponse(
         anthropicResponseMeta,
-        this._buildAnthropicAssistantContent(streamedAssistantText, streamedThinkingText),
+        null,
         capturedUsage,
         this._normalizeRequestModel(actualModel || requestedModel)
       )
@@ -722,36 +705,6 @@ class GlmRelayService {
 
   _extractAnthropicModel(data = {}, fallback = GLM_DEFAULT_MODEL) {
     return data?.message?.model || data?.model || fallback
-  }
-
-  _collectAnthropicStreamContent(data, streamedAssistantText, streamedThinkingText) {
-    const delta = data?.delta
-    if (!delta || typeof delta !== 'object') {
-      return
-    }
-
-    if (typeof delta.text === 'string' && delta.text) {
-      streamedAssistantText.push(delta.text)
-    }
-
-    if (typeof delta.thinking === 'string' && delta.thinking) {
-      streamedThinkingText.push(delta.thinking)
-    }
-  }
-
-  _buildAnthropicAssistantContent(streamedAssistantText, streamedThinkingText) {
-    const blocks = []
-    const thinking = streamedThinkingText.join('')
-    if (thinking) {
-      blocks.push({ type: 'thinking', thinking })
-    }
-
-    const text = streamedAssistantText.join('')
-    if (text) {
-      blocks.push({ type: 'text', text })
-    }
-
-    return blocks.length > 0 ? blocks : undefined
   }
 
   _buildResponseLogMeta(response) {
@@ -910,7 +863,7 @@ class GlmRelayService {
       return
     }
 
-    const message = data.message
+    const { message } = data
     if (message && typeof message === 'object') {
       if (message.id) {
         anthropicResponseMeta.id = message.id
@@ -994,7 +947,6 @@ class GlmRelayService {
       stream,
       statusCode,
       protocol = 'openai',
-      assistantContent,
       requestedModel
     } = options
     // 计费使用请求模型（用户配置的），避免上游返回免费模型导致费用为0
@@ -1013,7 +965,6 @@ class GlmRelayService {
       ? normalizeGlmAnthropicUsage(usage)
       : normalizeGlmUsage(usage)
     const usageSummary = this._buildUsageSummary(normalizedUsage)
-    const inputBlock = isAnthropicProtocol ? null : buildInputMessagesBlock(body)
     const usageExtra = buildUsageMetadata({
       body,
       format: isAnthropicProtocol ? 'anthropic' : 'openai',
@@ -1021,7 +972,7 @@ class GlmRelayService {
       requestIp: req,
       sessionId: sessionHash || null,
       rawSessionId: resolvedRawSessionId,
-      assistantContent: assistantContent || (inputBlock ? [inputBlock] : undefined)
+      assistantContent: null
     })
 
     const costs = await apiKeyService.recordUsageWithDetails(

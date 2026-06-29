@@ -11,7 +11,7 @@ const crypto = require('crypto')
 const LRUCache = require('../../utils/lruCache')
 const upstreamErrorHelper = require('../../utils/upstreamErrorHelper')
 const webhookService = require('../webhookService')
-const { buildUsageMetadata, buildInputMessagesBlock } = require('../../utils/userInputExtractor')
+const { buildUsageMetadata } = require('../../utils/userInputExtractor')
 const {
   createRequestDetailMeta,
   extractOpenAICacheReadTokens,
@@ -573,8 +573,6 @@ class OpenAIResponsesRelayService {
     let streamEnded = false
     const completedOutputItems = []
     let completedResponse = null
-    let streamedOutputText = ''
-    let streamedThinkingText = ''
 
     // 解析 SSE 事件以捕获 usage 数据和 model
     const parseSSEForUsage = (data) => {
@@ -589,16 +587,6 @@ class OpenAIResponsesRelayService {
             }
 
             const eventData = JSON.parse(jsonStr)
-
-            // 捕获流式输出文本
-            if (eventData.type === 'response.output_text.delta' && eventData.delta) {
-              streamedOutputText += eventData.delta
-            }
-
-            // 捕获流式思考链文本
-            if (eventData.type === 'response.reasoning_summary_text.delta' && eventData.delta) {
-              streamedThinkingText += eventData.delta
-            }
 
             // 检查是否是 response.completed 事件（OpenAI-Responses 格式）
             if (eventData.type === 'response.output_item.done' && eventData.item) {
@@ -715,7 +703,6 @@ class OpenAIResponsesRelayService {
             req.body?.prompt_cache_key ||
             req.body?.previous_response_id ||
             null
-          const _inputBlock = buildInputMessagesBlock(req.body)
           const _usageExtra = buildUsageMetadata({
             body: req.body,
             format: 'openai',
@@ -723,16 +710,7 @@ class OpenAIResponsesRelayService {
             requestIp: req,
             sessionId: _usageSessionId || null,
             rawSessionId: _usageSessionId || null,
-            assistantContent: (() => {
-              const blocks = _inputBlock ? [_inputBlock] : []
-              if (streamedThinkingText) {
-                blocks.push({ type: 'thinking', thinking: streamedThinkingText })
-              }
-              if (streamedOutputText) {
-                blocks.push({ type: 'text', text: streamedOutputText })
-              }
-              return blocks.length > 0 ? blocks : undefined
-            })()
+            assistantContent: null
           })
           await apiKeyService.recordUsage(
             apiKeyData.id,
@@ -933,23 +911,13 @@ class OpenAIResponsesRelayService {
           req.body?.prompt_cache_key ||
           req.body?.previous_response_id ||
           null
-        const _inputBlock = buildInputMessagesBlock(req.body)
         const _usageExtra = buildUsageMetadata({
           body: req.body,
           format: 'openai',
           headers: req.headers,
           sessionId: _usageSessionId || null,
           rawSessionId: _usageSessionId || null,
-          assistantContent: (() => {
-            const rawOutput = responseData?.output || responseData?.response?.output
-            const blocks = _inputBlock ? [_inputBlock] : []
-            if (Array.isArray(rawOutput)) {
-              blocks.push(...rawOutput)
-            } else if (rawOutput) {
-              blocks.push(rawOutput)
-            }
-            return blocks.length > 0 ? blocks : undefined
-          })()
+          assistantContent: null
         })
         await apiKeyService.recordUsage(
           apiKeyData.id,

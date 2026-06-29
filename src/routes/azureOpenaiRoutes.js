@@ -237,7 +237,7 @@ router.post('/chat/completions', authenticateApiKey, async (req, res) => {
     // 处理流式响应
     if (req.body.stream) {
       await azureOpenaiRelayService.handleStreamResponse(response, res, {
-        onEnd: async ({ usageData, actualModel, streamedText }) => {
+        onEnd: async ({ usageData, actualModel }) => {
           if (usageData) {
             const modelToRecord = actualModel || req.body.model || 'unknown'
             const _usageExtra = buildUsageMetadata({
@@ -247,7 +247,7 @@ router.post('/chat/completions', authenticateApiKey, async (req, res) => {
               requestIp: req,
               sessionId: sessionId || null,
               rawSessionId: sessionId || null,
-              assistantContent: streamedText || undefined
+              assistantContent: null
             })
             await usageReporter.reportOnce(
               requestId,
@@ -270,8 +270,10 @@ router.post('/chat/completions', authenticateApiKey, async (req, res) => {
       })
     } else {
       // 处理非流式响应
-      const { usageData, actualModel, assistantContent } =
-        azureOpenaiRelayService.handleNonStreamResponse(response, res)
+      const { usageData, actualModel } = azureOpenaiRelayService.handleNonStreamResponse(
+        response,
+        res
+      )
 
       if (usageData) {
         const modelToRecord = actualModel || req.body.model || 'unknown'
@@ -282,7 +284,7 @@ router.post('/chat/completions', authenticateApiKey, async (req, res) => {
           requestIp: req,
           sessionId: sessionId || null,
           rawSessionId: sessionId || null,
-          assistantContent
+          assistantContent: null
         })
         await usageReporter.reportOnce(
           requestId,
@@ -386,7 +388,7 @@ router.post('/responses', authenticateApiKey, async (req, res) => {
     // 处理流式响应
     if (req.body.stream) {
       await azureOpenaiRelayService.handleStreamResponse(response, res, {
-        onEnd: async ({ usageData, actualModel, streamedText }) => {
+        onEnd: async ({ usageData, actualModel }) => {
           if (usageData) {
             const modelToRecord = actualModel || req.body.model || 'unknown'
             const _usageExtra = buildUsageMetadata({
@@ -396,7 +398,7 @@ router.post('/responses', authenticateApiKey, async (req, res) => {
               requestIp: req,
               sessionId: sessionId || null,
               rawSessionId: sessionId || null,
-              assistantContent: streamedText || undefined
+              assistantContent: null
             })
             await usageReporter.reportOnce(
               requestId,
@@ -419,8 +421,10 @@ router.post('/responses', authenticateApiKey, async (req, res) => {
       })
     } else {
       // 处理非流式响应
-      const { usageData, actualModel, assistantContent } =
-        azureOpenaiRelayService.handleNonStreamResponse(response, res)
+      const { usageData, actualModel } = azureOpenaiRelayService.handleNonStreamResponse(
+        response,
+        res
+      )
 
       if (usageData) {
         const modelToRecord = actualModel || req.body.model || 'unknown'
@@ -431,7 +435,7 @@ router.post('/responses', authenticateApiKey, async (req, res) => {
           requestIp: req,
           sessionId: sessionId || null,
           rawSessionId: sessionId || null,
-          assistantContent
+          assistantContent: null
         })
         await usageReporter.reportOnce(
           requestId,

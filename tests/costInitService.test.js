@@ -27,7 +27,7 @@ describe('costInitService scheduler', () => {
 
   beforeEach(() => {
     jest.resetModules()
-    delete process.env.COST_INIT_SCHEDULER_ENABLED
+    process.env.COST_INIT_SCHEDULER_ENABLED = 'false'
     cron = require('node-cron')
     redis = require('../src/models/redis')
     costInitService = require('../src/services/costInitService')
@@ -44,6 +44,7 @@ describe('costInitService scheduler', () => {
   })
 
   test('does not start scheduler unless explicitly enabled', () => {
+    process.env.COST_INIT_SCHEDULER_ENABLED = 'false'
     const started = costInitService.startScheduler()
 
     expect(started).toBe(false)

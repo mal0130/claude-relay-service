@@ -1290,7 +1290,7 @@ class DroidRelayService {
           requestBody?.session_id ||
           requestBody?.conversation_id ||
           null,
-        assistantContent: data?.output || data?.response?.output || data?.content || undefined
+        assistantContent: null
       })
       const droidCosts = await this._recordUsage(
         apiKeyData,

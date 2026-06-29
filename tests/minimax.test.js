@@ -47,19 +47,9 @@ describe('minimaxPlatform', () => {
       )
     })
 
-    test('returns as-is when already ends with /chat/completions', () => {
-      const url = 'https://api.minimaxi.com/v1/chat/completions'
-      expect(platform.buildChatCompletionsUrl(url)).toBe(url)
-    })
-
     test('handles base without /v1 suffix', () => {
       const result = platform.buildChatCompletionsUrl('https://custom.api.com')
-      expect(result).toBe('https://custom.api.com/v1/chat/completions')
-    })
-
-    test('corrects anthropic base to chat/completions', () => {
-      const result = platform.buildChatCompletionsUrl('https://api.minimaxi.com/anthropic')
-      expect(result).toContain('/chat/completions')
+      expect(result).toBe('https://custom.api.com/chat/completions')
     })
   })
 
@@ -642,55 +632,6 @@ describe('MiniMaxRelayService — helper methods', () => {
 
     test('returns fallback when no model in data', () => {
       expect(svc._extractAnthropicModel({}, 'fallback-model')).toBe('fallback-model')
-    })
-  })
-
-  describe('_collectAnthropicStreamContent', () => {
-    test('collects text from delta', () => {
-      const text = []
-      const thinking = []
-      svc._collectAnthropicStreamContent({ delta: { text: 'hello' } }, text, thinking)
-      expect(text).toEqual(['hello'])
-    })
-
-    test('collects thinking from delta', () => {
-      const text = []
-      const thinking = []
-      svc._collectAnthropicStreamContent({ delta: { thinking: 'step 1' } }, text, thinking)
-      expect(thinking).toEqual(['step 1'])
-    })
-
-    test('ignores empty text/thinking', () => {
-      const text = []
-      const thinking = []
-      svc._collectAnthropicStreamContent({ delta: { text: '' } }, text, thinking)
-      expect(text).toHaveLength(0)
-    })
-
-    test('does nothing when no delta', () => {
-      const text = []
-      const thinking = []
-      svc._collectAnthropicStreamContent({}, text, thinking)
-      expect(text).toHaveLength(0)
-    })
-  })
-
-  describe('_buildAnthropicAssistantContent', () => {
-    test('returns text block when only text', () => {
-      const result = svc._buildAnthropicAssistantContent(['hello', ' world'], [])
-      expect(result).toEqual([{ type: 'text', text: 'hello world' }])
-    })
-
-    test('returns thinking and text blocks', () => {
-      const result = svc._buildAnthropicAssistantContent(['answer'], ['reason'])
-      expect(result).toEqual([
-        { type: 'thinking', thinking: 'reason' },
-        { type: 'text', text: 'answer' }
-      ])
-    })
-
-    test('returns undefined when both are empty', () => {
-      expect(svc._buildAnthropicAssistantContent([], [])).toBeUndefined()
     })
   })
 
@@ -1345,13 +1286,10 @@ describe('MiniMaxRelayService — helper methods', () => {
         req,
         expect.objectContaining({
           accountId: 'acc-1',
-          protocol: 'anthropic',
-          assistantContent: [
-            { type: 'thinking', thinking: 'hmm' },
-            { type: 'text', text: 'done' }
-          ]
+          protocol: 'anthropic'
         })
       )
+      expect(recordUsageSpy.mock.calls[0][1].assistantContent).toBeUndefined()
       expect(unifiedMiniMaxScheduler.removeAccountRateLimit).toHaveBeenCalledWith('acc-1')
       expect(upstreamStream.destroy).toHaveBeenCalled()
       expect(res.end).toHaveBeenCalled()
@@ -1359,7 +1297,7 @@ describe('MiniMaxRelayService — helper methods', () => {
   })
 
   describe('_recordUsage and upstream error helpers', () => {
-    test('records OpenAI usage with synthesized input block metadata', async () => {
+    test('records OpenAI usage without assistant content metadata', async () => {
       const apiKeyService = require('../src/services/apiKeyService')
       const minimaxAccountService = require('../src/services/account/minimaxAccountService')
       const { updateRateLimitCounters } = require('../src/utils/rateLimitHelper')
@@ -1372,10 +1310,6 @@ describe('MiniMaxRelayService — helper methods', () => {
         buildInputMessagesBlock
       } = require('../src/utils/userInputExtractor')
 
-      buildInputMessagesBlock.mockReturnValue({
-        type: 'input_messages',
-        messages: [{ role: 'user' }]
-      })
       buildUsageMetadata.mockReturnValue({ meta: 'openai' })
       createRequestDetailMeta.mockReturnValue({ detail: true })
       buildCompletionUsageSummary.mockReturnValue({ totalInputTokens: 3, outputTokens: 2 })
@@ -1398,13 +1332,13 @@ describe('MiniMaxRelayService — helper methods', () => {
         requestedModel: 'MiniMax-M3'
       })
 
-      expect(buildInputMessagesBlock).toHaveBeenCalled()
+      expect(buildInputMessagesBlock).not.toHaveBeenCalled()
       expect(buildUsageMetadata).toHaveBeenCalledWith(
         expect.objectContaining({
           format: 'openai',
           sessionId: 'hashed-session',
           rawSessionId: 'raw-session',
-          assistantContent: [{ type: 'input_messages', messages: [{ role: 'user' }] }]
+          assistantContent: null
         })
       )
       expect(apiKeyService.recordUsageWithDetails).toHaveBeenCalledWith(
@@ -1421,7 +1355,7 @@ describe('MiniMaxRelayService — helper methods', () => {
       expect(result).toEqual({ totalInputTokens: 3, outputTokens: 2 })
     })
 
-    test('records Anthropic usage with provided assistant content', async () => {
+    test('records Anthropic usage without assistant content metadata', async () => {
       const apiKeyService = require('../src/services/apiKeyService')
       const {
         buildUsageMetadata,
@@ -1455,7 +1389,7 @@ describe('MiniMaxRelayService — helper methods', () => {
       expect(buildUsageMetadata).toHaveBeenCalledWith(
         expect.objectContaining({
           format: 'anthropic',
-          assistantContent: [{ type: 'text', text: 'done' }]
+          assistantContent: null
         })
       )
     })

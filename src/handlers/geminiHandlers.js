@@ -586,7 +586,7 @@ async function handleMessages(req, res) {
               headers: req.headers,
               sessionId: sessionHash || null,
               rawSessionId: req.headers['x-session-id'] || req.body?.session_id || null,
-              assistantContent: geminiResponse?.choices?.[0]?.message || undefined
+              assistantContent: null
             })
             await apiKeyService.recordUsage(
               apiKeyData.id,
@@ -689,8 +689,6 @@ async function handleMessages(req, res) {
           totalTokenCount: 0
         }
         let streamBuffer = ''
-        let streamedText = ''
-
         geminiResponse.on('data', (chunk) => {
           try {
             const chunkStr = chunk.toString()
@@ -718,10 +716,6 @@ async function handleMessages(req, res) {
                     if (parsed.usageMetadata || parsed.response?.usageMetadata) {
                       totalUsage = parsed.usageMetadata || parsed.response.usageMetadata
                     }
-                    // 捕获流式文本内容
-                    if (parsed.candidates?.[0]?.content?.parts?.[0]?.text) {
-                      streamedText += parsed.candidates[0].content.parts[0].text
-                    }
                   } catch (e) {
                     // 解析失败，忽略
                   }
@@ -745,7 +739,7 @@ async function handleMessages(req, res) {
               requestIp: req,
               sessionId: sessionHash || null,
               rawSessionId: req.headers['x-session-id'] || req.body?.session_id || null,
-              assistantContent: streamedText || undefined
+              assistantContent: null
             })
             apiKeyService
               .recordUsage(

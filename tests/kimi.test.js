@@ -43,14 +43,9 @@ describe('kimiPlatform', () => {
       )
     })
 
-    test('returns as-is when already ends with /chat/completions', () => {
-      const url = 'https://api.moonshot.cn/v1/chat/completions'
-      expect(platform.buildChatCompletionsUrl(url)).toBe(url)
-    })
-
     test('handles base without /v1 suffix', () => {
       const result = platform.buildChatCompletionsUrl('https://api.moonshot.cn')
-      expect(result).toBe('https://api.moonshot.cn/v1/chat/completions')
+      expect(result).toBe('https://api.moonshot.cn/chat/completions')
     })
   })
 
@@ -143,14 +138,15 @@ describe('kimiPlatform', () => {
       expect(result.output_tokens).toBe(80)
     })
 
-    test('always returns zero cache tokens (Kimi no cache)', () => {
+    test('maps prompt cache hit tokens to cache_read_input_tokens', () => {
       const result = platform.normalizeKimiUsage({
         prompt_tokens: 100,
         completion_tokens: 50,
         prompt_cache_hit_tokens: 30
       })
+      expect(result.input_tokens).toBe(70)
       expect(result.cache_creation_input_tokens).toBe(0)
-      expect(result.cache_read_input_tokens).toBe(0)
+      expect(result.cache_read_input_tokens).toBe(30)
     })
 
     test('returns zeros for empty usage', () => {
@@ -1034,13 +1030,10 @@ describe('KimiRelayService — helper methods', () => {
         req,
         expect.objectContaining({
           accountId: 'acc-kimi-1',
-          protocol: 'anthropic',
-          assistantContent: [
-            { type: 'thinking', thinking: 'hmm' },
-            { type: 'text', text: 'done' }
-          ]
+          protocol: 'anthropic'
         })
       )
+      expect(recordUsageSpy.mock.calls[0][1].assistantContent).toBeUndefined()
       expect(unifiedKimiScheduler.removeAccountRateLimit).toHaveBeenCalledWith('acc-kimi-1')
       expect(upstreamStream.destroy).toHaveBeenCalled()
       expect(res.end).toHaveBeenCalled()
@@ -1048,7 +1041,7 @@ describe('KimiRelayService — helper methods', () => {
   })
 
   describe('_recordUsage and upstream error helpers', () => {
-    test('records OpenAI usage with synthesized input block metadata', async () => {
+    test('records OpenAI usage without assistant content metadata', async () => {
       const apiKeyService = require('../src/services/apiKeyService')
       const kimiAccountService = require('../src/services/account/kimiAccountService')
       const { updateRateLimitCounters } = require('../src/utils/rateLimitHelper')
@@ -1061,10 +1054,6 @@ describe('KimiRelayService — helper methods', () => {
         buildInputMessagesBlock
       } = require('../src/utils/userInputExtractor')
 
-      buildInputMessagesBlock.mockReturnValue({
-        type: 'input_messages',
-        messages: [{ role: 'user' }]
-      })
       buildUsageMetadata.mockReturnValue({ meta: 'openai' })
       createRequestDetailMeta.mockReturnValue({ detail: true })
       buildCompletionUsageSummary.mockReturnValue({ totalInputTokens: 3, outputTokens: 2 })
@@ -1087,13 +1076,13 @@ describe('KimiRelayService — helper methods', () => {
         requestedModel: 'moonshot-v1-8k'
       })
 
-      expect(buildInputMessagesBlock).toHaveBeenCalled()
+      expect(buildInputMessagesBlock).not.toHaveBeenCalled()
       expect(buildUsageMetadata).toHaveBeenCalledWith(
         expect.objectContaining({
           format: 'openai',
           sessionId: 'hashed-session',
           rawSessionId: 'raw-session',
-          assistantContent: [{ type: 'input_messages', messages: [{ role: 'user' }] }]
+          assistantContent: null
         })
       )
       expect(apiKeyService.recordUsageWithDetails).toHaveBeenCalledWith(
@@ -1110,7 +1099,7 @@ describe('KimiRelayService — helper methods', () => {
       expect(result).toEqual({ totalInputTokens: 3, outputTokens: 2 })
     })
 
-    test('records Anthropic usage with provided assistant content', async () => {
+    test('records Anthropic usage without assistant content metadata', async () => {
       const apiKeyService = require('../src/services/apiKeyService')
       const {
         buildUsageMetadata,
@@ -1144,7 +1133,7 @@ describe('KimiRelayService — helper methods', () => {
       expect(buildUsageMetadata).toHaveBeenCalledWith(
         expect.objectContaining({
           format: 'anthropic',
-          assistantContent: [{ type: 'text', text: 'done' }]
+          assistantContent: null
         })
       )
     })

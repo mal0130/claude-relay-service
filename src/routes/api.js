@@ -298,7 +298,7 @@ async function handleMessagesRequest(req, res) {
       logger.info(
         `🔍 api.js stream body_keys=${Object.keys(req.body || {})}, session_id=${req.body?.session_id}, metadata=${JSON.stringify(req.body?.metadata)}`
       )
-      const buildStreamUsageExtra = (assistantContent) =>
+      const buildStreamUsageExtra = () =>
         buildUsageMetadata({
           body: req.body,
           format: 'anthropic',
@@ -309,7 +309,7 @@ async function handleMessagesRequest(req, res) {
             req.headers['session_id'] ||
             claudeRelayConfigService.extractOriginalSessionId(req.body) ||
             null,
-          assistantContent
+          assistantContent: null
         })
 
       // 🔒 全局会话绑定验证
@@ -528,7 +528,7 @@ async function handleMessagesRequest(req, res) {
                   model,
                   usageAccountId,
                   accountType,
-                  buildStreamUsageExtra(usageData.assistantContent || usageData.content),
+                  buildStreamUsageExtra(),
                   createRequestDetailMeta(req, {
                     requestBody: _requestBody,
                     stream: true,
@@ -666,7 +666,7 @@ async function handleMessagesRequest(req, res) {
                   model,
                   usageAccountId,
                   'claude-console',
-                  buildStreamUsageExtra(usageData.assistantContent || usageData.content),
+                  buildStreamUsageExtra(),
                   createRequestDetailMeta(req, {
                     requestBody: _requestBodyConsole,
                     stream: true,
@@ -896,7 +896,7 @@ async function handleMessagesRequest(req, res) {
                   model,
                   usageAccountId,
                   'ccr',
-                  buildStreamUsageExtra(usageData.assistantContent || usageData.content),
+                  buildStreamUsageExtra(),
                   createRequestDetailMeta(req, {
                     requestBody: _requestBodyCcr,
                     stream: true,
@@ -1029,7 +1029,7 @@ async function handleMessagesRequest(req, res) {
       logger.info(
         `🔍 api.js non-stream session_id header=${req.headers['session_id']}, metadata_user_id=${req.body?.metadata?.user_id}`
       )
-      const buildNonStreamUsageExtra = (assistantContent) =>
+      const buildNonStreamUsageExtra = () =>
         buildUsageMetadata({
           body: req.body,
           format: 'anthropic',
@@ -1040,7 +1040,7 @@ async function handleMessagesRequest(req, res) {
             req.headers['session_id'] ||
             claudeRelayConfigService.extractOriginalSessionId(req.body) ||
             null,
-          assistantContent
+          assistantContent: null
         })
 
       // 🔒 全局会话绑定验证（非流式）
@@ -1345,9 +1345,7 @@ async function handleMessagesRequest(req, res) {
             model,
             responseAccountId,
             accountType,
-            buildNonStreamUsageExtra(
-              Array.isArray(jsonData?.content) ? jsonData.content : undefined
-            ),
+            buildNonStreamUsageExtra(),
             createRequestDetailMeta(req, {
               requestBody: _requestBodyNonStream,
               stream: false,

@@ -11,11 +11,7 @@ const {
   buildCompletionUsageSummary,
   formatCompletionUsageLog
 } = require('../../utils/requestDetailHelper')
-const {
-  buildUsageMetadata,
-  buildInputMessagesBlock,
-  buildInputPromptBlock
-} = require('../../utils/userInputExtractor')
+const { buildUsageMetadata } = require('../../utils/userInputExtractor')
 const apiKeyService = require('../apiKeyService')
 const deepseekAccountService = require('../account/deepseekAccountService')
 const unifiedDeepSeekScheduler = require('../scheduler/unifiedDeepSeekScheduler')
@@ -535,8 +531,7 @@ class DeepSeekRelayService {
         requestedModel,
         stream: false,
         statusCode: upstreamResponse.status,
-        protocol: 'completion',
-        assistantContent: responseData?.choices?.map((choice) => choice?.text || '').join('')
+        protocol: 'completion'
       })
     } else {
       logger.warn(`⚠️ DeepSeek completion response missing usage, model=${model}`)
@@ -586,8 +581,7 @@ class DeepSeekRelayService {
         requestedModel,
         stream: false,
         statusCode: upstreamResponse.status,
-        protocol: 'anthropic',
-        assistantContent: responseData?.content
+        protocol: 'anthropic'
       })
     } else {
       logger.warn(`⚠️ DeepSeek Anthropic non-stream response missing usage, model=${model}`)
@@ -812,8 +806,7 @@ class DeepSeekRelayService {
             requestedModel,
             stream: true,
             statusCode: res.statusCode,
-            protocol: 'completion',
-            assistantContent: this._buildCompletionStreamText(streamResponseState)
+            protocol: 'completion'
           })
         } else {
           logger.warn(`⚠️ DeepSeek completion stream missing usage, model=${actualModel}`)
@@ -892,8 +885,6 @@ class DeepSeekRelayService {
     const parser = new IncrementalSSEParser()
     let capturedUsage = null
     let actualModel = requestedModel
-    const streamedAssistantText = []
-    const streamedThinkingText = []
     let completionUsageSummary = this._buildUsageSummary()
     const anthropicResponseMeta = {}
 
@@ -909,11 +900,6 @@ class DeepSeekRelayService {
           capturedUsage = this._mergeAnthropicUsage(
             capturedUsage,
             this._extractAnthropicUsage(event.data)
-          )
-          this._collectAnthropicStreamContent(
-            event.data,
-            streamedAssistantText,
-            streamedThinkingText
           )
           this._collectAnthropicStreamResponseMeta(event.data, anthropicResponseMeta)
         }
@@ -931,11 +917,6 @@ class DeepSeekRelayService {
                 capturedUsage,
                 this._extractAnthropicUsage(event.data)
               )
-              this._collectAnthropicStreamContent(
-                event.data,
-                streamedAssistantText,
-                streamedThinkingText
-              )
             }
           }
         }
@@ -950,11 +931,7 @@ class DeepSeekRelayService {
             requestedModel,
             stream: true,
             statusCode: res.statusCode,
-            protocol: 'anthropic',
-            assistantContent: this._buildAnthropicAssistantContent(
-              streamedAssistantText,
-              streamedThinkingText
-            )
+            protocol: 'anthropic'
           })
         } else {
           logger.warn(`⚠️ DeepSeek Anthropic stream response missing usage, model=${actualModel}`)
@@ -969,7 +946,7 @@ class DeepSeekRelayService {
 
       const responseForLog = this._buildAnthropicStreamResponse(
         anthropicResponseMeta,
-        this._buildAnthropicAssistantContent(streamedAssistantText, streamedThinkingText),
+        null,
         capturedUsage,
         this._normalizeRequestModel(actualModel || requestedModel)
       )
@@ -1070,36 +1047,6 @@ class DeepSeekRelayService {
 
   _extractAnthropicModel(data = {}, fallback = DEEPSEEK_DEFAULT_MODEL) {
     return data?.message?.model || data?.model || fallback
-  }
-
-  _collectAnthropicStreamContent(data, streamedAssistantText, streamedThinkingText) {
-    const delta = data?.delta
-    if (!delta || typeof delta !== 'object') {
-      return
-    }
-
-    if (typeof delta.text === 'string' && delta.text) {
-      streamedAssistantText.push(delta.text)
-    }
-
-    if (typeof delta.thinking === 'string' && delta.thinking) {
-      streamedThinkingText.push(delta.thinking)
-    }
-  }
-
-  _buildAnthropicAssistantContent(streamedAssistantText, streamedThinkingText) {
-    const blocks = []
-    const thinking = streamedThinkingText.join('')
-    if (thinking) {
-      blocks.push({ type: 'thinking', thinking })
-    }
-
-    const text = streamedAssistantText.join('')
-    if (text) {
-      blocks.push({ type: 'text', text })
-    }
-
-    return blocks.length > 0 ? blocks : undefined
   }
 
   _buildResponseLogMeta(response) {
@@ -1297,13 +1244,6 @@ class DeepSeekRelayService {
     }
   }
 
-  _buildCompletionStreamText(streamResponseState) {
-    return Array.from(streamResponseState.choices.values())
-      .sort((left, right) => left.index - right.index)
-      .map((choice) => choice.text || '')
-      .join('')
-  }
-
   _buildCompletionStreamResponse(streamResponseState, usage, fallbackModel) {
     const choices = Array.from(streamResponseState.choices.values())
       .sort((left, right) => left.index - right.index)
@@ -1341,7 +1281,7 @@ class DeepSeekRelayService {
       return
     }
 
-    const message = data.message
+    const { message } = data
     if (message && typeof message === 'object') {
       if (message.id) {
         anthropicResponseMeta.id = message.id
@@ -1415,8 +1355,7 @@ class DeepSeekRelayService {
       sessionHash,
       stream,
       statusCode,
-      protocol = 'openai',
-      assistantContent
+      protocol = 'openai'
     } = options
     const resolvedRawSessionId =
       req.headers['session_id'] ||
@@ -1430,11 +1369,6 @@ class DeepSeekRelayService {
       ? normalizeDeepSeekAnthropicUsage(usage)
       : normalizeDeepSeekUsage(usage)
     const usageSummary = this._buildUsageSummary(normalizedUsage)
-    const inputBlock = isAnthropicProtocol
-      ? null
-      : isCompletionProtocol
-        ? buildInputPromptBlock(body)
-        : buildInputMessagesBlock(body)
     const usageExtra = buildUsageMetadata({
       body,
       format: isAnthropicProtocol ? 'anthropic' : isCompletionProtocol ? 'completion' : 'openai',
@@ -1442,7 +1376,7 @@ class DeepSeekRelayService {
       requestIp: req,
       sessionId: sessionHash || null,
       rawSessionId: resolvedRawSessionId,
-      assistantContent: assistantContent || (inputBlock ? [inputBlock] : undefined)
+      assistantContent: null
     })
 
     const costs = await apiKeyService.recordUsageWithDetails(

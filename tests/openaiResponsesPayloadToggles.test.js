@@ -762,7 +762,8 @@ describe('openai stream overload interception', () => {
     const parsed = JSON.parse(written[0].replace(/^data: /, '').trim())
     expect(parsed.error.code).toBe('server_is_overloaded')
     expect(parsed.error.message).toContain('算力受限')
-    expect(parsed.error.message).toContain('切换成 2x 重试')
+    expect(parsed.error.message).toContain('当前是默认模型(1x)')
+    expect(parsed.error.message).toContain('默认模型(2x)重试')
   })
 
   test('replaces server_is_overloaded chunk with gpt-5.5 friendly message in stream', async () => {
@@ -774,7 +775,8 @@ describe('openai stream overload interception', () => {
     expect(written.length).toBe(1)
     const parsed = JSON.parse(written[0].replace(/^data: /, '').trim())
     expect(parsed.error.code).toBe('server_is_overloaded')
-    expect(parsed.error.message).toContain('切换成 1x 重试')
+    expect(parsed.error.message).toContain('当前是默认模型(2x)')
+    expect(parsed.error.message).toContain('默认模型(1x)重试')
   })
 
   test('replaces server_is_overloaded chunk with generic friendly message for other models', async () => {
@@ -786,7 +788,8 @@ describe('openai stream overload interception', () => {
     expect(written.length).toBe(1)
     const parsed = JSON.parse(written[0].replace(/^data: /, '').trim())
     expect(parsed.error.code).toBe('server_is_overloaded')
-    expect(parsed.error.message).toContain('聚合中转或DeepSeek等模型重试')
+    expect(parsed.error.message).toContain('切换成默认模型(1x/2x)重试')
+    expect(parsed.error.message).toContain('聚合中转、DeepSeek、GLM等模型重试')
   })
 
   test('passes normal stream chunks through without modification', async () => {

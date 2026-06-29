@@ -18,7 +18,7 @@ const { setSessionId } = require('../utils/requestContext')
 const { IncrementalSSEParser } = require('../utils/sseParser')
 const { getSafeMessage } = require('../utils/errorSanitizer')
 const { sanitizeErrorForClient } = require('../utils/upstreamErrorHelper')
-const { buildUsageMetadata, buildInputMessagesBlock } = require('../utils/userInputExtractor')
+const { buildUsageMetadata } = require('../utils/userInputExtractor')
 const {
   createRequestDetailMeta,
   extractOpenAICacheReadTokens,
@@ -83,46 +83,6 @@ function extractCodexUsageHeaders(headers) {
 
   const hasData = Object.values(snapshot).some((value) => value !== null)
   return hasData ? snapshot : null
-}
-
-function extractCodexResponseBlocks(responseData) {
-  const blocks = []
-  const output = Array.isArray(responseData?.output) ? responseData.output : []
-
-  for (const item of output) {
-    if (item?.type === 'reasoning') {
-      const thinking = (item.summary || [])
-        .filter((summary) => summary?.type === 'summary_text' && typeof summary.text === 'string')
-        .map((summary) => summary.text)
-        .join('')
-      if (thinking) {
-        blocks.push({ type: 'thinking', thinking })
-      }
-      continue
-    }
-
-    if (item?.type === 'message') {
-      const text = (item.content || [])
-        .filter((part) => part?.type === 'output_text' && typeof part.text === 'string')
-        .map((part) => part.text)
-        .join('')
-      if (text) {
-        blocks.push({ type: 'text', text })
-      }
-    }
-  }
-
-  return blocks
-}
-
-function buildCodexAssistantContent(responseData) {
-  const blocks = extractCodexResponseBlocks(responseData)
-  if (blocks.length > 0) {
-    return blocks
-  }
-
-  const text = responseData?.choices?.[0]?.message?.content
-  return text ? [{ type: 'text', text }] : undefined
 }
 
 function parseUpstreamErrorPayload(rawBody = '') {
@@ -970,8 +930,6 @@ const handleResponses = async (req, res) => {
           })
           const { actualInputTokens, outputTokens, cacheReadTokens } = completionUsageSummary
 
-          const _inputBlock = buildInputMessagesBlock(req.body)
-          const _assistantBlocks = buildCodexAssistantContent(responseData)
           const _usageExtra = buildUsageMetadata({
             body: req.body,
             format: 'openai',
@@ -979,15 +937,7 @@ const handleResponses = async (req, res) => {
             requestIp: req,
             sessionId: sessionHash || null,
             rawSessionId: sessionId || null,
-            assistantContent: (() => {
-              const blocks = _inputBlock ? [_inputBlock] : []
-              if (Array.isArray(_assistantBlocks)) {
-                blocks.push(..._assistantBlocks)
-              } else if (_assistantBlocks) {
-                blocks.push(_assistantBlocks)
-              }
-              return blocks.length > 0 ? blocks : undefined
-            })()
+            assistantContent: null
           })
 
           const nonStreamCosts = await apiKeyService.recordUsage(
@@ -1049,8 +999,6 @@ const handleResponses = async (req, res) => {
 
     // 使用增量 SSE 解析器
     const sseParser = new IncrementalSSEParser()
-    const streamedOutputText = []
-    const streamedReasoningText = []
     const completedOutputItems = []
     const streamErrors = []
     let completedResponse = null
@@ -1058,36 +1006,6 @@ const handleResponses = async (req, res) => {
 
     // 处理解析出的事件
     const processSSEEvent = (eventData) => {
-      if (
-        eventData.type === 'response.reasoning_summary_text.delta' &&
-        typeof eventData.delta === 'string'
-      ) {
-        streamedReasoningText.push(eventData.delta)
-      }
-
-      if (
-        eventData.type === 'response.reasoning_summary_text.done' &&
-        typeof eventData.text === 'string'
-      ) {
-        streamedReasoningText.push(eventData.text)
-      }
-
-      if (eventData.type === 'response.output_text.delta' && typeof eventData.delta === 'string') {
-        streamedOutputText.push(eventData.delta)
-      }
-
-      if (eventData.type === 'response.output_text.done' && typeof eventData.text === 'string') {
-        streamedOutputText.push(eventData.text)
-      }
-
-      if (
-        eventData.type === 'response.content_part.added' &&
-        eventData.part?.type === 'output_text' &&
-        typeof eventData.part?.text === 'string'
-      ) {
-        streamedOutputText.push(eventData.part.text)
-      }
-
       if (eventData.type === 'response.output_item.done' && eventData.item) {
         completedOutputItems.push(eventData.item)
       }
@@ -1204,19 +1122,6 @@ const handleResponses = async (req, res) => {
           // 使用响应中的真实 model，如果没有则使用请求中的 model，最后回退到默认值
           const modelToRecord = actualModel || upstreamRequestedModel || 'gpt-4'
 
-          const assistantBlocks = []
-          const reasoningText = streamedReasoningText.join('')
-          if (reasoningText) {
-            assistantBlocks.push({ type: 'thinking', thinking: reasoningText })
-          }
-          const assistantText = streamedOutputText.join('')
-          if (assistantText) {
-            assistantBlocks.push({ type: 'text', text: assistantText })
-          }
-          const _inputBlock = buildInputMessagesBlock(req.body)
-          if (_inputBlock) {
-            assistantBlocks.unshift(_inputBlock)
-          }
           const _usageExtra = buildUsageMetadata({
             body: req.body,
             format: 'openai',
@@ -1224,7 +1129,7 @@ const handleResponses = async (req, res) => {
             requestIp: req,
             sessionId: sessionHash || null,
             rawSessionId: sessionId || null,
-            assistantContent: assistantBlocks.length > 0 ? assistantBlocks : undefined
+            assistantContent: null
           })
 
           const streamCosts = await apiKeyService.recordUsage(

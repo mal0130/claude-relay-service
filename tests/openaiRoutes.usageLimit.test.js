@@ -84,6 +84,11 @@ describe('openaiRoutes.handleResponses usage snapshot guard', () => {
       IncrementalSSEParser: jest.fn()
     }))
     jest.doMock('../src/utils/errorSanitizer', () => ({
+      ERROR_CODES: {
+        E011: {
+          message: 'Account temporarily unavailable'
+        }
+      },
       getSafeMessage: jest.fn((error) => error?.message || 'error')
     }))
     jest.doMock('../src/utils/userInputExtractor', () => ({
