@@ -12,7 +12,7 @@
     "source_zh": "https://api-docs.deepseek.com/zh-cn/quick_start/pricing",
     "pricing_currency": "USD",
     "pricing_source": "deepseek_official_docs",
-    "pricing_updated_at": "2026-06-29T05:00:30.428Z",
+    "pricing_updated_at": "2026-06-29T05:07:04.178Z",
     "supported_endpoints": [
       "/v1/chat/completions"
     ],
@@ -40,7 +40,7 @@
     "source_zh": "https://api-docs.deepseek.com/zh-cn/quick_start/pricing",
     "pricing_currency": "USD",
     "pricing_source": "deepseek_official_docs",
-    "pricing_updated_at": "2026-06-29T05:00:30.428Z",
+    "pricing_updated_at": "2026-06-29T05:07:04.178Z",
     "supported_endpoints": [
       "/v1/chat/completions"
     ],
@@ -82,7 +82,7 @@
     "source_zh": "https://api-docs.deepseek.com/zh-cn/quick_start/pricing",
     "pricing_currency": "USD",
     "pricing_source": "deepseek_official_docs",
-    "pricing_updated_at": "2026-06-29T05:00:30.428Z",
+    "pricing_updated_at": "2026-06-29T05:07:04.178Z",
     "supported_endpoints": [
       "/v1/chat/completions"
     ],
@@ -108,7 +108,7 @@
     "source_zh": "https://api-docs.deepseek.com/zh-cn/quick_start/pricing",
     "pricing_currency": "USD",
     "pricing_source": "deepseek_official_docs",
-    "pricing_updated_at": "2026-06-29T05:00:30.428Z",
+    "pricing_updated_at": "2026-06-29T05:07:04.178Z",
     "supported_endpoints": [
       "/v1/chat/completions"
     ],
@@ -133,7 +133,7 @@
     "source": "https://open.bigmodel.cn/pricing",
     "pricing_currency": "USD",
     "pricing_source": "glm_official_docs",
-    "pricing_updated_at": "2026-06-29T05:00:32.430Z",
+    "pricing_updated_at": "2026-06-29T05:07:06.518Z",
     "supported_endpoints": [
       "/v1/chat/completions"
     ],
@@ -176,7 +176,7 @@
     "source": "https://platform.kimi.ai/docs/pricing/chat-k25",
     "pricing_currency": "USD",
     "pricing_source": "kimi_official_docs",
-    "pricing_updated_at": "2026-06-29T05:00:56.786Z",
+    "pricing_updated_at": "2026-06-29T05:07:27.784Z",
     "supported_endpoints": [
       "/v1/chat/completions"
     ],
@@ -194,7 +194,7 @@
     "source": "https://platform.kimi.ai/docs/pricing/chat-k26",
     "pricing_currency": "USD",
     "pricing_source": "kimi_official_docs",
-    "pricing_updated_at": "2026-06-29T05:00:56.785Z",
+    "pricing_updated_at": "2026-06-29T05:07:27.783Z",
     "supported_endpoints": [
       "/v1/chat/completions"
     ],
@@ -1382,7 +1382,7 @@
     "source": "https://platform.kimi.ai/docs/pricing/chat-v1",
     "pricing_currency": "USD",
     "pricing_source": "kimi_official_docs",
-    "pricing_updated_at": "2026-06-29T05:00:56.787Z",
+    "pricing_updated_at": "2026-06-29T05:07:27.785Z",
     "supported_endpoints": [
       "/v1/chat/completions"
     ],
@@ -1400,7 +1400,7 @@
     "source": "https://platform.kimi.ai/docs/pricing/chat-v1",
     "pricing_currency": "USD",
     "pricing_source": "kimi_official_docs",
-    "pricing_updated_at": "2026-06-29T05:00:56.787Z",
+    "pricing_updated_at": "2026-06-29T05:07:27.785Z",
     "supported_endpoints": [
       "/v1/chat/completions"
     ],
@@ -1418,7 +1418,7 @@
     "source": "https://platform.kimi.ai/docs/pricing/chat-v1",
     "pricing_currency": "USD",
     "pricing_source": "kimi_official_docs",
-    "pricing_updated_at": "2026-06-29T05:00:56.787Z",
+    "pricing_updated_at": "2026-06-29T05:07:27.785Z",
     "supported_endpoints": [
       "/v1/chat/completions"
     ],
@@ -1436,7 +1436,7 @@
     "source": "https://platform.kimi.ai/docs/pricing/chat-v1",
     "pricing_currency": "USD",
     "pricing_source": "kimi_official_docs",
-    "pricing_updated_at": "2026-06-29T05:00:56.787Z",
+    "pricing_updated_at": "2026-06-29T05:07:27.785Z",
     "supported_endpoints": [
       "/v1/chat/completions"
     ],
@@ -1454,7 +1454,7 @@
     "source": "https://platform.kimi.ai/docs/pricing/chat-v1",
     "pricing_currency": "USD",
     "pricing_source": "kimi_official_docs",
-    "pricing_updated_at": "2026-06-29T05:00:56.787Z",
+    "pricing_updated_at": "2026-06-29T05:07:27.785Z",
     "supported_endpoints": [
       "/v1/chat/completions"
     ],
@@ -1472,7 +1472,7 @@
     "source": "https://platform.kimi.ai/docs/pricing/chat-v1",
     "pricing_currency": "USD",
     "pricing_source": "kimi_official_docs",
-    "pricing_updated_at": "2026-06-29T05:00:56.787Z",
+    "pricing_updated_at": "2026-06-29T05:07:27.785Z",
     "supported_endpoints": [
       "/v1/chat/completions"
     ],
