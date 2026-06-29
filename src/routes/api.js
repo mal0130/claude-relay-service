@@ -19,7 +19,11 @@ const {
   buildMockWarmupResponse,
   sendMockWarmupStream
 } = require('../utils/warmupInterceptor')
-const { sanitizeUpstreamError } = require('../utils/errorSanitizer')
+const {
+  getSafeMessage,
+  isNoAvailableAccountsError,
+  sanitizeUpstreamError
+} = require('../utils/errorSanitizer')
 const { dumpAnthropicMessagesRequest } = require('../utils/anthropicRequestDump')
 const { createRequestDetailMeta } = require('../utils/requestDetailHelper')
 const {
@@ -1471,8 +1475,12 @@ async function handleMessagesRequest(req, res) {
     // 根据错误类型设置适当的状态码
     let statusCode = 500
     let errorType = 'Relay service error'
+    const noAvailableAccounts = isNoAvailableAccountsError(handledError)
 
-    if (
+    if (noAvailableAccounts) {
+      statusCode = 503
+      errorType = 'service_unavailable'
+    } else if (
       handledError.message.includes('Connection reset') ||
       handledError.message.includes('socket hang up')
     ) {
@@ -1514,10 +1522,14 @@ async function handleMessagesRequest(req, res) {
           : `Error: ${handledError.message || 'Unknown error'} (JSON serialization failed: ${stringifyError.message})`
     }
 
+    const clientMessage = noAvailableAccounts
+      ? getSafeMessage(handledError, { logOriginal: false })
+      : handledError.message || 'An unexpected error occurred'
+
     const sanitizedError = {
       status: statusCode,
       code: errorType,
-      message: handledError.message || 'An unexpected error occurred',
+      message: clientMessage,
       timestamp: new Date().toISOString()
     }
 
@@ -1569,7 +1581,7 @@ async function handleMessagesRequest(req, res) {
     if (!res.headersSent) {
       return res.status(statusCode).json({
         error: errorType,
-        message: handledError.message || 'An unexpected error occurred',
+        message: clientMessage,
         timestamp: new Date().toISOString()
       })
     } else {

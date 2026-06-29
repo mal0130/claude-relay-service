@@ -453,6 +453,7 @@ describe('MiniMaxRelayService — helper methods', () => {
       removeAccountRateLimit: jest.fn(async () => {}),
       markAccountUnauthorized: jest.fn(async () => {}),
       markAccountRateLimited: jest.fn(async () => {}),
+      markAccountQuotaExceeded: jest.fn(async () => {}),
       clearSessionMapping: jest.fn(async () => {})
     }))
     jest.doMock('../src/utils/upstreamErrorHelper', () => {
@@ -1413,6 +1414,21 @@ describe('MiniMaxRelayService — helper methods', () => {
         'acc-1',
         'session-hash'
       )
+      unifiedMiniMaxScheduler.markAccountRateLimited.mockClear()
+
+      const quotaResponse = {
+        error: {
+          code: 'AccountQuotaExceeded',
+          message: 'You have exceeded the monthly usage quota.'
+        }
+      }
+      await svc._handleUpstreamStatus(429, quotaResponse, 'acc-1', 'session-hash')
+      expect(unifiedMiniMaxScheduler.markAccountQuotaExceeded).toHaveBeenCalledWith(
+        'acc-1',
+        quotaResponse,
+        'session-hash'
+      )
+      expect(unifiedMiniMaxScheduler.markAccountRateLimited).not.toHaveBeenCalled()
 
       await svc._handleUpstreamStatus(
         402,

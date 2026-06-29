@@ -16,7 +16,7 @@ const ProxyHelper = require('../utils/proxyHelper')
 const { updateRateLimitCounters } = require('../utils/rateLimitHelper')
 const { setSessionId } = require('../utils/requestContext')
 const { IncrementalSSEParser } = require('../utils/sseParser')
-const { getSafeMessage } = require('../utils/errorSanitizer')
+const { getSafeMessage, isNoAvailableAccountsError } = require('../utils/errorSanitizer')
 const { sanitizeErrorForClient } = require('../utils/upstreamErrorHelper')
 const { buildUsageMetadata } = require('../utils/userInputExtractor')
 const {
@@ -1271,7 +1271,9 @@ const handleResponses = async (req, res) => {
   } catch (error) {
     logger.error('Proxy to ChatGPT codex/responses failed:', error)
     // 优先使用主动设置的 statusCode，然后是上游响应的状态码，最后默认 500
-    const status = error.statusCode || error.response?.status || 500
+    const status = isNoAvailableAccountsError(error)
+      ? 503
+      : error.statusCode || error.response?.status || 500
 
     if ((status === 401 || status === 402) && accountId) {
       const statusLabel = status === 401 ? '401错误' : '402错误'

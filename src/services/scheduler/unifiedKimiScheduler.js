@@ -75,7 +75,7 @@ class UnifiedKimiScheduler {
     groupId,
     sessionHash = null,
     requestedModel = null,
-    apiKeyData = null,
+    _apiKeyData = null,
     options = {}
   ) {
     const members = await accountGroupService.getGroupMembers(groupId)
@@ -128,6 +128,20 @@ class UnifiedKimiScheduler {
       account = await kimiAccountService.getAccount(account.id)
       if (!account) {
         return false
+      }
+    }
+
+    if (account.status === 'quotaExceeded') {
+      const cleared = await upstreamErrorHelper.checkAndClearQuotaExceededWithService({
+        accountService: kimiAccountService,
+        accountId: account.id,
+        platformName: 'Kimi'
+      })
+      if (cleared) {
+        account = await kimiAccountService.getAccount(account.id)
+        if (!account) {
+          return false
+        }
       }
     }
 
@@ -197,6 +211,19 @@ class UnifiedKimiScheduler {
     }
   }
 
+  async markAccountQuotaExceeded(accountId, responseBody = null, sessionHash = null) {
+    await upstreamErrorHelper.markAccountQuotaExceededWithService({
+      accountService: kimiAccountService,
+      accountId,
+      accountType: 'kimi',
+      platformName: 'Kimi',
+      responseBody
+    })
+    if (sessionHash) {
+      await this.clearSessionMapping(sessionHash)
+    }
+  }
+
   async removeAccountRateLimit(accountId) {
     await kimiAccountService.setAccountRateLimited(accountId, false)
   }
@@ -207,7 +234,7 @@ class UnifiedKimiScheduler {
 
   _getKimiBinding(apiKeyData = {}) {
     const bindings = apiKeyData.accountBindings || {}
-    const kimi = bindings.kimi
+    const { kimi } = bindings
     if (!kimi || typeof kimi !== 'object') {
       return null
     }

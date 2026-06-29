@@ -102,7 +102,7 @@ class UnifiedDeepSeekScheduler {
     groupId,
     sessionHash = null,
     requestedModel = null,
-    apiKeyData = null,
+    _apiKeyData = null,
     options = {},
     endpointType = 'chat'
   ) {
@@ -156,6 +156,20 @@ class UnifiedDeepSeekScheduler {
       account = await deepseekAccountService.getAccount(account.id)
       if (!account) {
         return false
+      }
+    }
+
+    if (account.status === 'quotaExceeded') {
+      const cleared = await upstreamErrorHelper.checkAndClearQuotaExceededWithService({
+        accountService: deepseekAccountService,
+        accountId: account.id,
+        platformName: 'DeepSeek'
+      })
+      if (cleared) {
+        account = await deepseekAccountService.getAccount(account.id)
+        if (!account) {
+          return false
+        }
       }
     }
 
@@ -234,6 +248,24 @@ class UnifiedDeepSeekScheduler {
     }
   }
 
+  async markAccountQuotaExceeded(
+    accountId,
+    responseBody = null,
+    sessionHash = null,
+    endpointType = 'chat'
+  ) {
+    await upstreamErrorHelper.markAccountQuotaExceededWithService({
+      accountService: deepseekAccountService,
+      accountId,
+      accountType: 'deepseek',
+      platformName: 'DeepSeek',
+      responseBody
+    })
+    if (sessionHash) {
+      await this.clearSessionMapping(sessionHash, endpointType)
+    }
+  }
+
   async removeAccountRateLimit(accountId) {
     await deepseekAccountService.setAccountRateLimited(accountId, false)
   }
@@ -247,7 +279,7 @@ class UnifiedDeepSeekScheduler {
 
   _getDeepSeekBinding(apiKeyData = {}) {
     const bindings = apiKeyData.accountBindings || {}
-    const deepseek = bindings.deepseek
+    const { deepseek } = bindings
     if (!deepseek || typeof deepseek !== 'object') {
       return null
     }

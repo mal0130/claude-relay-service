@@ -384,6 +384,7 @@ describe('KimiRelayService — helper methods', () => {
       removeAccountRateLimit: jest.fn(async () => {}),
       markAccountUnauthorized: jest.fn(async () => {}),
       markAccountRateLimited: jest.fn(async () => {}),
+      markAccountQuotaExceeded: jest.fn(async () => {}),
       clearSessionMapping: jest.fn(async () => {})
     }))
     jest.doMock('../src/utils/upstreamErrorHelper', () => {
@@ -1157,6 +1158,21 @@ describe('KimiRelayService — helper methods', () => {
         'acc-kimi-1',
         'session-hash'
       )
+      unifiedKimiScheduler.markAccountRateLimited.mockClear()
+
+      const quotaResponse = {
+        error: {
+          code: 'AccountQuotaExceeded',
+          message: 'You have exceeded the 5-hour usage quota.'
+        }
+      }
+      await svc._handleUpstreamStatus(429, quotaResponse, 'acc-kimi-1', 'session-hash')
+      expect(unifiedKimiScheduler.markAccountQuotaExceeded).toHaveBeenCalledWith(
+        'acc-kimi-1',
+        quotaResponse,
+        'session-hash'
+      )
+      expect(unifiedKimiScheduler.markAccountRateLimited).not.toHaveBeenCalled()
 
       await svc._handleUpstreamStatus(
         403,

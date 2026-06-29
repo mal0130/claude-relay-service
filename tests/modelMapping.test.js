@@ -38,6 +38,10 @@ jest.mock('../src/utils/commonHelper', () => ({
 jest.mock('../src/utils/upstreamErrorHelper', () => ({
   clearTempUnavailable: jest.fn().mockResolvedValue(undefined),
   recordErrorHistory: jest.fn().mockResolvedValue(undefined),
+  extractAccountQuotaExceededMessage: jest.fn((response) => response?.error?.message || ''),
+  extractAccountQuotaResetAt: jest.fn(() => '2026-06-28T16:00:00.000Z'),
+  markAccountQuotaExceededWithService: jest.fn().mockResolvedValue({ success: true }),
+  checkAndClearQuotaExceededWithService: jest.fn().mockResolvedValue(true),
   isTempUnavailable: jest.fn().mockResolvedValue(false)
 }))
 
@@ -318,6 +322,7 @@ describe('Account service mutation helpers are consistent across all four platfo
     lastResetDate: '2026-06-09',
     quotaResetTime: '00:00',
     quotaStoppedAt: '',
+    providerQuotaResetAt: '',
     rateLimitDuration: '60',
     disableAutoProtection: 'false',
     isActive: 'true',
@@ -1307,6 +1312,33 @@ describe('All platform schedulers cover binding, rate-limit, and redis helper br
 
         expect(setAccountRateLimitedSpy).toHaveBeenCalledWith('acct-1', false)
         expect(markAccountUnauthorizedSpy).toHaveBeenCalledWith('acct-1', config.unauthorizedReason)
+      })
+
+      it('delegates quota-exceeded markers to the shared helper and clears sticky mappings', async () => {
+        upstreamErrorHelper.markAccountQuotaExceededWithService.mockClear()
+        jest.spyOn(scheduler, 'clearSessionMapping').mockResolvedValue(undefined)
+        const response = {
+          error: {
+            code: 'AccountQuotaExceeded',
+            message: 'You have exceeded the weekly usage quota.'
+          }
+        }
+
+        await scheduler.markAccountQuotaExceeded('acct-1', response, 'session-hash')
+
+        expect(upstreamErrorHelper.markAccountQuotaExceededWithService).toHaveBeenCalledWith(
+          expect.objectContaining({
+            accountService,
+            accountId: 'acct-1',
+            accountType: config.accountType,
+            responseBody: response
+          })
+        )
+        if (config.accountType === 'deepseek') {
+          expect(scheduler.clearSessionMapping).toHaveBeenCalledWith('session-hash', 'chat')
+        } else {
+          expect(scheduler.clearSessionMapping).toHaveBeenCalledWith('session-hash')
+        }
       })
 
       it('parses account bindings from accountId, groupId, and group-prefixed accountIds', () => {

@@ -75,7 +75,7 @@ class UnifiedGlmScheduler {
     groupId,
     sessionHash = null,
     requestedModel = null,
-    apiKeyData = null,
+    _apiKeyData = null,
     options = {}
   ) {
     const members = await accountGroupService.getGroupMembers(groupId)
@@ -128,6 +128,20 @@ class UnifiedGlmScheduler {
       account = await glmAccountService.getAccount(account.id)
       if (!account) {
         return false
+      }
+    }
+
+    if (account.status === 'quotaExceeded') {
+      const cleared = await upstreamErrorHelper.checkAndClearQuotaExceededWithService({
+        accountService: glmAccountService,
+        accountId: account.id,
+        platformName: 'GLM'
+      })
+      if (cleared) {
+        account = await glmAccountService.getAccount(account.id)
+        if (!account) {
+          return false
+        }
       }
     }
 
@@ -197,6 +211,19 @@ class UnifiedGlmScheduler {
     }
   }
 
+  async markAccountQuotaExceeded(accountId, responseBody = null, sessionHash = null) {
+    await upstreamErrorHelper.markAccountQuotaExceededWithService({
+      accountService: glmAccountService,
+      accountId,
+      accountType: 'glm',
+      platformName: 'GLM',
+      responseBody
+    })
+    if (sessionHash) {
+      await this.clearSessionMapping(sessionHash)
+    }
+  }
+
   async removeAccountRateLimit(accountId) {
     await glmAccountService.setAccountRateLimited(accountId, false)
   }
@@ -207,7 +234,7 @@ class UnifiedGlmScheduler {
 
   _getGlmBinding(apiKeyData = {}) {
     const bindings = apiKeyData.accountBindings || {}
-    const glm = bindings.glm
+    const { glm } = bindings
     if (!glm || typeof glm !== 'object') {
       return null
     }

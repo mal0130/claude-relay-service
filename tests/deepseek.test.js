@@ -489,6 +489,7 @@ describe('DeepSeekRelayService — helper methods', () => {
       removeAccountRateLimit: jest.fn(async () => {}),
       markAccountUnauthorized: jest.fn(async () => {}),
       markAccountRateLimited: jest.fn(async () => {}),
+      markAccountQuotaExceeded: jest.fn(async () => {}),
       clearSessionMapping: jest.fn(async () => {})
     }))
     jest.doMock('../src/utils/upstreamErrorHelper', () => {
@@ -1447,6 +1448,22 @@ describe('DeepSeekRelayService — helper methods', () => {
         null,
         'chat'
       )
+      unifiedDeepSeekScheduler.markAccountRateLimited.mockClear()
+
+      const quotaResponse = {
+        error: {
+          code: 'AccountQuotaExceeded',
+          message: 'You have exceeded the weekly usage quota.'
+        }
+      }
+      await svc._handleUpstreamStatus(429, quotaResponse, 'acc-ds-1', 'session-hash')
+      expect(unifiedDeepSeekScheduler.markAccountQuotaExceeded).toHaveBeenCalledWith(
+        'acc-ds-1',
+        quotaResponse,
+        'session-hash',
+        'chat'
+      )
+      expect(unifiedDeepSeekScheduler.markAccountRateLimited).not.toHaveBeenCalled()
 
       await svc._handleUpstreamStatus(
         402,

@@ -64,7 +64,9 @@ const ACCOUNT_KEY_PREFIX_BY_TYPE = {
   'claude-official': 'claude:account:',
   claude: 'claude:account:',
   deepseek: 'deepseek:account:',
-  minimax: 'minimax:account:'
+  minimax: 'minimax:account:',
+  glm: 'glm:account:',
+  kimi: 'kimi:account:'
 }
 
 const EMPTY_TEMP_UNAVAILABLE_POLICY = {
@@ -76,8 +78,10 @@ const EMPTY_TEMP_UNAVAILABLE_POLICY = {
 const RELAY_BILLING_ERROR_CODE_PATTERN =
   /^(401007|401008|403004|insufficient_balance|insufficient_credit|credit_exhausted|billing_isolated|no_free_package|free_quota_exhausted)$/i
 const RELAY_BILLING_ERROR_MESSAGE_PATTERN =
-  /余额不足|账户余额不足|可用额度不足|余额已用尽|免费额度已用尽|欠费|请充值|充值后|insufficient(?:\s+\w+){0,2}\s+(?:balance|credit)|out of(?:\s+\w+){0,2}\s+credit|credit(?:\s+\w+){0,2}\s+exhausted|no[_\s-]*free[_\s-]*package|free[_\s-]*quota[_\s-]*exhausted|billing[_\s-]*isolated|recharge/i
+  /余额不足|账户余额不足|可用额度不足|余额已用尽|免费额度已用尽|欠费|请充值|充值后|已达日限额上限|insufficient(?:\s+\w+){0,2}\s+(?:balance|credit)|out of(?:\s+\w+){0,2}\s+credit|credit(?:\s+\w+){0,2}\s+exhausted|no[_\s-]*free[_\s-]*package|free[_\s-]*quota[_\s-]*exhausted|billing[_\s-]*isolated|recharge/i
 const RELAY_BILLING_SAFE_MESSAGE = ERROR_CODES.E011.message
+const ACCOUNT_QUOTA_EXCEEDED_CODE_PATTERN = /^AccountQuotaExceeded$/i
+const ACCOUNT_QUOTA_EXCEEDED_MESSAGE_PATTERN = /exceeded(?: the)? .*usage quota/i
 
 const getAccountTempUnavailablePolicy = async (accountId, accountType) => {
   try {
@@ -206,6 +210,166 @@ const isRelayBillingError = (status, errorData, fallbackError = null) => {
       RELAY_BILLING_ERROR_CODE_PATTERN.test(candidate) ||
       RELAY_BILLING_ERROR_MESSAGE_PATTERN.test(candidate)
   )
+}
+
+const isAccountQuotaExceededError = (status, errorData, fallbackError = null) => {
+  if (status !== 429) {
+    return false
+  }
+
+  const candidates = [
+    ...collectRelayErrorTokens(errorData),
+    ...collectRelayErrorTokens(fallbackError)
+  ]
+
+  return candidates.some(
+    (candidate) =>
+      ACCOUNT_QUOTA_EXCEEDED_CODE_PATTERN.test(candidate) ||
+      ACCOUNT_QUOTA_EXCEEDED_MESSAGE_PATTERN.test(candidate)
+  )
+}
+
+const extractAccountQuotaExceededMessage = (errorData, fallbackError = null) => {
+  const directMessage =
+    errorData?.error && typeof errorData.error === 'object'
+      ? errorData.error.message
+      : errorData?.message
+
+  if (typeof directMessage === 'string' && directMessage.trim()) {
+    return directMessage.trim()
+  }
+
+  const fallbackMessage =
+    fallbackError?.error && typeof fallbackError.error === 'object'
+      ? fallbackError.error.message
+      : fallbackError?.message
+
+  if (typeof fallbackMessage === 'string' && fallbackMessage.trim()) {
+    return fallbackMessage.trim()
+  }
+
+  return 'Account quota exceeded'
+}
+
+const parseAccountQuotaResetAt = (value) => {
+  if (typeof value !== 'string' || !value.trim()) {
+    return null
+  }
+
+  const resetMatch = value.match(/(?:will\s+)?resets?\s+at\s+(.+?)(?:\.|,?\s*Request id:|$)/i)
+  const candidate = (resetMatch ? resetMatch[1] : value).trim()
+  const explicitTimezoneMatch = candidate.match(
+    /^(\d{4}-\d{2}-\d{2})[ T](\d{2}:\d{2}:\d{2})\s*([+-]\d{2})(\d{2})(?:\s+[A-Z]{2,5})?$/i
+  )
+
+  if (explicitTimezoneMatch) {
+    const [, date, time, offsetHour, offsetMinute] = explicitTimezoneMatch
+    const parsed = new Date(`${date}T${time}${offsetHour}:${offsetMinute}`)
+    return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString()
+  }
+
+  const parsed = new Date(candidate)
+  return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString()
+}
+
+const extractAccountQuotaResetAt = (errorData, fallbackError = null) => {
+  const candidates = [
+    ...collectRelayErrorTokens(errorData),
+    ...collectRelayErrorTokens(fallbackError)
+  ]
+
+  for (const candidate of candidates) {
+    const parsed = parseAccountQuotaResetAt(candidate)
+    if (parsed) {
+      return parsed
+    }
+  }
+
+  return null
+}
+
+const isAutoProtectionDisabled = (account) =>
+  account?.disableAutoProtection === true || account?.disableAutoProtection === 'true'
+
+const markAccountQuotaExceededWithService = async ({
+  accountService,
+  accountId,
+  accountType,
+  platformName = accountType,
+  responseBody = null,
+  fallbackError = null
+}) => {
+  if (!accountId || !accountService?.getAccount || !accountService?.updateAccount) {
+    return { success: false, reason: 'invalid_account_service' }
+  }
+
+  const account = await accountService.getAccount(accountId)
+  if (!account) {
+    return { success: false, reason: 'account_not_found' }
+  }
+
+  if (isAutoProtectionDisabled(account)) {
+    logger.info(
+      `🛡️ ${platformName} account ${accountId} disabled auto-protection, skip quota exceeded`
+    )
+    recordErrorHistory(accountId, accountType, 429, 'quota_exceeded', {
+      errorBody: responseBody
+    }).catch(() => {})
+    return { success: true, skipped: true, reason: 'auto_protection_disabled' }
+  }
+
+  const reason = extractAccountQuotaExceededMessage(responseBody, fallbackError)
+  const providerQuotaResetAt = extractAccountQuotaResetAt(responseBody, fallbackError)
+
+  await accountService.updateAccount(accountId, {
+    status: 'quotaExceeded',
+    schedulable: 'false',
+    quotaStoppedAt: new Date().toISOString(),
+    providerQuotaResetAt: providerQuotaResetAt || '',
+    errorMessage: reason,
+    rateLimitedAt: '',
+    rateLimitStatus: '',
+    rateLimitResetAt: ''
+  })
+
+  await recordErrorHistory(accountId, accountType, 429, 'quota_exceeded', {
+    errorBody: responseBody
+  })
+
+  logger.warn(`${platformName} account ${account.name || accountId} stopped due to quota exceeded`)
+  return { success: true }
+}
+
+const checkAndClearQuotaExceededWithService = async ({
+  accountService,
+  accountId,
+  platformName = ''
+}) => {
+  if (!accountId || !accountService?.getAccount || !accountService?.updateAccount) {
+    return false
+  }
+
+  const account = await accountService.getAccount(accountId)
+  if (!account || account.status !== 'quotaExceeded' || !account.providerQuotaResetAt) {
+    return false
+  }
+
+  const resetAt = new Date(account.providerQuotaResetAt)
+  if (Number.isNaN(resetAt.getTime()) || Date.now() < resetAt.getTime()) {
+    return false
+  }
+
+  await accountService.updateAccount(accountId, {
+    status: 'active',
+    schedulable: 'true',
+    quotaStoppedAt: '',
+    providerQuotaResetAt: '',
+    errorMessage: ''
+  })
+
+  const label = platformName ? `${platformName} account` : 'Account'
+  logger.info(`${label} ${account.name || accountId} quota reset, scheduling resumed`)
+  return true
 }
 
 // 根据 HTTP 状态码分类错误类型
@@ -694,6 +858,11 @@ module.exports = {
   classifyError,
   parseRetryAfter,
   isRelayBillingError,
+  isAccountQuotaExceededError,
+  extractAccountQuotaExceededMessage,
+  extractAccountQuotaResetAt,
+  markAccountQuotaExceededWithService,
+  checkAndClearQuotaExceededWithService,
   sanitizeErrorForClient,
   sanitizeRelayErrorResponse,
   recordErrorHistory,

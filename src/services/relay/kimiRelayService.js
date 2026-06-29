@@ -1002,6 +1002,11 @@ class KimiRelayService {
       return
     }
 
+    if (upstreamErrorHelper.isAccountQuotaExceededError(status, responseBody)) {
+      await unifiedKimiScheduler.markAccountQuotaExceeded(accountId, responseBody, sessionHash)
+      return
+    }
+
     if (upstreamErrorHelper.isRelayBillingError(status, responseBody)) {
       await upstreamErrorHelper.markTempUnavailable(accountId, 'kimi', status, null, {
         response: responseBody
