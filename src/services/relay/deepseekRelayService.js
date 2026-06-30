@@ -1417,6 +1417,16 @@ class DeepSeekRelayService {
       return
     }
 
+    if (upstreamErrorHelper.isAccountQuotaExceededError(status, responseBody)) {
+      await unifiedDeepSeekScheduler.markAccountQuotaExceeded(
+        accountId,
+        responseBody,
+        sessionHash,
+        endpointType
+      )
+      return
+    }
+
     if (upstreamErrorHelper.isRelayBillingError(status, responseBody)) {
       await upstreamErrorHelper.markTempUnavailable(accountId, 'deepseek', status, null, {
         response: responseBody

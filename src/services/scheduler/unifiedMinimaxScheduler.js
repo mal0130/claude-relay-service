@@ -50,9 +50,7 @@ class UnifiedMiniMaxScheduler {
       if (account && (await this._isAccountUsable(account, requestedModel))) {
         return [account]
       }
-      logger.warn(
-        `⚠️ Bound MiniMax account ${binding.accountId} unavailable, falling back to pool`
-      )
+      logger.warn(`⚠️ Bound MiniMax account ${binding.accountId} unavailable, falling back to pool`)
     }
 
     if (binding?.groupId) {
@@ -77,7 +75,7 @@ class UnifiedMiniMaxScheduler {
     groupId,
     sessionHash = null,
     requestedModel = null,
-    apiKeyData = null,
+    _apiKeyData = null,
     options = {}
   ) {
     const members = await accountGroupService.getGroupMembers(groupId)
@@ -130,6 +128,20 @@ class UnifiedMiniMaxScheduler {
       account = await minimaxAccountService.getAccount(account.id)
       if (!account) {
         return false
+      }
+    }
+
+    if (account.status === 'quotaExceeded') {
+      const cleared = await upstreamErrorHelper.checkAndClearQuotaExceededWithService({
+        accountService: minimaxAccountService,
+        accountId: account.id,
+        platformName: 'MiniMax'
+      })
+      if (cleared) {
+        account = await minimaxAccountService.getAccount(account.id)
+        if (!account) {
+          return false
+        }
       }
     }
 
@@ -199,20 +211,30 @@ class UnifiedMiniMaxScheduler {
     }
   }
 
+  async markAccountQuotaExceeded(accountId, responseBody = null, sessionHash = null) {
+    await upstreamErrorHelper.markAccountQuotaExceededWithService({
+      accountService: minimaxAccountService,
+      accountId,
+      accountType: 'minimax',
+      platformName: 'MiniMax',
+      responseBody
+    })
+    if (sessionHash) {
+      await this.clearSessionMapping(sessionHash)
+    }
+  }
+
   async removeAccountRateLimit(accountId) {
     await minimaxAccountService.setAccountRateLimited(accountId, false)
   }
 
   async markAccountUnauthorized(accountId, reason = null) {
-    await minimaxAccountService.markAccountUnauthorized(
-      accountId,
-      reason || 'MiniMax账号认证失败'
-    )
+    await minimaxAccountService.markAccountUnauthorized(accountId, reason || 'MiniMax账号认证失败')
   }
 
   _getMiniMaxBinding(apiKeyData = {}) {
     const bindings = apiKeyData.accountBindings || {}
-    const minimax = bindings.minimax
+    const { minimax } = bindings
     if (!minimax || typeof minimax !== 'object') {
       return null
     }

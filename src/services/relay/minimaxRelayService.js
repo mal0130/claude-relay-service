@@ -1001,6 +1001,11 @@ class MiniMaxRelayService {
       return
     }
 
+    if (upstreamErrorHelper.isAccountQuotaExceededError(status, responseBody)) {
+      await unifiedMiniMaxScheduler.markAccountQuotaExceeded(accountId, responseBody, sessionHash)
+      return
+    }
+
     if (upstreamErrorHelper.isRelayBillingError(status, responseBody)) {
       await upstreamErrorHelper.markTempUnavailable(accountId, 'minimax', status, null, {
         response: responseBody

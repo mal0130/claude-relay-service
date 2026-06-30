@@ -16,9 +16,14 @@ jest.mock('../src/utils/tempUnavailablePolicy', () => ({
 const {
   getSafeMessage,
   isAccountDisabledError,
+  isNoAvailableAccountsError,
   mapToErrorCode
 } = require('../src/utils/errorSanitizer')
 const {
+  extractAccountQuotaResetAt,
+  markAccountQuotaExceededWithService,
+  checkAndClearQuotaExceededWithService,
+  isAccountQuotaExceededError,
   sanitizeErrorForClient,
   sanitizeRelayErrorResponse
 } = require('../src/utils/upstreamErrorHelper')
@@ -51,6 +56,116 @@ describe('errorSanitizer account-related interception', () => {
     expect(getSafeMessage('insufficient balance')).toBe('Account temporarily unavailable')
     expect(getSafeMessage('FREE_QUOTA_EXHAUSTED')).toBe('Account temporarily unavailable')
     expect(getSafeMessage('BILLING_ISOLATED')).toBe('Account temporarily unavailable')
+  })
+
+  test('maps no available accounts errors to model vendor capacity message', () => {
+    const message = 'No available DeepSeek accounts support the requested model: deepseek-chat'
+
+    expect(isNoAvailableAccountsError(message)).toBe(true)
+    expect(getSafeMessage(message)).toBe(
+      '模型供应商（上游服务商）算力不足，请重试。若持续报错，建议临时切换其他模型继续任务。'
+    )
+    expect(mapToErrorCode(message)).toMatchObject({
+      code: 'E017',
+      status: 503
+    })
+  })
+
+  test('detects upstream account quota exceeded responses for any reset window', () => {
+    const response = {
+      error: {
+        code: 'AccountQuotaExceeded',
+        message:
+          'You have exceeded the weekly usage quota. It will reset at 2026-06-29 00:00:00 +0800 CST.',
+        type: 'TooManyRequests'
+      }
+    }
+
+    expect(isAccountQuotaExceededError(429, response)).toBe(true)
+    expect(extractAccountQuotaResetAt(response)).toBe('2026-06-28T16:00:00.000Z')
+    expect(getSafeMessage(response)).toBe('Quota exceeded')
+    expect(
+      isAccountQuotaExceededError(429, {
+        error: {
+          message: 'You have exceeded the 5-hour usage quota. It will reset later.'
+        }
+      })
+    ).toBe(true)
+    expect(
+      isAccountQuotaExceededError(429, {
+        error: {
+          message: 'You have exceeded the monthly usage quota. It will reset later.'
+        }
+      })
+    ).toBe(true)
+  })
+
+  test('quota-exceeded helper mutates accounts only through the account service', async () => {
+    const response = {
+      error: {
+        message:
+          'You have exceeded the weekly usage quota. It will reset at 2026-06-29 00:00:00 +0800 CST.'
+      }
+    }
+    const accountService = {
+      getAccount: jest.fn().mockResolvedValue({
+        id: 'acct-1',
+        name: 'Quota Account',
+        disableAutoProtection: 'false'
+      }),
+      updateAccount: jest.fn().mockResolvedValue(undefined)
+    }
+
+    await expect(
+      markAccountQuotaExceededWithService({
+        accountService,
+        accountId: 'acct-1',
+        accountType: 'deepseek',
+        platformName: 'DeepSeek',
+        responseBody: response
+      })
+    ).resolves.toEqual({ success: true })
+
+    expect(accountService.updateAccount).toHaveBeenCalledWith(
+      'acct-1',
+      expect.objectContaining({
+        status: 'quotaExceeded',
+        schedulable: 'false',
+        providerQuotaResetAt: '2026-06-28T16:00:00.000Z',
+        errorMessage: response.error.message
+      })
+    )
+  })
+
+  test('quota-exceeded clear helper resumes scheduling after reset time', async () => {
+    const accountService = {
+      getAccount: jest.fn().mockResolvedValue({
+        id: 'acct-1',
+        name: 'Quota Account',
+        status: 'quotaExceeded',
+        providerQuotaResetAt: new Date(Date.now() - 1000).toISOString()
+      }),
+      updateAccount: jest.fn().mockResolvedValue(undefined)
+    }
+
+    await expect(
+      checkAndClearQuotaExceededWithService({
+        accountService,
+        accountId: 'acct-1',
+        platformName: 'DeepSeek'
+      })
+    ).resolves.toBe(true)
+
+    expect(accountService.updateAccount).toHaveBeenCalledWith(
+      'acct-1',
+      expect.objectContaining({
+        status: 'active',
+        schedulable: 'true',
+        quotaStoppedAt: '',
+        providerQuotaResetAt: '',
+        errorMessage: ''
+      })
+    )
   })
 
   test('keeps generic model errors mapped to model not available', () => {

@@ -5,6 +5,10 @@
 
 const logger = require('./logger')
 
+const NO_AVAILABLE_ACCOUNTS_MESSAGE =
+  '模型供应商（上游服务商）算力不足，请重试。若持续报错，建议临时切换其他模型继续任务。'
+const NO_AVAILABLE_ACCOUNTS_PATTERN = /No available(?:\s+[\w-]+)*\s+accounts\b/i
+
 // 标准错误码定义
 const ERROR_CODES = {
   E001: { message: 'Service temporarily unavailable', status: 503 },
@@ -22,7 +26,8 @@ const ERROR_CODES = {
   E013: { message: 'Invalid API key', status: 401 },
   E014: { message: 'Quota exceeded', status: 429 },
   E015: { message: 'Internal server error', status: 500 },
-  E016: { message: 'Prompt is too long', status: 413 }
+  E016: { message: 'Prompt is too long', status: 413 },
+  E017: { message: NO_AVAILABLE_ACCOUNTS_MESSAGE, status: 503 }
 }
 
 const ACCOUNT_TEMP_UNAVAILABLE_PATTERN =
@@ -56,6 +61,7 @@ const ERROR_MATCHERS = [
 
   // 限流错误
   { pattern: /rate.*limit|too many requests|429/i, code: 'E004' },
+  { pattern: /AccountQuotaExceeded|exceeded(?: the)? .*usage quota/i, code: 'E014' },
   { pattern: /quota.*exceeded|usage.*limit/i, code: 'E014' },
 
   // 过载错误
@@ -66,6 +72,7 @@ const ERROR_MATCHERS = [
   { pattern: /too many active sessions/i, code: 'E011' },
   { pattern: ACCOUNT_TEMP_UNAVAILABLE_PATTERN, code: 'E011' },
   { pattern: ACCOUNT_BILLING_UNAVAILABLE_PATTERN, code: 'E011' },
+  { pattern: NO_AVAILABLE_ACCOUNTS_PATTERN, code: 'E017' },
 
   // 模型错误
   {
@@ -240,6 +247,10 @@ function getSafeMessage(error, options = {}) {
   return mapToErrorCode(error, options).message
 }
 
+function isNoAvailableAccountsError(error) {
+  return NO_AVAILABLE_ACCOUNTS_PATTERN.test(extractOriginalMessage(error))
+}
+
 // 兼容旧接口
 function sanitizeErrorMessage(message) {
   if (!message) {
@@ -287,5 +298,7 @@ module.exports = {
   sanitizeErrorMessage,
   sanitizeUpstreamError,
   extractErrorMessage,
-  isAccountDisabledError
+  isAccountDisabledError,
+  isNoAvailableAccountsError,
+  NO_AVAILABLE_ACCOUNTS_MESSAGE
 }

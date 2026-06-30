@@ -1013,6 +1013,11 @@ class GlmRelayService {
       return
     }
 
+    if (upstreamErrorHelper.isAccountQuotaExceededError(status, responseBody)) {
+      await unifiedGlmScheduler.markAccountQuotaExceeded(accountId, responseBody, sessionHash)
+      return
+    }
+
     if (upstreamErrorHelper.isRelayBillingError(status, responseBody)) {
       await upstreamErrorHelper.markTempUnavailable(accountId, 'glm', status, null, {
         response: responseBody

@@ -61,6 +61,7 @@ class MiniMaxAccountService {
       lastResetDate: redis.getDateStringInTimezone(),
       quotaResetTime,
       quotaStoppedAt: '',
+      providerQuotaResetAt: '',
       rateLimitDuration: rateLimitDuration.toString(),
       disableAutoProtection:
         disableAutoProtection === true || disableAutoProtection === 'true' ? 'true' : 'false',
@@ -370,6 +371,8 @@ class MiniMaxAccountService {
       status: account.apiKey ? 'active' : 'created',
       schedulable: 'true',
       errorMessage: '',
+      quotaStoppedAt: '',
+      providerQuotaResetAt: '',
       rateLimitedAt: '',
       rateLimitStatus: '',
       rateLimitResetAt: ''

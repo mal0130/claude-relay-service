@@ -57,6 +57,7 @@ class KimiAccountService {
       lastResetDate: redis.getDateStringInTimezone(),
       quotaResetTime,
       quotaStoppedAt: '',
+      providerQuotaResetAt: '',
       rateLimitDuration: rateLimitDuration.toString(),
       disableAutoProtection:
         disableAutoProtection === true || disableAutoProtection === 'true' ? 'true' : 'false',
@@ -362,6 +363,8 @@ class KimiAccountService {
       status: account.apiKey ? 'active' : 'created',
       schedulable: 'true',
       errorMessage: '',
+      quotaStoppedAt: '',
+      providerQuotaResetAt: '',
       rateLimitedAt: '',
       rateLimitStatus: '',
       rateLimitResetAt: ''
