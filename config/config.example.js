@@ -65,6 +65,12 @@ const config = {
     }
   },
 
+  // 🎯 OpenAI API配置
+  openai: {
+    serverOverloadRateLimitMinutes:
+      parseInt(process.env.OPENAI_SERVER_OVERLOAD_RATE_LIMIT_MINUTES) || 3
+  },
+
   // ☁️ Bedrock API配置
   bedrock: {
     enabled: process.env.CLAUDE_CODE_USE_BEDROCK === '1',

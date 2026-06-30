@@ -1079,6 +1079,19 @@ const handleResponses = async (req, res) => {
             logger.warn(`⚠️ OpenAI server_is_overloaded raw chunk for account ${accountId}:`, {
               raw: chunk.toString()
             })
+            unifiedOpenAIScheduler
+              .markAccountRateLimited(
+                accountId,
+                'openai',
+                sessionHash,
+                (config.openai?.serverOverloadRateLimitMinutes || 3) * 60
+              )
+              .catch((rateLimitError) => {
+                logger.error(
+                  `❌ Failed to mark OpenAI account ${accountId} rate limited after server_is_overloaded:`,
+                  rateLimitError
+                )
+              })
             res.write(`data: ${JSON.stringify(friendly)}\n\n`)
             streamEnded = true
             res.end()

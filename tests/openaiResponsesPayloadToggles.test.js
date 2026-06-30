@@ -17,7 +17,8 @@ jest.mock(
   '../config/config',
   () => ({
     requestTimeout: 1000,
-    logging: { truncate: false }
+    logging: { truncate: false },
+    openai: { serverOverloadRateLimitMinutes: 3 }
   }),
   { virtual: true }
 )
@@ -704,6 +705,7 @@ describe('openai stream overload interception', () => {
       accountId: 'chatgpt-account-1'
     })
     openaiAccountService.decrypt.mockReturnValue('decrypted-token')
+    unifiedOpenAIScheduler.markAccountRateLimited.mockResolvedValue({ success: true })
     unifiedOpenAIScheduler.isAccountRateLimited.mockResolvedValue(false)
   })
 
@@ -756,7 +758,10 @@ describe('openai stream overload interception', () => {
     const overloadChunk =
       'data: {"type":"error","error":{"type":"service_unavailable_error","code":"server_is_overloaded","message":"Our servers are currently overloaded.","param":null},"sequence_number":3}\n\n'
 
-    const { written } = await runStreamRequest({ model: 'gpt-5.4' }, [overloadChunk])
+    const { written } = await runStreamRequest(
+      { model: 'gpt-5.4', prompt_cache_key: 'overload-session' },
+      [overloadChunk]
+    )
 
     expect(written.length).toBe(1)
     const parsed = JSON.parse(written[0].replace(/^data: /, '').trim())
@@ -764,6 +769,12 @@ describe('openai stream overload interception', () => {
     expect(parsed.error.message).toContain('算力受限')
     expect(parsed.error.message).toContain('当前是默认模型(1x)')
     expect(parsed.error.message).toContain('默认模型(2x)重试')
+    expect(unifiedOpenAIScheduler.markAccountRateLimited).toHaveBeenCalledWith(
+      'openai-1',
+      'openai',
+      createHash('overload-session'),
+      180
+    )
   })
 
   test('replaces server_is_overloaded chunk with gpt-5.5 friendly message in stream', async () => {
@@ -799,6 +810,7 @@ describe('openai stream overload interception', () => {
 
     expect(written.length).toBe(1)
     expect(written[0]).toBe(normalChunk)
+    expect(unifiedOpenAIScheduler.markAccountRateLimited).not.toHaveBeenCalled()
   })
 
   test('logs upstream 400 detail payloads for stream requests', async () => {
