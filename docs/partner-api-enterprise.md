@@ -1,32 +1,41 @@
-# 合作伙伴 API — 企业版接口文档
+# 合作伙伴 API 文档 - 企业版
 
-## 概述
+## 概览
 
-本文档介绍企业版API Key 的管理接口。企业版支持一个 Key 被多个成员共享使用，配额整包共享。
+企业版 Key 用于多人共享同一资源包。企业版专属接口只有 2 个，其余查询和更新能力直接复用主文档中的通用接口。
 
-验签机制与现有 Partner API 完全一致，参见 [partner-api.md](partner-api.md#验签机制)。
+- 通用签名规则：见 [partner-api.md](partner-api.md#验签机制)
+- 通用查询与更新：见 [partner-api.md](partner-api.md)
 
----
+## 企业版和个人版的差异
 
-## 接口列表
+| 项目       | 企业版                                                            |
+| ---------- | ----------------------------------------------------------------- |
+| 标识字段   | `packMode=enterprise`                                             |
+| 归属者     | `externalUid` 必填，用于标识购买者或主账号                        |
+| 成员列表   | 使用 `memberUids` 维护，可批量创建时写入，也可后续全量覆盖        |
+| 每日限额   | 仅企业版批量创建接口支持 `dailyCostLimit`                         |
+| 标签       | 默认仅带 `uni-agent`，不依赖 `pack_consent`                       |
+| 使用侧鉴权 | 依赖 `uni_agent_subscription_type=enterprise` 和成员 uid 解密结果 |
 
-| # | 接口 | 说明 |
-|---|------|------|
-| 1 | `POST /partner/enterprise/key/batch-create` | 批量创建企业 Key（单个时数组传一个元素） |
-| 2 | `POST /partner/enterprise/key/members/set` | 设置成员（全量覆盖） |
+补充说明：
 
-> 更新配置、更新过期时间、查询用量等操作直接复用个人版接口，传企业 Key 的 `keyId` 即可，参见 [partner-api.md](partner-api.md)。
+- `memberUids` 会自动做 trim、去重、过滤空字符串
+- `memberUids` 变更时，会同步维护 `enterprise_pack_member:{uid}` 反向索引
+- 企业版 Key 创建后，仍可通过 `detail`、`usage`、`usage-details`、`:keyId/update`、`:keyId/expiration` 查询和更新
 
----
+## 接口清单
 
-## 接口详情
+| 接口                                        | 说明                              |
+| ------------------------------------------- | --------------------------------- |
+| `POST /partner/enterprise/key/batch-create` | 批量创建企业版 Key，单次 1-100 条 |
+| `POST /partner/enterprise/key/members/set`  | 全量覆盖成员列表                  |
 
-### 接口 1：批量创建企业 Key
+## 1. 批量创建企业版 Key
 
-- **地址**：`POST /partner/enterprise/key/batch-create`
-- **说明**：批量创建企业版 API Key，单次最多 100 条。创建单个时数组传一个元素即可
+`POST /partner/enterprise/key/batch-create`
 
-#### 请求参数
+### 请求体
 
 ```json
 {
@@ -34,18 +43,22 @@
     {
       "name": "TeamPack-001",
       "externalUid": "owner_uid_123",
-      "memberUids": ["uid_a", "uid_b", "uid_c"],
-      "totalCostLimit": 500.0,
-      "dailyCostLimit": 50.0,
-      "claude_account_id": "group:381cb540-f33e-49d1-8fda-80348f8c456f",
-      "openai_account_id": "responses:openai-responses-account-uuid",
-      "deepseek_account_id": "group:deepseek-group-uuid",
+      "memberUids": ["uid_a", " uid_b ", "uid_a"],
+      "totalCostLimit": 500,
+      "dailyCostLimit": 50,
+      "claude_account_id": "group:claude-group-id",
+      "openai_account_id": "responses:openai-responses-account-id",
+      "deepseek_account_id": "group:deepseek-group-id",
+      "minimax_account_id": "minimax-account-id",
+      "glm_account_id": "glm-account-id",
+      "kimi_account_id": "kimi-account-id",
       "claude_rate": 2.1,
       "openai_rate": 1.8,
       "deepseek_rate": 1.2,
-      "rateLimits": [
-        { "window": 300, "cost": 500 }
-      ],
+      "minimax_rate": 1.3,
+      "glm_rate": 1.4,
+      "kimi_rate": 1.5,
+      "rateLimits": [{ "window": 300, "cost": 500 }],
       "expirationMode": "activation",
       "activationDays": 30,
       "activationUnit": "days"
@@ -55,33 +68,36 @@
 }
 ```
 
-| 参数 | 类型 | 必填 | 说明 |
-|------|------|------|------|
-| keys | array | 是 | 创建配置数组，长度 1-100 |
-| sign | string | 是 | SHA256 签名（大写十六进制） |
+### 字段说明
 
-**keys[] 字段说明**
+`keys[]` 中除企业版专属字段外，其余账号绑定、倍率、限流、过期字段和主文档完全一致。
 
-| 参数 | 类型 | 必填 | 说明 |
-|------|------|------|------|
-| name | string | 是 | Key 名称，≤100 字符 |
-| externalUid | string | 是 | 归属者 uid（购买者） |
-| memberUids | array | 是 | 初始成员 uid 列表，至少 1 个 |
-| totalCostLimit | number | 否 | 总费用限制（美元），0 表示不限 |
-| dailyCostLimit | number | 否 | 每日费用限制（美元），0 表示不限 |
-| claude_account_id | string | 否 | Claude 账户 ID 或 `group:xxx` |
-| openai_account_id | string | 否 | OpenAI 账户 ID，支持 `group:...`、`responses:...` |
-| deepseek_account_id | string | 否 | DeepSeek 账户 ID，支持 `group:...` |
-| claude_rate | number | 否 | Claude 服务倍率，正数，最多 1 位小数 |
-| openai_rate | number | 否 | OpenAI 服务倍率 |
-| deepseek_rate | number | 否 | DeepSeek 服务倍率 |
-| rateLimits | array | 否 | 限流规则，每项含 `window`(分钟)、`requests`、`cost` |
-| expiresAt | string | 否 | 固定过期时间，ISO 8601，与 `activation` 模式互斥 |
-| expirationMode | string | 否 | `fixed`（默认）或 `activation` |
-| activationDays | integer | 否 | 激活后有效时长，`activation` 模式必填 |
-| activationUnit | string | 否 | `hours` 或 `days`，`activation` 模式必填 |
+| 字段                                                                                          | 必填 | 说明                                                                          |
+| --------------------------------------------------------------------------------------------- | ---- | ----------------------------------------------------------------------------- |
+| `keys`                                                                                        | 是   | 创建配置数组，长度 1-100                                                      |
+| `keys[].name`                                                                                 | 是   | Key 名称，长度不超过 100                                                      |
+| `keys[].externalUid`                                                                          | 是   | 归属者 uid，内部写入 `externalUid`                                            |
+| `keys[].memberUids`                                                                           | 否   | 初始成员列表；会自动 trim 和去重，最终允许为空数组，但通常建议至少传 1 个成员 |
+| `keys[].totalCostLimit`                                                                       | 否   | 总费用限制，非负数                                                            |
+| `keys[].dailyCostLimit`                                                                       | 否   | 每日费用限制，非负数                                                          |
+| `keys[].claude_account_id` ~ `keys[].kimi_account_id`                                         | 否   | 见主文档                                                                      |
+| `keys[].claude_rate` ~ `keys[].kimi_rate`、`keys[].rate`                                      | 否   | 见主文档                                                                      |
+| `keys[].rateLimits`                                                                           | 否   | 见主文档                                                                      |
+| `keys[].expirationMode`、`keys[].expiresAt`、`keys[].activationDays`、`keys[].activationUnit` | 否   | 见主文档                                                                      |
+| `sign`                                                                                        | 是   | 验签字段                                                                      |
 
-#### 响应
+### 创建行为
+
+- 自动写入：
+  - `description: "Created by partner enterprise API"`
+  - `packMode: "enterprise"`
+  - `tags: ["uni-agent"]`
+  - `isActive: true`
+- 成员列表会在返回值中回传标准化后的结果
+- `dailyCostLimit` 仅此接口支持写入；当前 Partner 通用更新接口不提供该字段更新
+- 部分条目失败时，整个接口仍返回 `code=0`，失败明细写在 `data.errors`
+
+### 成功响应
 
 ```json
 {
@@ -93,10 +109,10 @@
     "failed": 0,
     "keys": [
       {
-        "keyId": "xxx-xxx-xxx",
+        "keyId": "key-id",
         "keyName": "TeamPack-001",
         "apiKey": "cr_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
-        "memberUids": ["uid_a", "uid_b", "uid_c"]
+        "memberUids": ["uid_a", "uid_b"]
       }
     ],
     "errors": []
@@ -104,7 +120,7 @@
 }
 ```
 
-**部分失败**
+### 部分失败示例
 
 ```json
 {
@@ -114,125 +130,89 @@
     "total": 2,
     "created": 1,
     "failed": 1,
-    "keys": [...],
+    "keys": [
+      {
+        "keyId": "key-id",
+        "keyName": "TeamPack-001",
+        "apiKey": "cr_xxx",
+        "memberUids": ["uid_a"]
+      }
+    ],
     "errors": [
-      { "index": 1, "name": "TeamPack-002", "msg": "memberUids is required" }
+      {
+        "index": 1,
+        "name": "TeamPack-002",
+        "msg": "OpenAI account not found or inactive"
+      }
     ]
   }
 }
 ```
 
-| 字段 | 类型 | 说明 |
-|------|------|------|
-| data.total | number | 请求创建的总条数 |
-| data.created | number | 成功创建的条数 |
-| data.failed | number | 失败的条数 |
-| data.keys[].keyId | string | API Key ID |
-| data.keys[].keyName | string | API Key 名称 |
-| data.keys[].apiKey | string | 完整 API Key（仅创建时返回一次） |
-| data.keys[].memberUids | array | 初始成员列表 |
-| data.errors[].index | number | 失败项在 keys 数组中的下标 |
-| data.errors[].name | string | 失败项的 name |
-| data.errors[].msg | string | 失败原因 |
+## 2. 全量覆盖企业成员
 
----
+`POST /partner/enterprise/key/members/set`
 
-### 接口 2：设置成员（全量覆盖）
-
-- **地址**：`POST /partner/enterprise/key/members/set`
-- **说明**：设置企业 Key 的成员列表，传入当前所有可用成员 uid，**全量覆盖**原有列表。后端自动计算差量并同步维护 `enterprise_pack_member` 反向索引
-
-#### 请求参数
+### 请求体
 
 ```json
 {
-  "keyId": "xxx-xxx-xxx",
-  "memberUids": ["uid_a", "uid_b", "uid_c"],
+  "keyId": "key-id",
+  "memberUids": ["uid_x", " uid_y ", "uid_x"],
   "sign": "ABC123..."
 }
 ```
 
-| 参数 | 类型 | 必填 | 说明 |
-|------|------|------|------|
-| keyId | string | 是 | 企业 Key ID |
-| memberUids | array | 是 | 当前全部成员 uid 列表，传空数组表示清空所有成员 |
-| sign | string | 是 | SHA256 签名 |
+### 字段说明
 
-#### 响应
+| 字段         | 必填 | 说明                                             |
+| ------------ | ---- | ------------------------------------------------ |
+| `keyId`      | 是   | 企业版 Key ID                                    |
+| `memberUids` | 是   | 当前完整成员列表；允许传空数组，表示清空所有成员 |
+| `sign`       | 是   | 验签字段                                         |
+
+### 行为说明
+
+- 这是全量覆盖，不是增量追加
+- 后端会对 `memberUids` 做 trim、去重、过滤空字符串
+- 更新完成后会同步维护 `enterprise_pack_member:{uid}` 反向索引
+- 如果传入的 `keyId` 不是企业版 Key，会返回 `400 / code=1004`
+
+### 成功响应
 
 ```json
 {
   "code": 0,
   "msg": "success",
   "data": {
-    "keyId": "xxx-xxx-xxx",
-    "memberUids": ["uid_a", "uid_b", "uid_c"]
+    "keyId": "key-id",
+    "memberUids": ["uid_x", "uid_y"]
   }
 }
 ```
 
----
+## 企业版使用侧约定
 
-## enterprise_pack_member 索引说明
+企业成员实际发起 AI 请求时，服务端依赖以下 header 进入企业版切换逻辑：
 
-`enterprise_pack_member:{uid}` 是企业版的反向索引，记录某个成员 uid 有权使用哪些企业 Key，用于鉴权时快速查找候选 Key。
+| Header                           | 说明                                                                                                |
+| -------------------------------- | --------------------------------------------------------------------------------------------------- |
+| `uni_agent_subscription_type`    | 固定传 `enterprise`                                                                                 |
+| `uni_agent_subscription_user_id` | 成员 uid 的加密值；服务端会解密后提取真实 uid，并到 `enterprise_pack_member:{uid}` 里查可用企业 Key |
 
-### 数据结构
+行为约束：
 
-```
-enterprise_pack_member:{memberUid}  →  Redis Set{ keyId1, keyId2, ... }
-```
-
-### 维护时机
-
-| 操作 | 索引变更 |
-|------|----------|
-| 批量创建企业 Key（`batch-create`） | 为每个 `memberUids` 中的 uid 添加 `keyId` |
-| 设置成员（`members/set`） | 对比新旧列表：新增的 uid 添加 `keyId`，移除的 uid 删除 `keyId` |
-| 个人版接口停用/删除企业 Key | 从所有成员的索引中删除该 `keyId` |
-
-### 维护逻辑（set 操作伪代码）
-
-```
-旧列表 = 读取 apikey:{keyId}.memberUids
-新列表 = 请求传入的 memberUids
-
-新增 = 新列表 - 旧列表
-移除 = 旧列表 - 新列表
-
-for uid in 新增:
-    SADD enterprise_pack_member:{uid} keyId
-
-for uid in 移除:
-    SREM enterprise_pack_member:{uid} keyId
-
-更新 apikey:{keyId}.memberUids = 新列表
-```
-
----
-
-## 请求鉴权说明（企业版使用方）
-
-企业版成员发起 AI 请求时，需在 header 中携带以下参数，系统据此走企业版切换逻辑：
-
-| Header | 说明 |
-|--------|------|
-| `uni_agent_subscription_user_id` | 当前使用者的 uid（必须在该 Key 的 `memberUids` 中） |
-| `uni_agent_subscription_type` | 固定传 `enterprise` |
-
-- `uni_agent_subscription_type: enterprise` 时，系统查 `enterprise_pack_member:{uni_agent_subscription_user_id}` 索引，只在企业 Key 之间切换
-- 企业 Key 切换**不需要** `pack_consent` 标签，`memberUids` 本身即授权凭据
-- 企业 Key 与个人 Key 完全隔离，不会互相切换
-
----
+- 企业版切换只在企业版 Key 之间进行，不会混用个人版 Key
+- 企业版不依赖 `pack_consent`
+- 成员 uid 不在 `memberUids` 中时，不会命中该企业 Key
 
 ## 错误码
 
-| code | 说明 |
-|------|------|
-| 0 | 成功 |
-| 1001 | 参数错误 |
-| 1002 | 签名验证失败 |
-| 1003 | Key 不存在 |
-| 1004 | Key 不是企业版 |
-| 1005 | 成员 uid 不在该 Key 的成员列表中 |
+| HTTP 状态 | `code` | 典型场景                           |
+| --------- | ------ | ---------------------------------- |
+| `401`     | `401`  | 缺少 `sign` 或签名错误             |
+| `400`     | `1001` | 参数校验失败                       |
+| `404`     | `1003` | `members/set` 中 Key 不存在        |
+| `400`     | `1004` | `members/set` 传入的不是企业版 Key |
+| `500`     | `1003` | 业务接口内部异常                   |
+| `500`     | `500`  | 验签中间件内部异常                 |

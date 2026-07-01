@@ -1,113 +1,190 @@
-# 合作伙伴 API 使用文档
+# 合作伙伴 API 文档
 
-## 概述
+## 概览
 
-本文档介绍如何使用合作伙伴 API 查询 API Key 的用量信息。该接口使用 SHA256 签名验证，确保请求的安全性和完整性。
+Partner API 提供给外部合作方做 API Key 管理和用量查询，统一挂载在 `/partner` 下，全部使用 `POST`，请求体为 `application/json`。
 
-## 接口信息
+当前主文档覆盖个人版 Key 和企业版 Key 共用的通用接口；企业版专属接口见 [partner-api-enterprise.md](partner-api-enterprise.md)。
 
-### 1. 创建 API Key
+## 接口清单
 
-- **接口地址**: `POST /partner/api-key/create`
-- **认证方式**: SHA256 签名验证
-- **Content-Type**: `application/json`
-- **功能说明**: 创建新的 API Key，自动绑定到 FoxCode 账户
-
-### 2. 查询 API Key 用量汇总
-
-- **接口地址**: `POST /partner/api-key/usage`
-- **认证方式**: SHA256 签名验证
-- **Content-Type**: `application/json`
-- **功能说明**: 查询 API Key 的总费用和费用限制
-
-### 3. 查询 API Key 用量明细
-
-- **接口地址**: `POST /partner/api-key/usage-details`
-- **认证方式**: SHA256 签名验证
-- **Content-Type**: `application/json`
-- **功能说明**: 查询 API Key 近 30 天的详细用量数据，包含每日用量和按模型维度的统计
-
-### 4. 批量更新 API Key 配置
-
-- **接口地址**: `POST /partner/api-key/update-config`
-- **认证方式**: SHA256 签名验证
-- **Content-Type**: `application/json`
-- **功能说明**: 批量更新 API Key 的配置信息，包括 Claude/OpenAI/DeepSeek 服务倍率及绑定账户
-
-
-### 5. 更新 API Key
-
-- **接口地址**: `POST /partner/api-key/:keyId/update`
-- **认证方式**: SHA256 签名验证
-- **Content-Type**: `application/json`
-- **功能说明**: 更新单个 API Key 的配置，支持与创建时相同的所有参数
-
-### 6. 更新 API Key 过期时间
-
-- **接口地址**: `POST /partner/api-key/:keyId/expiration`
-- **认证方式**: SHA256 签名验证
-- **Content-Type**: `application/json`
-- **功能说明**: 更新单个 API Key 的过期时间，或手动激活 activation 模式的 API Key
+| 接口                                        | 说明                                                                          |
+| ------------------------------------------- | ----------------------------------------------------------------------------- |
+| `POST /partner/api-key/create`              | 创建个人版 API Key                                                            |
+| `POST /partner/api-key/usage`               | 查询一个或多个 Key 的用量汇总                                                 |
+| `POST /partner/api-key/usage-details`       | 查询近 30 天聚合用量明细                                                      |
+| `POST /partner/api-key/detail`              | 查询一个或多个 Key 的详情                                                     |
+| `POST /partner/api-key/:keyId/update`       | 更新单个 Key 的配置                                                           |
+| `POST /partner/api-key/:keyId/expiration`   | 更新单个 Key 的过期时间，或手动激活 activation Key                            |
+| `POST /partner/api-key/update-config`       | 批量更新多个 Key 的倍率，且可统一切换绑定账号                                 |
+| `POST /partner/enterprise/key/batch-create` | 企业版批量创建，见 [partner-api-enterprise.md](partner-api-enterprise.md)     |
+| `POST /partner/enterprise/key/members/set`  | 企业版成员全量覆盖，见 [partner-api-enterprise.md](partner-api-enterprise.md) |
 
 ## 验签机制
 
-### 签名算法
+### 参与签名的参数
 
-使用 SHA256 算法对请求进行签名，算法步骤：
+- 必须包含 `sign`
+- 只有 `query + body` 参与签名
+- URL 路径参数不参与签名
+  - 例如 `/partner/api-key/:keyId/update` 和 `/partner/api-key/:keyId/expiration` 中的 `keyId` 不参与签名
+- `sign` 自身不参与签名
 
-1. **参数排序**: 将所有请求参数（query + body）按 key 字母顺序排序
-2. **参数拼接**: 按 `key1=value1&key2=value2` 格式拼接
-   - 对象/数组类型：使用 `JSON.stringify()` 序列化（无空格）
-   - 字符串/数字：直接拼接
-3. **追加密钥**: 在拼接字符串末尾追加 API 密钥
-4. **计算哈希**: 对整个字符串进行 SHA256 哈希
-5. **转大写**: 将哈希结果转为大写
+### 算法
 
-**示例**：
+1. 取请求的 `query + body`
+2. 移除 `sign`
+3. 按 key 字母顺序排序
+4. 拼接为 `key=value&key2=value2`
+5. 对数组和对象使用 `JSON.stringify()`，不带空格
+6. 在拼接字符串末尾追加密钥
+7. 计算 `SHA256`
+8. 转为大写十六进制
 
+示例：
+
+```text
+原始参数:
+{
+  "key_ids": ["key-1", "key-2"],
+  "timestamp": "1710000000"
+}
+
+排序后拼接:
+key_ids=["key-1","key-2"]&timestamp=1710000000
+
+追加密钥:
+key_ids=["key-1","key-2"]&timestamp=1710000000YOUR_SECRET
+
+最终签名:
+SHA256(...).toUpperCase()
 ```
-参数: { key_name: "MyApp", timestamp: "1707456789" }
-排序: key_name, timestamp
-拼接: key_name=MyApp&timestamp=1707456789
-追加密钥: key_name=MyApp&timestamp=1707456789YOUR_SECRET_KEY
-SHA256: abc123...
-大写: ABC123...
+
+### 配置项
+
+| 配置                                | 说明                                                   |
+| ----------------------------------- | ------------------------------------------------------ |
+| `PARTNER_API_SECRET`                | Partner API 验签密钥                                   |
+| `PARTNER_DEFAULT_CLAUDE_ACCOUNT_ID` | 未传 `claude_account_id` 时创建 Key 的默认 Claude 账号 |
+
+### 认证失败响应
+
+缺少 `sign`：
+
+```json
+{
+  "code": 401,
+  "msg": "Missing authentication parameter: sign",
+  "data": null
+}
 ```
 
-### 必需的请求参数
+签名错误：
 
-| 参数         | 说明                        | 示例             |
-| ------------ | --------------------------- | ---------------- |
-| sign         | SHA256 签名（大写十六进制） | `ABC123...`      |
-| 其他业务参数 | 根据接口要求传递            | `key_name=MyApp` |
+```json
+{
+  "code": 401,
+  "msg": "Invalid signature",
+  "data": null
+}
+```
 
-### 安全规则
+## 公共字段语义
 
-1. **签名密钥**: 使用环境变量 `PARTNER_API_SECRET` 配置
-2. **参数完整性**: 所有参数都参与签名计算，确保数据完整性
-3. **大小写不敏感**: 签名验证时不区分大小写
+### 账号绑定字段
 
-## 接口详情
+| 请求字段              | 支持格式                                    | 内部落库语义                                                           |
+| --------------------- | ------------------------------------------- | ---------------------------------------------------------------------- |
+| `claude_account_id`   | 普通账号 ID、`group:{id}`                   | 普通 ID 写入 `claudeConsoleAccountId`；`group:` 写入 `claudeAccountId` |
+| `openai_account_id`   | 普通账号 ID、`group:{id}`、`responses:{id}` | 写入 `openaiAccountId`                                                 |
+| `deepseek_account_id` | 普通账号 ID、`group:{id}`                   | 写入 `accountBindings.deepseek = { mode: 'shared', accountId }`        |
+| `minimax_account_id`  | 普通账号 ID、`group:{id}`                   | 写入 `accountBindings.minimax = { mode: 'shared', accountId }`         |
+| `glm_account_id`      | 普通账号 ID、`group:{id}`                   | 写入 `accountBindings.glm = { mode: 'shared', accountId }`             |
+| `kimi_account_id`     | 普通账号 ID、`group:{id}`                   | 写入 `accountBindings.kimi = { mode: 'shared', accountId }`            |
 
-### 接口 1: 创建 API Key
+补充说明：
 
-#### 请求参数
+- 创建时如果未传 `claude_account_id`，会回退到 `PARTNER_DEFAULT_CLAUDE_ACCOUNT_ID`
+- `detail` 接口会返回 `geminiAccountId`，但当前 Partner 写接口不提供 `gemini` 的创建和更新字段
+- 新增平台绑定时，会自动把对应平台加入 `permissions`
 
-**请求体**
+### 倍率字段
+
+| 请求字段        | 校验规则                       | `detail` 返回位置       |
+| --------------- | ------------------------------ | ----------------------- |
+| `claude_rate`   | 正数，最多 1 位小数            | `serviceRates.claude`   |
+| `openai_rate`   | 正数，最多 1 位小数            | `serviceRates.codex`    |
+| `deepseek_rate` | 正数，最多 1 位小数            | `serviceRates.deepseek` |
+| `minimax_rate`  | 正数，最多 1 位小数            | `serviceRates.minimax`  |
+| `glm_rate`      | 正数，最多 1 位小数            | `serviceRates.glm`      |
+| `kimi_rate`     | 正数，最多 1 位小数            | `serviceRates.kimi`     |
+| `rate`          | 兼容旧字段，等价 `claude_rate` | `serviceRates.claude`   |
+
+### 限流字段
+
+`rateLimits` 为数组，每一项格式如下：
+
+| 字段       | 类型    | 说明                                 |
+| ---------- | ------- | ------------------------------------ |
+| `window`   | integer | 窗口时长，单位分钟，必须为正整数     |
+| `requests` | integer | 窗口内请求数限制，可选，必须为正整数 |
+| `cost`     | number  | 窗口内费用限制，可选，必须为非负数   |
+
+规则：
+
+- 每条规则至少要提供 `requests` 或 `cost` 其中一个
+- `rateLimits: []` 可用于清空限流配置
+- `usage` 接口会把当前窗口状态返回为 `windowLimits`
+
+### 过期与附加字段
+
+| 字段             | 说明                                                   |
+| ---------------- | ------------------------------------------------------ |
+| `totalCostLimit` | 总费用限制，非负数，`0` 表示不限                       |
+| `expirationMode` | `fixed` 或 `activation`                                |
+| `expiresAt`      | ISO 8601 时间字符串；空字符串可用于清空                |
+| `activationDays` | `activation` 模式下的有效时长数值，必须为正整数        |
+| `activationUnit` | `activation` 模式下的单位，支持 `hours` 或 `days`      |
+| `user_id`        | 外部用户标识，内部写入 `externalUid`，用于多 Key 切换  |
+| `pack_consent`   | `true` 时添加 `pack_consent` 标签，`false` 时移除      |
+| `reset_window`   | 仅更新接口支持；`1` 重置限流窗口，`2` 或省略表示不重置 |
+
+### 通用校验规则
+
+- `name` 必须是非空字符串，长度不超过 100
+- `key_ids`、`keys`、`configs` 单次最多 100 项
+- `totalCostLimit`、`dailyCostLimit`、`rateLimits[].cost` 必须是非负数
+- 所有倍率字段必须是正数，且最多 1 位小数
+- `expirationMode=activation` 时：
+  - 必须同时传 `activationDays` 和 `activationUnit`
+  - 不能同时传 `expiresAt`
+- `usage`、`usage-details`、`detail` 对不存在的 `keyId` 会直接跳过，不报错
+
+## 1. 创建个人版 Key
+
+`POST /partner/api-key/create`
+
+### 请求体
 
 ```json
 {
   "name": "MyApp",
-  "totalCostLimit": 100.0,
-  "claude_account_id": "group:381cb540-f33e-49d1-8fda-80348f8c456f",
-  "openai_account_id": "responses:openai-responses-account-uuid",
-  "deepseek_account_id": "group:deepseek-group-uuid",
+  "totalCostLimit": 100,
+  "claude_account_id": "group:claude-group-id",
+  "openai_account_id": "responses:openai-responses-account-id",
+  "deepseek_account_id": "group:deepseek-group-id",
+  "minimax_account_id": "minimax-account-id",
+  "glm_account_id": "glm-account-id",
+  "kimi_account_id": "kimi-account-id",
   "claude_rate": 2.1,
   "openai_rate": 1.8,
   "deepseek_rate": 1.2,
+  "minimax_rate": 1.3,
+  "glm_rate": 1.4,
+  "kimi_rate": 1.5,
   "rateLimits": [
     { "window": 300, "cost": 500 },
-    { "window": 3000, "cost": 5000 }
+    { "window": 60, "requests": 120 }
   ],
   "expirationMode": "fixed",
   "expiresAt": "2026-12-31T23:59:59.000Z",
@@ -117,136 +194,68 @@ SHA256: abc123...
 }
 ```
 
-| 参数              | 类型   | 必填 | 说明                                                                                              |
-| ----------------- | ------ | ---- | ------------------------------------------------------------------------------------------------- |
-| name              | string | 是   | API Key 的名称                                                                                    |
-| totalCostLimit    | number | 否   | 总费用限制（美元）                                                                                |
-| claude_account_id | string | 否   | 绑定的 Claude 账户 ID；普通 ID 写入 `claudeConsoleAccountId`，`group:` 格式写入 `claudeAccountId` |
-| openai_account_id | string | 否   | 绑定的 OpenAI 账户 ID；支持普通 ID、`group:...`、`responses:...`，内部映射到 `openaiAccountId`    |
-| deepseek_account_id | string | 否 | 绑定的 DeepSeek 账户 ID；支持普通 ID、`group:...`，内部映射到 `accountBindings.deepseek.accountId` |
-| claude_rate       | number | 否   | Claude 服务倍率，内部映射到 `serviceRates.claude`                                                 |
-| openai_rate       | number | 否   | OpenAI/Codex 服务倍率，内部映射到 `serviceRates.codex`                                            |
-| deepseek_rate     | number | 否   | DeepSeek 服务倍率，内部映射到 `serviceRates.deepseek`                                             |
-| rate              | number | 否   | 兼容旧参数，等同于 `claude_rate`；若同时提供则 `claude_rate` 优先                                 |
-| rateLimits        | array  | 否   | 多窗口速率限制配置；每项至少包含 `window`，并提供 `requests` 或 `cost` 之一                       |
-| expirationMode    | string | 否   | 过期模式，支持 `fixed`（固定时间）或 `activation`（首次使用后激活）                               |
-| expiresAt         | string | 否   | 固定过期时间，ISO 8601 格式；`expirationMode=fixed` 时可传                                         |
-| activationDays    | number | 否   | `activation` 模式下的有效时长数值，必须为正整数                                                   |
-| activationUnit    | string | 否   | `activation` 模式下的时间单位，支持 `hours` 或 `days`                                             |
-| user_id           | string | 否   | 外部用户ID，用于多Key自动切换，相同 user_id 的 Key 可自动切换                                      |
-| pack_consent      | boolean| 否   | 是否同意使用资源包，为 true 时会在标签中添加 pack_consent，允许套餐超限后切换到资源包              |
-| sign              | string | 是   | SHA256 签名（大写十六进制）                                                                       |
+### 字段说明
 
-**rateLimits 字段说明**
+| 字段                                                              | 必填 | 说明                     |
+| ----------------------------------------------------------------- | ---- | ------------------------ |
+| `name`                                                            | 是   | Key 名称                 |
+| `totalCostLimit`                                                  | 否   | 总费用限制               |
+| `claude_account_id` ~ `kimi_account_id`                           | 否   | 见“账号绑定字段”         |
+| `claude_rate` ~ `kimi_rate`、`rate`                               | 否   | 见“倍率字段”             |
+| `rateLimits`                                                      | 否   | 见“限流字段”             |
+| `expirationMode`、`expiresAt`、`activationDays`、`activationUnit` | 否   | 见“过期与附加字段”       |
+| `user_id`                                                         | 否   | 写入 `externalUid`       |
+| `pack_consent`                                                    | 否   | 控制 `pack_consent` 标签 |
+| `sign`                                                            | 是   | 验签字段                 |
 
-| 字段     | 类型   | 必填 | 说明                                   |
-| -------- | ------ | ---- | -------------------------------------- |
-| window   | number | 是   | 限制窗口，单位：分钟                   |
-| requests | number | 否   | 窗口内请求次数限制，正整数             |
-| cost     | number | 否   | 窗口内费用限制，单位：美元，非负数字   |
+### 创建行为
 
-示例说明：
+- 自动写入 `description: "Created by partner API"`
+- 自动带上 `uni-agent` 标签
+- `pack_consent=true` 时额外带上 `pack_consent`
+- 默认 `isActive=true`
+- 默认至少包含 `claude` 权限；传其他平台绑定时会自动补充对应权限
+- 只在本次响应里返回完整明文 `apiKey`
 
-- `rateLimits` 支持配置多条窗口规则，例如 `300` 分钟限制 `500` 美元、`3000` 分钟限制 `5000` 美元
-- `expirationMode=fixed` 时可直接传 `expiresAt`
-- `expirationMode=activation` 时需传 `activationDays` 与 `activationUnit`，且不能同时传 `expiresAt`
-- 所有新增参数在传入时也必须参与签名计算
-
-示例说明：
-
-- `claude_account_id` 示例使用了 `group:` 分组绑定格式；如果传普通账户 ID，则会写入 `claudeConsoleAccountId`
-- `openai_account_id` 示例使用了 `responses:` 前缀；实际也支持普通账户 ID 和 `group:...` 前缀
-- `deepseek_account_id` 示例使用了 `group:` 分组绑定格式；普通账户 ID 和分组都会写入 `accountBindings.deepseek.accountId`
-- 可参考的典型格式：
-  - `claude_account_id`: `claude-console-account-uuid` / `group:group-uuid`
-  - `openai_account_id`: `openai-account-uuid` / `group:group-uuid` / `responses:openai-responses-account-uuid`
-  - `deepseek_account_id`: `deepseek-account-uuid` / `group:deepseek-group-uuid`
-
-#### 响应格式
-
-**成功响应**
+### 成功响应
 
 ```json
 {
   "code": 0,
   "msg": "success",
   "data": {
-    "keyId": "xxx-xxx-xxx",
+    "keyId": "key-id",
     "keyName": "MyApp",
     "apiKey": "cr_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
   }
 }
 ```
 
-**响应字段说明**
+## 2. 查询用量汇总
 
-| 字段         | 类型   | 说明                               |
-| ------------ | ------ | ---------------------------------- |
-| code         | number | 状态码，0表示成功，其他值表示错误  |
-| msg          | string | 消息，成功时为"success"            |
-| data         | object | 业务数据                           |
-| data.keyId   | string | API Key ID                         |
-| data.keyName | string | API Key 名称                       |
-| data.apiKey  | string | 完整的 API Key（仅创建时返回一次） |
+`POST /partner/api-key/usage`
 
-**错误响应**
+### 请求体
 
 ```json
 {
-  "code": 1001,
-  "msg": "name is required and must be a non-empty string",
-  "data": null
-}
-```
-
-**说明**
-
-- 标签自动设置为 `uni-agent`
-- 未传 `claude_account_id` 时，会自动绑定默认 Claude 账户
-- `claude_account_id` 为普通 ID 时写入 `claudeConsoleAccountId`；为 `group:` 格式时写入 `claudeAccountId`
-- `claudeAccountId` 与 `claudeConsoleAccountId` 只会有一个字段有值
-- 传入 `openai_account_id` 时，会额外写入 `openaiAccountId`
-- 传入 `deepseek_account_id` 时，会写入 `accountBindings.deepseek = { mode: 'shared', accountId }`
-- 默认权限包含 `claude`；传入 `openai_account_id` / `deepseek_account_id` 时，`permissions` 会额外包含 `openai` / `deepseek`
-- 传入 `claude_rate` / `openai_rate` / `deepseek_rate` 时，会分别写入 `serviceRates.claude` / `serviceRates.codex` / `serviceRates.deepseek`
-- 旧 `rate` 参数仍兼容，但建议迁移到 `claude_rate`
-- 所有新增参数在传入时也必须参与签名计算
-- API Key 创建后自动激活
-
----
-
-### 接口 2: 查询 API Key 用量汇总
-
-#### 请求参数
-
-**请求体**
-
-```json
-{
-  "key_ids": ["xxx-xxx-xxx", "yyy-yyy-yyy"],
+  "key_ids": ["key-1", "key-2"],
   "sign": "ABC123..."
 }
 ```
 
-| 参数    | 类型   | 必填 | 说明                           |
-| ------- | ------ | ---- | ------------------------------ |
-| key_ids | array  | 是   | API Key ID 列表（最多 100 个） |
-| sign    | string | 是   | SHA256 签名（大写十六进制）    |
-
-#### 响应格式
-
-**成功响应**
+### 成功响应
 
 ```json
 {
   "code": 0,
   "msg": "success",
   "data": {
-    "xxx-xxx-xxx": {
-      "keyId": "xxx-xxx-xxx",
+    "key-1": {
+      "keyId": "key-1",
       "keyName": "MyApp",
       "totalCost": 12.34,
-      "totalCostLimit": 100.0,
+      "totalCostLimit": 100,
       "windowLimits": [
         {
           "windowMinutes": 300,
@@ -259,98 +268,45 @@ SHA256: abc123...
             "limit": 500,
             "percentage": 24.69
           }
-        },
-        {
-          "windowMinutes": 3000,
-          "windowStartTime": 1759900000000,
-          "windowEndTime": 1760080000000,
-          "remainingSeconds": 86400,
-          "requests": null,
-          "cost": {
-            "current": 987.65,
-            "limit": 5000,
-            "percentage": 19.75
-          }
         }
       ]
-    },
-    "yyy-yyy-yyy": {
-      "keyId": "yyy-yyy-yyy",
-      "keyName": "MyApp2",
-      "totalCost": 5.67,
-      "totalCostLimit": 50.0,
-      "windowLimits": []
     }
   }
 }
 ```
 
-### 响应字段说明
+### 返回字段说明
 
-| 字段                                          | 类型   | 说明                                           |
-| --------------------------------------------- | ------ | ---------------------------------------------- |
-| code                                          | number | 状态码，0表示成功，其他值表示错误              |
-| msg                                           | string | 消息，成功时为"success"，失败时为错误信息    |
-| data                                          | object | 业务数据，key 为 API Key ID                    |
-| data[keyId].keyId                             | string | API Key ID                                     |
-| data[keyId].keyName                           | string | API Key 名称                                   |
-| data[keyId].totalCost                         | number | 总费用（美元）                                 |
-| data[keyId].totalCostLimit                    | number | 总费用限制（美元）                             |
-| data[keyId].windowLimits                      | array  | 多窗口限制的当前用量信息；未配置时为空数组     |
-| data[keyId].windowLimits[].windowMinutes      | number | 限制窗口，单位：分钟                           |
-| data[keyId].windowLimits[].windowStartTime    | number | 当前窗口开始时间（毫秒时间戳），无窗口时为 null |
-| data[keyId].windowLimits[].windowEndTime      | number | 当前窗口结束时间（毫秒时间戳），无窗口时为 null |
-| data[keyId].windowLimits[].remainingSeconds   | number | 当前窗口剩余秒数；窗口未开始时可能为 null      |
-| data[keyId].windowLimits[].requests           | object | 请求数限制详情；未配置请求限制时为 null        |
-| data[keyId].windowLimits[].requests.current   | number | 当前窗口内已使用请求数                         |
-| data[keyId].windowLimits[].requests.limit     | number | 当前窗口请求数总限制                           |
-| data[keyId].windowLimits[].requests.percentage| number | 当前窗口请求数已用百分比                       |
-| data[keyId].windowLimits[].cost               | object | 费用限制详情；未配置费用限制时为 null          |
-| data[keyId].windowLimits[].cost.current       | number | 当前窗口内已使用费用（美元）                   |
-| data[keyId].windowLimits[].cost.limit         | number | 当前窗口费用总限制（美元）                     |
-| data[keyId].windowLimits[].cost.percentage    | number | 当前窗口费用已用百分比                         |
+| 字段                      | 说明                                                    |
+| ------------------------- | ------------------------------------------------------- |
+| `totalCost`               | Key 累计费用                                            |
+| `totalCostLimit`          | Key 总费用限制                                          |
+| `windowLimits`            | 当前生效限流窗口列表                                    |
+| `windowLimits[].requests` | 请求数窗口状态；如果该窗口未配置请求数限制，则为 `null` |
+| `windowLimits[].cost`     | 费用窗口状态；如果该窗口未配置费用限制，则为 `null`     |
 
-**说明**
+## 3. 查询近 30 天用量明细
 
-- `windowLimits` 按 API Key 上配置的 `rateLimits` 顺序返回
-- 例如配置 `300` 分钟限制 `500` 美元、`3000` 分钟限制 `5000` 美元时，会返回两条窗口记录
-- 你可以直接使用 `windowLimits[].cost.percentage` 或 `windowLimits[].requests.percentage` 计算使用进度
-- 窗口已过期但 Redis 尚未清理时，接口会按 `0` 已用量返回
-- 同时兼容新版 `rateLimits` 多规则和旧版单窗口 `rateLimitWindow/rateLimitCost/rateLimitRequests`
+`POST /partner/api-key/usage-details`
 
-**错误响应**
+### 请求体
 
 ```json
 {
-  "code": 1001,
-  "msg": "key_ids is required",
-  "data": null
-}
-```
-
----
-
-### 接口 3: 查询 API Key 用量明细
-
-#### 请求参数
-
-**请求体**
-
-```json
-{
-  "key_ids": ["xxx-xxx-xxx", "yyy-yyy-yyy"],
+  "key_ids": ["key-1", "key-2"],
   "sign": "ABC123..."
 }
 ```
 
-| 参数    | 类型   | 必填 | 说明                           |
-| ------- | ------ | ---- | ------------------------------ |
-| key_ids | array  | 是   | API Key ID 列表（最多 100 个） |
-| sign    | string | 是   | SHA256 签名（大写十六进制）    |
+### 响应特点
 
-#### 响应格式
+- 返回的是所有命中 Key 的聚合视图，不是按 `keyId` 分组的 map
+- 固定返回：
+  - `keyId: "aggregated"`
+  - `keyName: "Aggregated View"`
+  - `period: "last_30_days"`
 
-**成功响应**
+### 成功响应
 
 ```json
 {
@@ -361,391 +317,181 @@ SHA256: abc123...
     "keyName": "Aggregated View",
     "period": "last_30_days",
     "totalStats": {
-      "requests": 1500,
-      "inputTokens": 50000,
-      "outputTokens": 30000,
-      "cacheCreateTokens": 10000,
-      "cacheReadTokens": 5000,
-      "totalTokens": 95000,
-      "cost": 12.345678
+      "requests": 100,
+      "inputTokens": 1000,
+      "outputTokens": 2000,
+      "cacheCreateTokens": 0,
+      "cacheReadTokens": 0,
+      "totalTokens": 3000,
+      "cost": 12.34
     },
-    "dailyUsage": [
-      {
-        "date": "2026-02-09",
-        "requests": 100,
-        "inputTokens": 3500,
-        "outputTokens": 2000,
-        "cacheCreateTokens": 800,
-        "cacheReadTokens": 400,
-        "totalTokens": 6700,
-        "cost": 0.856789,
-        "models": [
-          {
-            "model": "claude-3-5-sonnet-20241022",
-            "requests": 60,
-            "inputTokens": 2100,
-            "outputTokens": 1200,
-            "cacheCreateTokens": 500,
-            "cacheReadTokens": 250,
-            "totalTokens": 4050,
-            "cost": 0.534567
-          },
-          {
-            "model": "claude-3-5-haiku-20241022",
-            "requests": 40,
-            "inputTokens": 1400,
-            "outputTokens": 800,
-            "cacheCreateTokens": 300,
-            "cacheReadTokens": 150,
-            "totalTokens": 2650,
-            "cost": 0.322222
-          }
-        ]
-      }
-    ],
-    "modelStats": [
-      {
-        "model": "claude-3-5-sonnet-20241022",
-        "requests": 800,
-        "inputTokens": 28000,
-        "outputTokens": 16000,
-        "cacheCreateTokens": 5000,
-        "cacheReadTokens": 2500,
-        "totalTokens": 51500,
-        "cost": 6.789012
-      }
-    ]
+    "dailyUsage": [],
+    "modelStats": []
   }
 }
 ```
 
-**响应字段说明**
+### 数据结构
 
-| 字段                                         | 类型   | 说明                                      |
-| -------------------------------------------- | ------ | ----------------------------------------- |
-| code                                         | number | 状态码，0表示成功，其他值表示错误         |
-| msg                                          | string | 消息，成功时为"success"，失败时为错误信息 |
-| data                                         | object | 业务数据                                  |
-| data.keyId                                   | string | API Key ID                                |
-| data.keyName                                 | string | API Key 名称                              |
-| data.period                                  | string | 统计周期（固定为 "last_30_days"）         |
-| data.totalStats                              | object | 总计统计数据                              |
-| data.totalStats.requests                     | number | 总请求次数                                |
-| data.totalStats.inputTokens                  | number | 总输入 Token 数                           |
-| data.totalStats.outputTokens                 | number | 总输出 Token 数                           |
-| data.totalStats.cacheCreateTokens            | number | 总缓存创建 Token 数                       |
-| data.totalStats.cacheReadTokens              | number | 总缓存读取 Token 数                       |
-| data.totalStats.totalTokens                  | number | 总 Token 数（所有类型之和）               |
-| data.totalStats.cost                         | number | 总费用（美元）                            |
-| data.dailyUsage                              | array  | 每日用量明细数组（按日期倒序）            |
-| data.dailyUsage[].date                       | string | 日期（YYYY-MM-DD 格式）                   |
-| data.dailyUsage[].requests                   | number | 当日请求次数                              |
-| data.dailyUsage[].inputTokens                | number | 当日输入 Token 数                         |
-| data.dailyUsage[].outputTokens               | number | 当日输出 Token 数                         |
-| data.dailyUsage[].cacheCreateTokens          | number | 当日缓存创建 Token 数                     |
-| data.dailyUsage[].cacheReadTokens            | number | 当日缓存读取 Token 数                     |
-| data.dailyUsage[].totalTokens                | number | 当日总 Token 数                           |
-| data.dailyUsage[].cost                       | number | 当日费用（美元）                          |
-| data.dailyUsage[].models                     | array  | 当日各模型的用量明细（按请求数倒序）      |
-| data.dailyUsage[].models[].model             | string | 模型名称                                  |
-| data.dailyUsage[].models[].requests          | number | 该模型当日请求次数                        |
-| data.dailyUsage[].models[].inputTokens       | number | 该模型当日输入 Token 数                   |
-| data.dailyUsage[].models[].outputTokens      | number | 该模型当日输出 Token 数                   |
-| data.dailyUsage[].models[].cacheCreateTokens | number | 该模型当日缓存创建 Token 数               |
-| data.dailyUsage[].models[].cacheReadTokens   | number | 该模型当日缓存读取 Token 数               |
-| data.dailyUsage[].models[].totalTokens       | number | 该模型当日总 Token 数                     |
-| data.dailyUsage[].models[].cost              | number | 该模型当日费用（美元）                    |
-| data.modelStats                              | array  | 按模型维度的统计数组（按请求数倒序）      |
-| data.modelStats[].model                      | string | 模型名称                                  |
-| data.modelStats[].requests                   | number | 该模型的请求次数                          |
-| data.modelStats[].inputTokens                | number | 该模型的输入 Token 数                     |
-| data.modelStats[].outputTokens               | number | 该模型的输出 Token 数                     |
-| data.modelStats[].cacheCreateTokens          | number | 该模型的缓存创建 Token 数                 |
-| data.modelStats[].cacheReadTokens            | number | 该模型的缓存读取 Token 数                 |
-| data.modelStats[].totalTokens                | number | 该模型的总 Token 数                       |
-| data.modelStats[].cost                       | number | 该模型的费用（美元）                      |
+| 字段                    | 说明                               |
+| ----------------------- | ---------------------------------- |
+| `totalStats`            | 近 30 天总请求数、总 token、总费用 |
+| `dailyUsage[]`          | 按天汇总，日期倒序                 |
+| `dailyUsage[].models[]` | 当天按模型拆分                     |
+| `modelStats[]`          | 近 30 天按模型汇总                 |
 
-**错误响应**
+## 4. 查询 Key 详情
+
+`POST /partner/api-key/detail`
+
+### 请求体
 
 ```json
 {
-  "code": 1001,
-  "msg": "key_ids is required",
-  "data": null
+  "key_ids": ["key-1", "key-2"],
+  "sign": "ABC123..."
 }
 ```
 
----
-
-### 接口 4: 批量更新 API Key 配置
-
-#### 请求参数
-
-**请求体**
+### 成功响应
 
 ```json
 {
-  "configs": [
-    {
-      "key_id": "xxx-xxx-xxx",
-      "claude_rate": 2.1,
-      "openai_rate": 1.8,
-      "deepseek_rate": 1.2
-    },
-    {
-      "key_id": "yyy-yyy-yyy",
-      "rate": 2.7
-    },
-    {
-      "key_id": "zzz-zzz-zzz",
-      "claude_rate": 3.2
+  "code": 0,
+  "msg": "success",
+  "data": {
+    "key-1": {
+      "keyId": "key-1",
+      "keyName": "MyApp",
+      "description": "Created by partner API",
+      "isActive": true,
+      "expiresAt": "2026-12-31T23:59:59.000Z",
+      "expirationMode": "fixed",
+      "isActivated": true,
+      "activationDays": 0,
+      "activationUnit": "days",
+      "activatedAt": "2026-06-01T00:00:00.000Z",
+      "createdAt": "2026-06-01T00:00:00.000Z",
+      "lastUsedAt": "2026-06-26T12:00:00.000Z",
+      "permissions": ["claude", "glm", "kimi"],
+      "rateLimits": [],
+      "totalCostLimit": 100,
+      "dailyCostLimit": 0,
+      "serviceRates": {
+        "claude": 2.1,
+        "glm": 1.4,
+        "kimi": 1.5
+      },
+      "tags": ["uni-agent", "pack_consent"],
+      "claudeAccountId": "group:claude-group-id",
+      "claudeConsoleAccountId": null,
+      "openaiAccountId": "responses:openai-responses-account-id",
+      "geminiAccountId": null,
+      "accountBindings": {
+        "glm": {
+          "mode": "shared",
+          "accountId": "glm-account-id"
+        },
+        "kimi": {
+          "mode": "shared",
+          "accountId": "kimi-account-id"
+        }
+      },
+      "externalUid": "user_123",
+      "packMode": "personal",
+      "memberUids": []
     }
-  ],
-  "claude_account_id": "group:381cb540-f33e-49d1-8fda-80348f8c456f",
-  "openai_account_id": "responses:openai-responses-account-uuid",
-  "deepseek_account_id": "deepseek-account-uuid",
+  }
+}
+```
+
+### 返回字段说明
+
+| 字段                                         | 说明                                                   |
+| -------------------------------------------- | ------------------------------------------------------ |
+| `permissions`                                | 当前启用的平台权限列表                                 |
+| `rateLimits`                                 | 当前限流规则                                           |
+| `dailyCostLimit`                             | 企业版创建接口才支持写入；个人版通常为 `0`             |
+| `serviceRates`                               | 已生效的倍率配置；`openai_rate` 对应返回字段是 `codex` |
+| `tags`                                       | 当前标签列表                                           |
+| `claudeAccountId` / `claudeConsoleAccountId` | Claude 分组绑定和普通绑定二选一                        |
+| `accountBindings`                            | DeepSeek、MiniMax、GLM、Kimi 等共享平台绑定            |
+| `externalUid`                                | 外部用户标识                                           |
+| `packMode`                                   | `personal` 或 `enterprise`                             |
+| `memberUids`                                 | 企业版成员列表；个人版通常为空数组                     |
+
+## 5. 更新单个 Key
+
+`POST /partner/api-key/:keyId/update`
+
+`keyId` 在 URL 路径中，不参与签名。
+
+### 请求体
+
+```json
+{
+  "name": "MyApp-New",
+  "glm_account_id": "glm-account-id",
+  "glm_rate": 1.7,
+  "kimi_rate": 1.8,
+  "rateLimits": [{ "window": 60, "requests": 100 }],
+  "pack_consent": false,
+  "reset_window": 1,
   "sign": "ABC123..."
 }
 ```
 
-| 参数                  | 类型   | 必填 | 说明                                                                                                    |
-| --------------------- | ------ | ---- | ------------------------------------------------------------------------------------------------------- |
-| configs               | array  | 是   | 配置数组，每个元素至少包含 `key_id`，可按 key 单独传费率配置                                            |
-| configs[].key_id      | string | 是   | API Key ID                                                                                              |
-| configs[].claude_rate | number | 否   | Claude 服务倍率，内部映射到 `serviceRates.claude`                                                       |
-| configs[].openai_rate | number | 否   | OpenAI/Codex 服务倍率，内部映射到 `serviceRates.codex`                                                  |
-| configs[].deepseek_rate | number | 否 | DeepSeek 服务倍率，内部映射到 `serviceRates.deepseek`                                                   |
-| configs[].rate        | number | 否   | 兼容旧参数，等同于 `configs[].claude_rate`；若同时提供则 `configs[].claude_rate` 优先                   |
-| claude_account_id     | string | 否   | 所有 key 共用的 Claude 绑定；普通 ID 写入 `claudeConsoleAccountId`，`group:` 格式写入 `claudeAccountId` |
-| openai_account_id     | string | 否   | 所有 key 共用的 OpenAI 绑定；支持普通 ID、`group:...`、`responses:...`，写入 `openaiAccountId`          |
-| deepseek_account_id   | string | 否   | 所有 key 共用的 DeepSeek 绑定；支持普通 ID、`group:...`，写入 `accountBindings.deepseek.accountId`      |
-| sign                  | string | 是   | SHA256 签名（大写十六进制）                                                                             |
+### 支持字段
 
-**参数验证规则**
+- 支持与创建接口相同的大部分字段：
+  - `name`
+  - `totalCostLimit`
+  - `claude_account_id` ~ `kimi_account_id`
+  - `claude_rate` ~ `kimi_rate`
+  - `rate`
+  - `rateLimits`
+  - `expiresAt`
+  - `expirationMode`
+  - `activationDays`
+  - `activationUnit`
+  - `user_id`
+  - `pack_consent`
+  - `reset_window`
 
-1. `configs`: 必填，必须是数组，长度 1-100
-2. `configs[].key_id`: 必填，必须是有效的 API Key ID
-3. `configs[].claude_rate` / `configs[].openai_rate` / `configs[].deepseek_rate`: 可选，提供时必须是正数，且最多 1 位小数
-4. `configs[].rate`: 兼容旧参数，语义等同于 `configs[].claude_rate`
-5. `claude_account_id`: 可选，普通 ID 会校验 Claude Console 账户；`group:` 格式会校验 Claude 分组
-6. `openai_account_id`: 可选，支持普通 ID、`group:...`、`responses:...`，会按对应类型校验
-7. `deepseek_account_id`: 可选，支持普通 ID、`group:...`，会按 DeepSeek 账户或 DeepSeek 分组校验
+### 更新行为
 
-示例说明：
+- 只更新本次传入的字段，未传字段保持原值
+- 平台倍率会合并到现有 `serviceRates`
+- 平台绑定会合并到现有 `accountBindings`
+- 若本次传了平台绑定，会自动把对应平台加入 `permissions`
+- `rateLimits: []` 可清空限流规则
+- `expiresAt: ""` 可清空过期时间
+- `user_id: ""` 可清空 `externalUid`
+- `pack_consent: false` 会移除 `pack_consent` 标签
+- `reset_window=1` 会按当前生效的 `rateLimits` 重置窗口计数
+- `reset_window=2` 或不传表示不重置
+- 如果本次设置了非空 `expiresAt`，且 Key 之前尚未激活，会自动补 `isActivated=true` 和 `activatedAt`
 
-- `claude_account_id` 示例使用了 `group:` 分组绑定格式；如果传普通账户 ID，则会写入 `claudeConsoleAccountId`
-- `openai_account_id` 示例使用了 `responses:` 前缀；实际也支持普通账户 ID 和 `group:...` 前缀
-- `deepseek_account_id` 支持普通 DeepSeek 账户 ID 或 `group:` 分组 ID，均写入 `accountBindings.deepseek.accountId`
-- 每个 `configs[]` 元素可独立设置 `claude_rate` / `openai_rate` / `deepseek_rate`
-- 如果提供 `claude_account_id`、`openai_account_id` 或 `deepseek_account_id`，会批量更新所有目标 API Key 的绑定字段
-- `claudeAccountId` 与 `claudeConsoleAccountId` 只会有一个字段有值
-- 所有新增参数在传入时也必须参与签名计算
-
-**兼容说明**
-
-- 旧的 `configs[].rate` 仍可使用，但建议迁移到 `configs[].claude_rate`
-- 未提供某个服务的费率时，不会覆盖该服务现有的 `serviceRates` 配置
-- 更新 OpenAI 绑定时，会确保权限中包含 `openai`
-- 更新 Claude 绑定时，会确保权限中包含 `claude`
-- 更新 DeepSeek 绑定时，会确保权限中包含 `deepseek`
-
-**响应格式**
-
-**成功响应**
+### 成功响应
 
 ```json
 {
   "code": 0,
   "msg": "success",
   "data": {
-    "total": 3,
-    "success": 2,
-    "failed": 1,
-    "failedDetails": [
-      {
-        "key_id": "zzz-zzz-zzz",
-        "reason": "API Key not found"
-      }
-    ]
+    "keyId": "key-1",
+    "keyName": "MyApp-New"
   }
 }
 ```
 
-**响应字段说明**
+## 6. 更新过期时间 / 手动激活
 
-| 字段                        | 类型   | 说明                                                 |
-| --------------------------- | ------ | ---------------------------------------------------- |
-| code                        | number | 状态码，0表示成功（部分成功也返回0），其他值表示错误 |
-| msg                         | string | 消息，成功时为"success"                              |
-| data                        | object | 业务数据                                             |
-| data.total                  | number | 处理的总条数                                         |
-| data.success                | number | 成功更新的条数                                       |
-| data.failed                 | number | 失败的条数                                           |
-| data.failedDetails          | array  | 失败详情列表                                         |
-| data.failedDetails[].key_id | string | 失败的 API Key ID                                    |
-| data.failedDetails[].reason | string | 失败原因                                             |
+`POST /partner/api-key/:keyId/expiration`
 
-**错误响应**
+`keyId` 在 URL 路径中，不参与签名。
 
-```json
-{
-  "code": 1001,
-  "msg": "configs is required and must be an array",
-  "data": null
-}
-```
-
-```json
-{
-  "code": 1001,
-  "msg": "configs length cannot exceed 100",
-  "data": null
-}
-```
-
-```json
-{
-  "code": 1001,
-  "msg": "configs[0].key_id is required",
-  "data": null
-}
-```
-
-```json
-{
-  "code": 1001,
-  "msg": "Claude account not found or inactive",
-  "data": null
-}
-```
-
-#### 业务逻辑说明
-
-1. **批量验证**: 先验证所有请求参数的格式和取值范围
-2. **逐个处理**: 遍历 `configs` 数组，逐个更新 API Key 配置
-3. **错误隔离**: 某个 API Key 更新失败不影响其他 API Key 的更新
-4. **验证 API Key**: 检查 `key_id` 对应的 API Key 是否存在且未删除
-5. **验证绑定账户**:
-   - `claude_account_id` 为普通 ID 时验证 Claude Console 账户；为 `group:` 时验证 Claude 分组
-   - `openai_account_id` 按普通 ID / `group:` / `responses:` 前缀分别验证
-   - `deepseek_account_id` 按普通 ID / `group:` 前缀分别验证 DeepSeek 账户或分组
-6. **更新配置**:
-   - `configs[].claude_rate`（或兼容旧 `configs[].rate`）更新 `serviceRates.claude`
-   - `configs[].openai_rate` 更新 `serviceRates.codex`
-   - `configs[].deepseek_rate` 更新 `serviceRates.deepseek`
-   - 如果提供 `claude_account_id`，按普通账户或分组格式更新 `claudeConsoleAccountId` / `claudeAccountId`
-   - 如果提供 `openai_account_id`，更新 `openaiAccountId`
-   - 如果提供 `deepseek_account_id`，更新 `accountBindings.deepseek.accountId`
-   - 如果更新了绑定字段，会确保 `permissions` 中包含对应服务
-7. **返回结果**: 返回处理总数、成功数、失败数和失败详情（包含 `key_id` 和失败原因）
-
-#### 安全考虑
-
-1. **权限验证**: 通过 SHA256 签名验证请求合法性
-2. **参数验证**: 严格验证所有输入参数的格式和取值范围
-3. **批量限制**: 单次请求最多更新 100 个 API Key
-4. **账户/分组验证**: 确保绑定的账户或分组存在且可用
-5. **错误隔离**: 单个更新失败不影响其他更新操作
-6. **审计日志**: 记录所有配置更新操作，便于追溯
-
----
-
-### 接口 5: 更新 API Key
-
-#### 请求参数
-
-**路径参数**
-
-| 参数  | 类型   | 必填 | 说明       |
-| ----- | ------ | ---- | ---------- |
-| keyId | string | 是   | API Key ID |
-
-**请求体**
-
-```json
-{
-  "name": "MyApp Updated",
-  "totalCostLimit": 200.0,
-  "claude_account_id": "group:381cb540-f33e-49d1-8fda-80348f8c456f",
-  "openai_account_id": "responses:openai-responses-account-uuid",
-  "deepseek_account_id": "group:deepseek-group-uuid",
-  "claude_rate": 2.5,
-  "openai_rate": 2.0,
-  "deepseek_rate": 1.3,
-  "rateLimits": [
-    { "window": 300, "cost": 600 },
-    { "window": 3000, "cost": 6000 }
-  ],
-  "expirationMode": "fixed",
-  "expiresAt": "2027-12-31T23:59:59.000Z",
-  "sign": "ABC123..."
-}
-```
-
-| 参数              | 类型   | 必填 | 说明                                                                                              |
-| ----------------- | ------ | ---- | ------------------------------------------------------------------------------------------------- |
-| name              | string | 否   | API Key 的名称                                                                                    |
-| totalCostLimit    | number | 否   | 总费用限制（美元）                                                                                |
-| claude_account_id | string | 否   | 绑定的 Claude 账户 ID；普通 ID 写入 `claudeConsoleAccountId`，`group:` 格式写入 `claudeAccountId` |
-| openai_account_id | string | 否   | 绑定的 OpenAI 账户 ID；支持普通 ID、`group:...`、`responses:...`，内部映射到 `openaiAccountId`    |
-| deepseek_account_id | string | 否 | 绑定的 DeepSeek 账户 ID；支持普通 ID、`group:...`，内部映射到 `accountBindings.deepseek.accountId` |
-| claude_rate       | number | 否   | Claude 服务倍率，内部映射到 `serviceRates.claude`                                                 |
-| openai_rate       | number | 否   | OpenAI/Codex 服务倍率，内部映射到 `serviceRates.codex`                                            |
-| deepseek_rate     | number | 否   | DeepSeek 服务倍率，内部映射到 `serviceRates.deepseek`                                             |
-| rate              | number | 否   | 兼容旧参数，等同于 `claude_rate`；若同时提供则 `claude_rate` 优先                                 |
-| rateLimits        | array  | 否   | 多窗口速率限制配置；每项至少包含 `window`，并提供 `requests` 或 `cost` 之一                       |
-| expirationMode    | string | 否   | 过期模式，支持 `fixed`（固定时间）或 `activation`（首次使用后激活）                               |
-| expiresAt         | string | 否   | 固定过期时间，ISO 8601 格式；`expirationMode=fixed` 时可传                                         |
-| activationDays    | number | 否   | `activation` 模式下的有效时长数值，必须为正整数                                                   |
-| activationUnit    | string | 否   | `activation` 模式下的时间单位，支持 `hours` 或 `days`                                             |
-| sign              | string | 是   | SHA256 签名（大写十六进制）                                                                       |
-
-#### 响应格式
-
-**成功响应**
-
-```json
-{
-  "code": 0,
-  "msg": "success",
-  "data": {
-    "keyId": "xxx-xxx-xxx",
-    "keyName": "MyApp Updated"
-  }
-}
-```
-
-**错误响应**
-
-```json
-{
-  "code": 1004,
-  "msg": "API Key not found",
-  "data": null
-}
-```
-
-**说明**
-
-- 所有参数均为可选，仅更新提供的字段
-- 参数验证规则与创建接口一致
-- 更新账户绑定时会自动更新权限列表；DeepSeek 绑定写入 `accountBindings.deepseek.accountId`
-
----
-
-### 接口 6: 更新 API Key 过期时间
-
-#### 请求参数
-
-**路径参数**
-
-| 参数  | 类型   | 必填 | 说明       |
-| ----- | ------ | ---- | ---------- |
-| keyId | string | 是   | API Key ID |
-
-**请求体**
-
-设置固定过期时间：
+### 方式 A：直接改过期时间
 
 ```json
 {
@@ -754,7 +500,7 @@ SHA256: abc123...
 }
 ```
 
-手动激活 activation 模式的 key：
+### 方式 B：手动激活 activation Key
 
 ```json
 {
@@ -763,813 +509,116 @@ SHA256: abc123...
 }
 ```
 
-清空过期时间（永不过期）：
+### 行为说明
 
-```json
-{
-  "expiresAt": "",
-  "sign": "ABC123..."
-}
-```
+- `activateNow=true` 仅适用于：
+  - `expirationMode=activation`
+  - `isActivated=false`
+- 传非空 `expiresAt` 时：
+  - 会更新过期时间
+  - 若此前未激活，会自动标记为已激活
+- `expiresAt: ""` 可清空过期时间
+- 不能同时依赖 `activateNow=true` 和 `expiresAt` 更新；`activateNow=true` 优先走手动激活逻辑
 
-| 参数        | 类型    | 必填 | 说明                                                     |
-| ----------- | ------- | ---- | -------------------------------------------------------- |
-| expiresAt   | string  | 否   | 目标过期时间，ISO 8601 格式；传空字符串表示清空过期时间  |
-| activateNow | boolean | 否   | 传 `true` 时手动激活 activation 模式且尚未激活的 API Key |
-| sign        | string  | 是   | SHA256 签名（大写十六进制）                              |
-
-**参数验证规则**
-
-1. `keyId`: 必填，必须是有效的 API Key ID
-2. `expiresAt`: 可选，提供时必须是合法日期字符串；传空字符串表示清空过期时间
-3. `activateNow`: 可选，仅支持 `true`；且目标 key 必须是 `activation` 模式且尚未激活
-4. `activateNow` 为 `true` 时，不处理 `expiresAt`
-
-#### 响应格式
-
-**成功响应**
+### 成功响应
 
 ```json
 {
   "code": 0,
   "msg": "success",
   "data": {
-    "keyId": "xxx-xxx-xxx",
+    "keyId": "key-1",
     "keyName": "MyApp"
   }
 }
 ```
 
-**响应字段说明**
+## 7. 批量更新倍率 / 统一切换绑定
 
-| 字段         | 类型   | 说明                              |
-| ------------ | ------ | --------------------------------- |
-| code         | number | 状态码，0表示成功，其他值表示错误 |
-| msg          | string | 消息，成功时为"success"          |
-| data         | object | 业务数据                          |
-| data.keyId   | string | API Key ID                        |
-| data.keyName | string | API Key 名称                      |
+`POST /partner/api-key/update-config`
 
-**错误响应**
+### 请求体
 
 ```json
 {
-  "code": 1004,
-  "msg": "API Key not found",
-  "data": null
+  "claude_account_id": "group:claude-group-id",
+  "glm_account_id": "glm-account-id",
+  "configs": [
+    {
+      "key_id": "key-1",
+      "claude_rate": 2.1,
+      "glm_rate": 1.9
+    },
+    {
+      "key_id": "key-2",
+      "rate": 1.8,
+      "kimi_rate": 2.0
+    }
+  ],
+  "sign": "ABC123..."
 }
 ```
+
+### 字段说明
+
+| 字段                                            | 必填 | 说明                                            |
+| ----------------------------------------------- | ---- | ----------------------------------------------- |
+| `configs`                                       | 是   | 要处理的 Key 列表，长度 1-100                   |
+| `configs[].key_id`                              | 是   | 目标 Key ID                                     |
+| `configs[].claude_rate` ~ `configs[].kimi_rate` | 否   | 本 Key 的倍率更新                               |
+| `configs[].rate`                                | 否   | 兼容旧字段，等价本 Key 的 `claude_rate`         |
+| `claude_account_id` ~ `kimi_account_id`         | 否   | 顶层账号绑定，若传入则对本次所有 `configs` 生效 |
+| `sign`                                          | 是   | 验签字段                                        |
+
+### 行为说明
+
+- `configs[]` 内只负责每个 Key 的倍率
+- 账号绑定字段只能放在顶层，且会统一应用到本次所有 `configs`
+- 会把新的倍率合并到每个 Key 当前的 `serviceRates`
+- 会把新的统一绑定合并到每个 Key 当前的 `accountBindings`
+- 如果某个 `key_id` 不存在，不中断整体批量任务，而是记入 `failedDetails`
+
+### 成功响应
 
 ```json
 {
-  "code": 1001,
-  "msg": "invalid expiration date format",
-  "data": null
-}
-```
-
-```json
-{
-  "code": 1001,
-  "msg": "Key is either already activated or not in activation mode",
-  "data": null
-}
-```
-
-#### 业务逻辑说明
-
-1. **定位 Key**: 根据路径参数 `keyId` 查询目标 API Key
-2. **手动激活**: 当 `activateNow=true` 时，仅 activation 模式且未激活的 key 可执行激活
-3. **设置过期时间**: 传 `expiresAt` 时写入新的过期时间，并在未激活时自动补充激活状态
-4. **清空过期时间**: 传空字符串时清空 `expiresAt`，表示永不过期
-5. **返回结果**: 成功时返回与创建接口一致的 `keyId`、`keyName`
-
-#### 安全考虑
-
-1. **权限验证**: 通过 SHA256 签名验证请求合法性
-2. **参数验证**: 严格校验 `keyId`、`expiresAt` 和 `activateNow`
-3. **状态约束**: 手动激活仅允许对 activation 模式且未激活的 key 生效
-4. **审计日志**: 记录 partner 侧对 API Key 过期时间的修改操作
-
----
-
-## 使用示例
-
-### Node.js 示例
-
-#### 示例 1: 查询用量汇总
-
-```javascript
-const crypto = require('crypto')
-const axios = require('axios')
-
-// 配置
-const API_URL = 'http://localhost:3000/partner/api-key/usage'
-const SECRET_KEY = 'your-secret-key' // 与服务端 PARTNER_API_SECRET 一致
-
-// 生成签名（PHP 风格算法）
-function generateSignature(params, secretKey) {
-  // 1. 按 key 排序
-  const sortedKeys = Object.keys(params).sort()
-
-  // 2. 拼接参数
-  let signStr = ''
-  for (const key of sortedKeys) {
-    const value = params[key]
-
-    // 对象或数组使用 JSON.stringify
-    if (typeof value === 'object' && value !== null) {
-      signStr += `${key}=${JSON.stringify(value)}`
-    } else {
-      signStr += `${key}=${value}`
-    }
-    signStr += '&'
-  }
-
-  // 3. 移除末尾的 &
-  signStr = signStr.slice(0, -1)
-
-  // 4. 追加密钥
-  signStr += secretKey
-
-  // 5. SHA256 哈希并转大写
-  return crypto.createHash('sha256').update(signStr).digest('hex').toUpperCase()
-}
-
-// 查询用量
-async function queryUsage(keyIds) {
-  const params = { key_ids: keyIds }
-  const signature = generateSignature(params, SECRET_KEY)
-
-  // 将签名添加到参数中
-  params.sign = signature
-
-  try {
-    const response = await axios.post(API_URL, params, {
-      headers: {
-        'Content-Type': 'application/json'
+  "code": 0,
+  "msg": "success",
+  "data": {
+    "total": 2,
+    "success": 1,
+    "failed": 1,
+    "failedDetails": [
+      {
+        "key_id": "missing-key",
+        "reason": "API Key not found"
       }
-    })
-
-    console.log('查询成功:', response.data)
-    return response.data
-  } catch (error) {
-    console.error('查询失败:', error.response?.data || error.message)
-    throw error
+    ]
   }
 }
-
-// 使用示例
-queryUsage(['key-id-1', 'key-id-2'])
-  .then((data) => {
-    // data.data 是 key-value 形式，key 为 keyId
-    for (const [keyId, info] of Object.entries(data.data)) {
-      console.log(`${keyId}: 总费用=${info.totalCost}, 限制=${info.totalCostLimit}`)
-    }
-  })
-  .catch((err) => console.error(err))
 ```
 
-#### 示例 2: 查询用量明细
-
-```javascript
-const crypto = require('crypto')
-const axios = require('axios')
-
-// 配置
-const API_URL = 'http://localhost:3000/partner/api-key/usage-details'
-const SECRET_KEY = 'your-secret-key' // 与服务端 PARTNER_API_SECRET 一致
-
-// 生成签名（与示例1相同）
-function generateSignature(params, secretKey) {
-  const sortedKeys = Object.keys(params).sort()
-  let signStr = ''
-  for (const key of sortedKeys) {
-    const value = params[key]
-    if (typeof value === 'object' && value !== null) {
-      signStr += `${key}=${JSON.stringify(value)}`
-    } else {
-      signStr += `${key}=${value}`
-    }
-    signStr += '&'
-  }
-  signStr = signStr.slice(0, -1)
-  signStr += secretKey
-  return crypto.createHash('sha256').update(signStr).digest('hex').toUpperCase()
-}
-
-// 查询用量明细
-async function queryUsageDetails(keyIds) {
-  const params = { key_ids: keyIds }
-  const signature = generateSignature(params, SECRET_KEY)
-  params.sign = signature
-
-  try {
-    const response = await axios.post(API_URL, params, {
-      headers: {
-        'Content-Type': 'application/json'
-      }
-    })
-
-    console.log('查询成功:', response.data)
-    return response.data
-  } catch (error) {
-    console.error('查询失败:', error.response?.data || error.message)
-    throw error
-  }
-}
-
-// 使用示例
-queryUsageDetails(['key-id-1', 'key-id-2'])
-  .then((data) => {
-    const { totalStats, dailyUsage, modelStats } = data.data
-
-    console.log('=== 总计统计 ===')
-    console.log('总请求数:', totalStats.requests)
-    console.log('总Token数:', totalStats.totalTokens)
-    console.log('总费用:', `$${totalStats.cost}`)
-
-    console.log('\n=== 每日用量（最近5天）===')
-    dailyUsage.slice(0, 5).forEach((day) => {
-      console.log(`${day.date}: ${day.requests}次请求, ${day.totalTokens} tokens, $${day.cost}`)
-    })
-
-    console.log('\n=== 模型统计（Top 3）===')
-    modelStats.slice(0, 3).forEach((model) => {
-      console.log(`${model.model}: ${model.requests}次请求, $${model.cost}`)
-    })
-  })
-  .catch((err) => console.error(err))
-```
-
-### Python 示例
-
-#### 示例 1: 查询用量汇总
-
-```javascript
-const crypto = require('crypto')
-const axios = require('axios')
-
-// 配置
-const API_URL = 'http://localhost:3000/partner/api-key/usage'
-const SECRET_KEY = 'your-secret-key' // 与服务端 PARTNER_API_SECRET 一致
-
-// 生成签名（PHP 风格算法）
-function generateSignature(params, secretKey) {
-  // 1. 按 key 排序
-  const sortedKeys = Object.keys(params).sort()
-
-  // 2. 拼接参数
-  let signStr = ''
-  for (const key of sortedKeys) {
-    const value = params[key]
-
-    // 对象或数组使用 JSON.stringify
-    if (typeof value === 'object' && value !== null) {
-      signStr += `${key}=${JSON.stringify(value)}`
-    } else {
-      signStr += `${key}=${value}`
-    }
-    signStr += '&'
-  }
-
-  // 3. 移除末尾的 &
-  signStr = signStr.slice(0, -1)
-
-  // 4. 追加密钥
-  signStr += secretKey
-
-  // 5. SHA256 哈希并转大写
-  return crypto.createHash('sha256').update(signStr).digest('hex').toUpperCase()
-}
-
-// 查询用量
-async function queryUsage(keyIds) {
-  const params = { key_ids: keyIds }
-  const signature = generateSignature(params, SECRET_KEY)
-
-  // 将签名添加到参数中
-  params.sign = signature
-
-  try {
-    const response = await axios.post(API_URL, params, {
-      headers: {
-        'Content-Type': 'application/json'
-      }
-    })
-
-    console.log('查询成功:', response.data)
-    return response.data
-  } catch (error) {
-    console.error('查询失败:', error.response?.data || error.message)
-    throw error
-  }
-}
-
-// 使用示例
-queryUsage(['key-id-1', 'key-id-2'])
-  .then((data) => {
-    // data.data 是 key-value 形式，key 为 keyId
-    for (const [keyId, info] of Object.entries(data.data)) {
-      console.log(`${keyId}: 总费用=${info.totalCost}, 限制=${info.totalCostLimit}`)
-    }
-  })
-  .catch((err) => console.error(err))
-```
-
-#### 示例 2: 查询用量明细
-
-```javascript
-const crypto = require('crypto')
-const axios = require('axios')
-
-// 配置
-const API_URL = 'http://localhost:3000/partner/api-key/usage-details'
-const SECRET_KEY = 'your-secret-key' // 与服务端 PARTNER_API_SECRET 一致
-
-// 生成签名（与示例1相同）
-function generateSignature(params, secretKey) {
-  const sortedKeys = Object.keys(params).sort()
-  let signStr = ''
-  for (const key of sortedKeys) {
-    const value = params[key]
-    if (typeof value === 'object' && value !== null) {
-      signStr += `${key}=${JSON.stringify(value)}`
-    } else {
-      signStr += `${key}=${value}`
-    }
-    signStr += '&'
-  }
-  signStr = signStr.slice(0, -1)
-  signStr += secretKey
-  return crypto.createHash('sha256').update(signStr).digest('hex').toUpperCase()
-}
-
-// 查询用量明细
-async function queryUsageDetails(keyIds) {
-  const params = { key_ids: keyIds }
-  const signature = generateSignature(params, SECRET_KEY)
-  params.sign = signature
-
-  try {
-    const response = await axios.post(API_URL, params, {
-      headers: {
-        'Content-Type': 'application/json'
-      }
-    })
-
-    console.log('查询成功:', response.data)
-    return response.data
-  } catch (error) {
-    console.error('查询失败:', error.response?.data || error.message)
-    throw error
-  }
-}
-
-// 使用示例
-queryUsageDetails(['key-id-1', 'key-id-2'])
-  .then((data) => {
-    const { totalStats, dailyUsage, modelStats } = data.data
-
-    console.log('=== 总计统计 ===')
-    console.log('总请求数:', totalStats.requests)
-    console.log('总Token数:', totalStats.totalTokens)
-    console.log('总费用:', `$${totalStats.cost}`)
-
-    console.log('\n=== 每日用量（最近5天）===')
-    dailyUsage.slice(0, 5).forEach((day) => {
-      console.log(`${day.date}: ${day.requests}次请求, ${day.totalTokens} tokens, $${day.cost}`)
-    })
-
-    console.log('\n=== 模型统计（Top 3）===')
-    modelStats.slice(0, 3).forEach((model) => {
-      console.log(`${model.model}: ${model.requests}次请求, $${model.cost}`)
-    })
-  })
-  .catch((err) => console.error(err))
-```
-
-### Python 示例
-
-#### 示例 1: 查询用量汇总
-
-```python
-import hashlib
-import json
-import requests
-
-# 配置
-API_URL = 'http://localhost:3000/partner/api-key/usage'
-SECRET_KEY = 'your-secret-key'  # 与服务端 PARTNER_API_SECRET 一致
-
-def generate_signature(params, secret_key):
-    """生成签名（PHP 风格算法）"""
-    # 1. 按 key 排序
-    sorted_keys = sorted(params.keys())
-
-    # 2. 拼接参数
-    sign_str = ''
-    for key in sorted_keys:
-        value = params[key]
-
-        # 对象或数组使用 JSON.stringify
-        if isinstance(value, (dict, list)):
-            sign_str += f"{key}={json.dumps(value, separators=(',', ':'))}"
-        else:
-            sign_str += f"{key}={value}"
-        sign_str += '&'
-
-    # 3. 移除末尾的 &
-    sign_str = sign_str.rstrip('&')
-
-    # 4. 追加密钥
-    sign_str += secret_key
-
-    # 5. SHA256 哈希并转大写
-    return hashlib.sha256(sign_str.encode('utf-8')).hexdigest().upper()
-
-def query_usage(key_ids):
-    """查询 API Key 用量"""
-    params = {'key_ids': key_ids}
-    signature = generate_signature(params, SECRET_KEY)
-
-    # 将签名添加到参数中
-    params['sign'] = signature
-
-    headers = {
-        'Content-Type': 'application/json'
-    }
-
-    try:
-        response = requests.post(API_URL, json=params, headers=headers)
-        response.raise_for_status()
-
-        data = response.json()
-        print('查询成功:', json.dumps(data, indent=2, ensure_ascii=False))
-        return data
-    except requests.exceptions.RequestException as e:
-        print('查询失败:', e)
-        if hasattr(e.response, 'text'):
-            print('错误详情:', e.response.text)
-        raise
-
-# 使用示例
-if __name__ == '__main__':
-    result = query_usage(['key-id-1', 'key-id-2'])
-    for key_id, info in result['data'].items():
-        print(f"{key_id}: 总费用=${info['totalCost']}, 限制=${info['totalCostLimit']}")
-```
-
-#### 示例 2: 查询用量明细
-
-```python
-import hashlib
-import json
-import requests
-
-# 配置
-API_URL = 'http://localhost:3000/partner/api-key/usage-details'
-SECRET_KEY = 'your-secret-key'  # 与服务端 PARTNER_API_SECRET 一致
-
-def generate_signature(params, secret_key):
-    """生成签名（与示例1相同）"""
-    sorted_keys = sorted(params.keys())
-    sign_str = ''
-    for key in sorted_keys:
-        value = params[key]
-        if isinstance(value, (dict, list)):
-            sign_str += f"{key}={json.dumps(value, separators=(',', ':'))}"
-        else:
-            sign_str += f"{key}={value}"
-        sign_str += '&'
-    sign_str = sign_str.rstrip('&')
-    sign_str += secret_key
-    return hashlib.sha256(sign_str.encode('utf-8')).hexdigest().upper()
-
-def query_usage_details(key_ids):
-    """查询 API Key 用量明细"""
-    params = {'key_ids': key_ids}
-    signature = generate_signature(params, SECRET_KEY)
-    params['sign'] = signature
-
-    headers = {'Content-Type': 'application/json'}
-
-    try:
-        response = requests.post(API_URL, json=params, headers=headers)
-        response.raise_for_status()
-        data = response.json()
-        print('查询成功:', json.dumps(data, indent=2, ensure_ascii=False))
-        return data
-    except requests.exceptions.RequestException as e:
-        print('查询失败:', e)
-        if hasattr(e.response, 'text'):
-            print('错误详情:', e.response.text)
-        raise
-
-# 使用示例
-if __name__ == '__main__':
-    result = query_usage_details(['key-id-1', 'key-id-2'])
-    total_stats = result['data']['totalStats']
-    daily_usage = result['data']['dailyUsage']
-    model_stats = result['data']['modelStats']
-
-    print('\n=== 总计统计 ===')
-    print(f"总请求数: {total_stats['requests']}")
-    print(f"总Token数: {total_stats['totalTokens']}")
-    print(f"总费用: ${total_stats['cost']}")
-
-    print('\n=== 每日用量（最近5天）===')
-    for day in daily_usage[:5]:
-        print(f"{day['date']}: {day['requests']}次请求, {day['totalTokens']} tokens, ${day['cost']}")
-
-    print('\n=== 模型统计（Top 3）===')
-    for model in model_stats[:3]:
-        print(f"{model['model']}: {model['requests']}次请求, ${model['cost']}")
-```
-
-### PHP 示例
-
-#### 示例 1: 查询用量汇总
-
-```php
-<?php
-
-// 配置
-define('API_URL', 'http://localhost:3000/partner/api-key/usage');
-define('SECRET_KEY', 'your-secret-key'); // 与服务端 PARTNER_API_SECRET 一致
-
-/**
- * 生成签名（与服务端算法一致）
- */
-function generateSignature($params, $secretKey) {
-    // 1. 移除 sign 参数（如果存在）
-    if (isset($params['sign'])) {
-        unset($params['sign']);
-    }
-
-    // 2. 按 key 排序
-    ksort($params);
-
-    // 3. 拼接参数
-    $signStr = '';
-    foreach ($params as $key => $value) {
-        if (is_array($value) || is_object($value)) {
-            $signStr .= $key . '=' . json_encode($value, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
-        } else {
-            $signStr .= $key . '=' . $value;
-        }
-        $signStr .= '&';
-    }
-
-    // 4. 移除末尾的 &
-    $signStr = rtrim($signStr, '&');
-
-    // 5. 追加密钥
-    $signStr .= $secretKey;
-
-    // 6. SHA256 哈希并转大写
-    return strtoupper(hash('sha256', $signStr));
-}
-
-/**
- * 查询 API Key 用量
- */
-function queryUsage($keyIds) {
-    $params = ['key_ids' => $keyIds];
-    $signature = generateSignature($params, SECRET_KEY);
-
-    // 将签名添加到参数中
-    $params['sign'] = $signature;
-
-    $ch = curl_init(API_URL);
-    curl_setopt($ch, CURLOPT_POST, true);
-    curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($params));
-    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-    curl_setopt($ch, CURLOPT_HTTPHEADER, [
-        'Content-Type: application/json'
-    ]);
-
-    $response = curl_exec($ch);
-    $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-    curl_close($ch);
-
-    if ($httpCode !== 200) {
-        throw new Exception("查询失败: HTTP $httpCode - $response");
-    }
-
-    return json_decode($response, true);
-}
-
-// 使用示例
-try {
-    $result = queryUsage(['key-id-1', 'key-id-2']);
-    echo "查询成功:\n";
-    foreach ($result['data'] as $keyId => $info) {
-        echo "$keyId: 总费用=\$" . $info['totalCost'] . ", 限制=\$" . $info['totalCostLimit'] . "\n";
-    }
-} catch (Exception $e) {
-    echo "错误: " . $e->getMessage() . "\n";
-}
-```
-
-#### 示例 2: 查询用量明细
-
-```php
-<?php
-
-// 配置
-define('API_URL', 'http://localhost:3000/partner/api-key/usage-details');
-define('SECRET_KEY', 'your-secret-key'); // 与服务端 PARTNER_API_SECRET 一致
-
-// 生成签名（与示例1相同）
-function generateSignature($params, $secretKey) {
-    if (isset($params['sign'])) {
-        unset($params['sign']);
-    }
-    ksort($params);
-    $signStr = '';
-    foreach ($params as $key => $value) {
-        if (is_array($value) || is_object($value)) {
-            $signStr .= $key . '=' . json_encode($value, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
-        } else {
-            $signStr .= $key . '=' . $value;
-        }
-        $signStr .= '&';
-    }
-    $signStr = rtrim($signStr, '&');
-    $signStr .= $secretKey;
-    return strtoupper(hash('sha256', $signStr));
-}
-
-// 查询用量明细
-function queryUsageDetails($keyIds) {
-    $params = ['key_ids' => $keyIds];
-    $signature = generateSignature($params, SECRET_KEY);
-    $params['sign'] = $signature;
-
-    $ch = curl_init(API_URL);
-    curl_setopt($ch, CURLOPT_POST, true);
-    curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($params));
-    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-    curl_setopt($ch, CURLOPT_HTTPHEADER, ['Content-Type: application/json']);
-
-    $response = curl_exec($ch);
-    $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-    curl_close($ch);
-
-    if ($httpCode !== 200) {
-        throw new Exception("查询失败: HTTP $httpCode - $response");
-    }
-
-    return json_decode($response, true);
-}
-
-// 使用示例
-try {
-    $result = queryUsageDetails(['key-id-1', 'key-id-2']);
-    $totalStats = $result['data']['totalStats'];
-    $dailyUsage = $result['data']['dailyUsage'];
-    $modelStats = $result['data']['modelStats'];
-
-    echo "=== 总计统计 ===\n";
-    echo "总请求数: " . $totalStats['requests'] . "\n";
-    echo "总Token数: " . $totalStats['totalTokens'] . "\n";
-    echo "总费用: $" . $totalStats['cost'] . "\n\n";
-
-    echo "=== 每日用量（最近5天）===\n";
-    foreach (array_slice($dailyUsage, 0, 5) as $day) {
-        echo "{$day['date']}: {$day['requests']}次请求, {$day['totalTokens']} tokens, \${$day['cost']}\n";
-    }
-
-    echo "\n=== 模型统计（Top 3）===\n";
-    foreach (array_slice($modelStats, 0, 3) as $model) {
-        echo "{$model['model']}: {$model['requests']}次请求, \${$model['cost']}\n";
-    }
-} catch (Exception $e) {
-    echo "错误: " . $e->getMessage() . "\n";
-}
-```
-
-### cURL 示例
-
-#### 示例 1: 查询用量汇总
-
-```bash
-#!/bin/bash
-
-API_URL="http://localhost:3000/partner/api-key/usage"
-SECRET_KEY="your-secret-key"
-KEY_IDS='["key-id-1","key-id-2"]'
-
-# 构建参数（按 key 排序）
-SIGN_STR="key_ids=${KEY_IDS}"
-
-# 追加密钥
-SIGN_STR="${SIGN_STR}${SECRET_KEY}"
-
-# 生成签名（SHA256 并转大写）
-SIGNATURE=$(echo -n "$SIGN_STR" | openssl dgst -sha256 | awk '{print toupper($2)}')
-
-# 构建请求体（包含签名）
-BODY="{\"key_ids\":$KEY_IDS,\"sign\":\"$SIGNATURE\"}"
-
-# 发送请求
-curl -X POST "$API_URL" \
-  -H "Content-Type: application/json" \
-  -d "$BODY"
-```
-
-#### 示例 2: 查询用量明细
-
-```bash
-#!/bin/bash
-
-API_URL="http://localhost:3000/partner/api-key/usage-details"
-SECRET_KEY="your-secret-key"
-KEY_IDS='["key-id-1","key-id-2"]'
-
-# 构建参数（按 key 排序）
-SIGN_STR="key_ids=${KEY_IDS}"
-
-# 追加密钥
-SIGN_STR="${SIGN_STR}${SECRET_KEY}"
-
-# 生成签名（SHA256 并转大写）
-SIGNATURE=$(echo -n "$SIGN_STR" | openssl dgst -sha256 | awk '{print toupper($2)}')
-
-# 构建请求体（包含签名）
-BODY="{\"key_ids\":$KEY_IDS,\"sign\":\"$SIGNATURE\"}"
-
-# 发送请求并格式化输出
-curl -X POST "$API_URL" \
-  -H "Content-Type: application/json" \
-  -d "$BODY" | jq '.'
-```
-
-## 配置说明
-
-### 环境变量
-
-在 `.env` 文件中添加：
-
-```bash
-# 合作伙伴 API 验签密钥（可选，默认使用 JWT_SECRET）
-PARTNER_API_SECRET=your-secret-key-here
-```
-
-### 配置文件
-
-在 `config/config.js` 中已自动配置：
-
-```javascript
-partnerApi: {
-  secret: process.env.PARTNER_API_SECRET || process.env.JWT_SECRET
-}
-```
-
-## 错误码说明
-
-| code | HTTP 状态码 | 说明                                     |
-| ---- | ----------- | ---------------------------------------- |
-| 0    | 200         | 成功                                     |
-| 1001 | 400         | 缺少必需参数 key_ids                     |
-| 1002 | 404         | 未找到指定的 API Key                     |
-| 1003 | 500         | 服务器内部错误                           |
-| 401  | 401         | 签名验证失败（缺少 sign 参数或签名错误） |
-
-## 安全建议
-
-1. **密钥管理**: 妥善保管 `PARTNER_API_SECRET`，不要提交到版本控制系统
-2. **HTTPS**: 生产环境必须使用 HTTPS 协议
-3. **参数完整性**: 确保所有参数都参与签名计算
-4. **错误处理**: 妥善处理各种错误情况，避免泄露敏感信息
-
-## 常见问题
-
-### Q: 签名验证失败怎么办？
-
-A: 检查以下几点：
-
-1. 密钥是否与服务端一致
-2. 参数是否按 key 字母顺序排序
-3. 对象/数组是否使用 `JSON.stringify()` 序列化（无空格）
-4. 签名字符串末尾是否追加了密钥
-5. 哈希结果是否转为大写
-
-### Q: 如何调试签名问题？
-
-A: 在客户端打印签名字符串：
-
-```javascript
-console.log('签名字符串:', signStr)
-console.log('签名结果:', signature)
-```
-
-### Q: 如何查看总费用限制的使用情况？
-
-A: 响应中的 `totalCost` 和 `totalCostLimit` 字段分别表示已使用费用和总限制，可以计算使用率：
-
-```javascript
-const usageRate = ((data.totalCost / data.totalCostLimit) * 100).toFixed(2)
-console.log(`使用率: ${usageRate}%`)
-```
+## 企业版补充
+
+- 企业版 Key 的批量创建和成员维护见 [partner-api-enterprise.md](partner-api-enterprise.md)
+- 企业版 Key 创建成功后，仍然使用本页通用接口查询：
+  - `detail`
+  - `usage`
+  - `usage-details`
+  - `:keyId/update`
+  - `:keyId/expiration`
+- `detail` 返回中可通过 `packMode=enterprise` 判断是否为企业版
+
+## 错误码
+
+同一个业务码在不同接口里可能复用，建议以 HTTP 状态码 + `msg` 一起判断。
+
+| HTTP 状态 | `code` | 典型场景                              |
+| --------- | ------ | ------------------------------------- |
+| `401`     | `401`  | 缺少 `sign` 或签名错误                |
+| `400`     | `1001` | 参数校验失败                          |
+| `404`     | `1003` | 企业成员接口里 Key 不存在             |
+| `404`     | `1004` | `update` / `expiration` 时 Key 不存在 |
+| `400`     | `1004` | 企业成员接口里传入的不是企业版 Key    |
+| `500`     | `1003` | 大多数业务接口内部异常                |
+| `500`     | `500`  | 验签中间件内部异常                    |

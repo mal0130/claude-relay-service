@@ -1,5 +1,7 @@
 # 多 Key 自动切换方案
 
+> 说明：本文前半部分保留了早期设计稿。当前工作区代码已经继续演进，尤其是企业版切换、AI 修复专属包、套餐窗口限额优先返回和最终错误文案等行为，请优先以本文下方“当前代码实现（2026-06）”一节为准。
+
 ## 需求背景
 
 用户在服务商处创建了多个 API Key（key1, key2, key3...），每个 Key 都有独立的额度限制。
@@ -301,6 +303,189 @@ const response = await fetch(url, {
 ## 注意事项
 1. **Key 的顺序**：应按优先级配置 Key（如按创建时间）
 2. **索引一致性**：删除/恢复 Key 时必须同步更新索引
+
+## 当前代码实现（2026-06）
+
+这一节只整理“当前代码里真正上线生效的 API Key 切换逻辑”和“切换过程中会返回什么错误”，方便在 2.0 项目里直接照着重写。
+
+### 1. 当前切换入口
+
+- 个人版：默认进入个人版逻辑，通过 `externalUid -> uid_keys:{externalUid}` 查候选 Key
+- 企业版：请求头 `uni_agent_subscription_type=enterprise` 时进入企业版逻辑；`uni_agent_subscription_user_id` 不是明文 uid，而是 Base64(AES-128-CBC 密文)
+- 企业版：服务端会使用 `ENTERPRISE_USER_ID_AES_KEY` / `ENTERPRISE_USER_ID_AES_IV` 先解密 `uni_agent_subscription_user_id`，再取明文 `split('|')[0].trim()` 作为 `memberUid`
+- 企业版：通过成员索引 `enterprise_pack_member:{memberUid}` 查候选 Key
+- 企业版和个人版完全隔离，不会混切
+- 当前现网主流程在 `src/middleware/auth.js`，不是早期文档里的 `apiKeyService.findAlternativeKey()`
+
+### 2. 当前切换优先级
+
+#### 个人版
+
+1. 主进程 AI 修复请求：`pack-free-3` AI 修复专属包
+2. 套餐 Key
+3. 普通 Key
+4. 资源包 Key
+
+补充规则：
+
+- 非主进程请求时，`pack-free-3` 不再享受最高优先级，而是当普通候选 Key 使用
+- 当前 Key 可用但不是套餐时，如果同 `externalUid` 下有可用套餐 Key，会优先切到套餐
+- 当前 Key 是资源包，或当前 Key 是 `pack-free-3` 时，可以直接尝试切其它资源包
+- 当前 Key 不是资源包时，只有当前 Key 自身带了 `pack_consent` 标签，资源包才会进入候选集
+
+#### 企业版
+
+1. 企业套餐 Key
+2. 企业普通 Key
+3. 企业资源包 Key
+
+补充规则：
+
+- 企业版不依赖 `pack_consent`
+- 企业候选 Key 除了命中成员索引，还会再次检查 `memberUids` 是否真的包含当前成员
+
+### 3. 候选 Key 失败但不会立刻对外报错的规则
+
+这些规则只会让某个候选 Key 失效，并继续尝试下一个 Key，不会马上返回给客户端：
+
+| 规则 | 行为 |
+|------|------|
+| `isActive !== 'true'` | 跳过该 Key，继续尝试下一个 |
+| `expiresAt < now` | 跳过该 Key，继续尝试下一个 |
+| 个人模式下候选 Key 的 `packMode === enterprise` | 跳过该 Key，继续尝试下一个 |
+| 命中日限额、总限额、周限额 | 跳过该 Key，继续尝试下一个 |
+| 命中窗口请求数/窗口费用限制 | 跳过该 Key，继续尝试下一个；如果它是套餐 Key，会把这个错误记下来，供最终优先返回 |
+| 主进程 AI 修复请求优先找 `pack-free-3`，但一个可用的都没找到 | 回退原 Key，不因为这件事直接报错 |
+
+### 4. 只用于内部驱动切换的信号
+
+这些信号会改变切换流程，但通常不会直接原样返回给客户端：
+
+| 信号 | 触发规则 | 作用 |
+|------|----------|------|
+| `prefer_ai_fix_pack` | 主进程 + AI 修复请求 + 当前 Key 不是 `pack-free-3` | 强制先尝试 AI 修复专属包 |
+| 个人模式下命中企业 Key | 当前请求不是企业模式，但当前 Key 是企业 Key | 把当前 Key 标记失败，继续找个人 Key |
+| `packageWindowLimitError` | 候选套餐 Key 命中 `rate_limit_requests_exceeded` 或 `rate_limit_cost_exceeded` | 如果最后所有 Key 都切失败，优先返回这个窗口限额错误 |
+
+### 5. 当前最终对外报错
+
+#### 5.1 无 API Key 或 API Key 格式异常
+
+| HTTP | code | 触发规则 | 返回内容 |
+|------|------|----------|----------|
+| `402` | `enterprise_quota_exhausted` | 企业模式请求未带 API Key | `您没有企业版使用权限。企业版需由企业管理员（即贵公司在 DCloud 完成企业实名认证的账号负责人）购买并授权：<br/>1) 在 [<a href="https://dev.dcloud.net.cn">DCloud 开发者中心</a>] 购买企业版；<br/>2) 将您加入企业成员；<br/>3) 为您分配使用权限；<br />[<a href="https://doc.dcloud.net.cn/uni-app-x/ai/enterprise-subscription.html">查看企业版说明</a>]<br/>如您是个人用户，请切换到个人版继续使用。` |
+| `402` | `quota_exhausted` | 个人模式请求未带 API Key | `您订购的资源包额度已耗尽。您可以 [<a href="${subscriptionUrl}">补充资源包</a>] 继续使用，或 [<a href="${subscriptionUrl}">订阅套餐</a>] 享受更划算的长效权益，如已购买，可发送"继续"以继续使用。` |
+| `401` | 无 | API Key 不是字符串，或长度小于 10，或长度大于 512 | `error: "Invalid API key format"`，`message: "API key format is invalid"` |
+
+#### 5.2 企业模式入口错误
+
+| HTTP | code | 触发规则 | 返回内容 |
+|------|------|----------|----------|
+| `401` | `invalid_api_key` | 企业模式下，原始 Key 在系统里根本不存在 | `Invalid API key` |
+| `400` | `missing_user_id` | 企业模式缺少 `uni_agent_subscription_user_id` | `请将 uni-agent 插件更新至1.7.1及以上版本后重试。` |
+| `400` | `invalid_user_id` | 企业模式下 `uni_agent_subscription_user_id` 解密失败或无法提取成员 UID | `请将 uni-agent 插件更新至1.7.1及以上版本后重试。` |
+| `402` | `enterprise_key_not_found` | 企业成员索引里没有任何候选企业 Key | `您没有企业版使用权限。企业版需由企业管理员（即贵公司在 DCloud 完成企业实名认证的账号负责人）购买并授权：<br/>1) 在 [<a href="https://dev.dcloud.net.cn">DCloud 开发者中心</a>] 购买企业版；<br/>2) 将您加入企业成员；<br/>3) 为您分配使用权限。[<a href="https://doc.dcloud.net.cn/uni-app-x/ai/enterprise-subscription.html">查看企业版说明</a>]。<br/>如您是个人用户，请切换到个人版继续使用。` |
+| `402` | `enterprise_quota_exhausted` | 企业候选 Key 都不可用，且没有更高优先级的套餐窗口限额错误 | `企业版额度已用完，请联系企业管理员前往 [<a href="https://dev.dcloud.net.cn">DCloud 开发者中心</a>] 补充资源包或升级套餐。` |
+
+#### 5.3 AI 修复专属包错误
+
+| HTTP | code | 触发规则 | 返回内容 |
+|------|------|----------|----------|
+| `403` | `ai_fix_pack_restricted` | 当前 Key 是 `pack-free-3`，请求是主进程，但请求内容不是 AI 修复 | `AI修复 资源包仅限 AI修复 功能使用，如需继续使用请购买 [<a href="${subscriptionUrl}">订阅套餐</a>] 或 [<a href="${subscriptionUrl}">补充资源包</a>]。` |
+
+#### 5.4 套餐窗口限额错误
+
+这类错误是当前切换链路里优先级最高的额度类错误。只要记录到了套餐 Key 的窗口限额错误，并且最后所有 Key 都切失败，就优先返回它，而不是返回普通额度耗尽。
+
+| HTTP | code | 触发规则 | 返回内容 |
+|------|------|----------|----------|
+| `402` | `rate_limit_requests_exceeded` | 命中窗口请求数限制 | `您当前的套餐用量已达（${windowLabel}）使用上限，将于 ${resetTimeStr} 自动恢复。如需继续使用，可<a href="${subscriptionUrl}">点此购买资源包</a>立即补充额度，如已购买，可发送“继续”以继续使用。套餐恢复后，系统将优先消耗您的套餐额度。` |
+| `402` | `rate_limit_cost_exceeded` | 命中窗口费用限制 | `您当前的套餐用量已达（${windowLabel}）使用上限，将于 ${resetTimeStr} 自动恢复。如需继续使用，可<a href="${subscriptionUrl}">点此购买资源包</a>立即补充额度，如已购买，可发送“继续”以继续使用。套餐恢复后，系统将优先消耗您的套餐额度。` |
+
+说明：
+
+- `windowLabel` 当前实现里按窗口长度动态生成，常见是 `5小时` 或 `周`
+- `resetTimeStr` 是这次窗口恢复时间
+- 这两个错误返回体结构都是：
+
+```json
+{
+  "error": {
+    "type": "insufficient_quota",
+    "message": "动态窗口恢复提示文案",
+    "code": "rate_limit_requests_exceeded 或 rate_limit_cost_exceeded"
+  }
+}
+```
+
+#### 5.5 普通额度耗尽错误
+
+| HTTP | code | 触发规则 | 返回内容 |
+|------|------|----------|----------|
+| `402` | `daily_cost_limit_exceeded` | 日额度超限 | 个人模式返回 `您订购的资源包额度已耗尽...`；企业模式返回 `企业版额度已用完，请联系企业管理员...` |
+| `402` | `total_cost_limit_exceeded` | 总额度超限 | 同上 |
+| `402` | `weekly_opus_cost_limit_exceeded` | Claude 周额度超限 | 同上 |
+| `402` | `quota_exhausted` | 个人模式下命中企业 Key，且之后没有切到可用个人 Key | 最终改写成个人模式文案：`您订购的资源包额度已耗尽。您可以 [<a href="${subscriptionUrl}">补充资源包</a>] 继续使用，或 [<a href="${subscriptionUrl}">订阅套餐</a>] 享受更划算的长效权益，如已购买，可发送"继续"以继续使用。` |
+
+说明：
+
+- 这几类错误在 `checkApiKeyLimits()` 内部统一复用 `quotaExhaustedMessage`
+- 企业模式下的 `quotaExhaustedMessage` 是：`企业版额度已用完，请联系企业管理员前往 [<a href="https://dev.dcloud.net.cn">DCloud 开发者中心</a>] 补充资源包或升级套餐。`
+- 个人模式下的 `quotaExhaustedMessage` 是：`您订购的资源包额度已耗尽。您可以 [<a href="${subscriptionUrl}">补充资源包</a>] 继续使用，或 [<a href="${subscriptionUrl}">订阅套餐</a>] 享受更划算的长效权益，如已购买，可发送"继续"以继续使用。`
+
+#### 5.6 基础校验失败后直接透传的字符串错误
+
+这些错误来自 `apiKeyService.validateApiKey()`。如果切换最终失败，且错误本身不是对象，认证层会把它统一包装成：
+
+```json
+{
+  "error": "原始字符串",
+  "message": "原始字符串"
+}
+```
+
+当前实际字符串包括：
+
+| HTTP | 原始字符串 | 触发规则 |
+|------|------------|----------|
+| `401` | `Invalid API key format` | API Key 前缀不合法 |
+| `401` | `API Key 不存在` | 哈希映射未找到该 Key |
+| `401` | `您订购的资源包已过有效期。您可以重新购买 [<a href="${subscriptionUrl}">资源包</a>]，或选择更灵活的 [<a href="${subscriptionUrl}">订阅套餐</a>] 开启新一轮体验。` | 资源包 Key 过期或被禁用 |
+| `401` | `您订阅的套餐已到期，为确保您的开发不受影响，请 [<a href="${subscriptionUrl}">点此续费</a>]` | 非资源包 Key 过期或被禁用 |
+| `401` | `User account is disabled` | Key 绑定的用户被禁用 |
+| `401` | `Unable to validate user status` | 校验 Key 绑定用户状态时出错 |
+
+### 6. 当前最终返回体有两种形态
+
+#### 对象形态
+
+```json
+{
+  "error": {
+    "type": "insufficient_quota",
+    "message": "具体中文提示",
+    "code": "业务错误码"
+  }
+}
+```
+
+#### 字符串包装形态
+
+```json
+{
+  "error": "原始错误字符串",
+  "message": "原始错误字符串"
+}
+```
+
+### 7. 2.0 重写时建议保留的判定优先级
+
+1. 先判请求属于个人模式还是企业模式
+2. 先拿到候选 Key 集合，再逐个做基础有效性和额度检查
+3. 候选 Key 的窗口限额错误先记下来，不要立刻返回
+4. 如果最终所有 Key 都失败，优先返回套餐窗口限额错误
+5. 如果没有窗口限额错误，再返回普通额度耗尽或基础校验错误
+6. `prefer_ai_fix_pack` 只做内部调度信号，不对外返回
 
 ## 总结
 
