@@ -26,6 +26,10 @@ const {
   formatCompletionUsageLog
 } = require('../utils/requestDetailHelper')
 const requestBodyRuleService = require('../services/requestBodyRuleService')
+const OPENAI_INVALID_IMAGE_INPUT_MESSAGE =
+  '当前会话存在无效图片，请新建会话，重新上传 JPEG/PNG/GIF/WebP 格式图片后重试。'
+const OPENAI_INVALID_IMAGE_INPUT_PATTERN =
+  /image data.*does not represent a valid image|does not represent a valid image|supported image formats/i
 
 // Codex CLI 系统提示词（非 Codex CLI 客户端请求时注入，统一端点也使用）
 const CODEX_CLI_INSTRUCTIONS =
@@ -178,13 +182,102 @@ function logOpenAIUpstreamError(status, accountId, requestedModel, payload) {
   )
 }
 
+function parsePossibleJsonString(value) {
+  if (typeof value !== 'string') {
+    return value
+  }
+
+  const trimmed = value.trim()
+  if (!trimmed || (!trimmed.startsWith('{') && !trimmed.startsWith('['))) {
+    return value
+  }
+
+  try {
+    return JSON.parse(trimmed)
+  } catch {
+    return value
+  }
+}
+
+function collectOpenAIErrorFields(errorData) {
+  const parsed = parsePossibleJsonString(errorData)
+  if (!parsed || typeof parsed !== 'object') {
+    return {
+      message: typeof parsed === 'string' ? parsed : '',
+      type: '',
+      code: '',
+      param: ''
+    }
+  }
+
+  const nestedError = parsed.error && typeof parsed.error === 'object' ? parsed.error : {}
+  const responseData = parsed.response?.data || {}
+  const responseError =
+    responseData.error && typeof responseData.error === 'object' ? responseData.error : {}
+
+  return {
+    message: [
+      parsed.message,
+      parsed.detail,
+      nestedError.message,
+      responseData.message,
+      responseData.detail,
+      responseError.message
+    ]
+      .filter((value) => typeof value === 'string' && value.trim())
+      .join('\n'),
+    type: String(nestedError.type || responseError.type || parsed.type || '').toLowerCase(),
+    code: String(nestedError.code || responseError.code || parsed.code || '').toLowerCase(),
+    param: String(nestedError.param || responseError.param || parsed.param || '').toLowerCase()
+  }
+}
+
+function isOpenAIInvalidImageInputError(errorData) {
+  const { message, type, code, param } = collectOpenAIErrorFields(errorData)
+
+  return (
+    type === 'invalid_request_error' &&
+    code === 'invalid_value' &&
+    param === 'input' &&
+    OPENAI_INVALID_IMAGE_INPUT_PATTERN.test(message)
+  )
+}
+
+function buildOpenAIInvalidImageErrorResponse(errorData = {}) {
+  const parsed = parsePossibleJsonString(errorData)
+  const originalError =
+    parsed?.error && typeof parsed.error === 'object' ? parsed.error : parsed || {}
+
+  return {
+    error: {
+      ...(originalError && typeof originalError === 'object' ? originalError : {}),
+      message: OPENAI_INVALID_IMAGE_INPUT_MESSAGE,
+      type: originalError.type || 'invalid_request_error',
+      param: originalError.param || 'input',
+      code: originalError.code || 'invalid_value'
+    }
+  }
+}
+
+function buildOpenAIInvalidImageStreamEvent(eventData = {}) {
+  return {
+    type: eventData?.type || 'error',
+    sequence_number: eventData?.sequence_number ?? 0,
+    ...buildOpenAIInvalidImageErrorResponse(eventData)
+  }
+}
+
 function sanitizeOpenAIErrorResponse(status, errorData, fallbackError = null) {
   const source = errorData ||
     fallbackError || {
-      error: {
-        message: getSafeMessage({ response: { status } })
-      }
+    error: {
+      message: getSafeMessage({ response: { status } })
     }
+  }
+
+  if (isOpenAIInvalidImageInputError(source) || isOpenAIInvalidImageInputError(fallbackError)) {
+    return buildOpenAIInvalidImageErrorResponse(source)
+  }
 
   const sanitized = sanitizeErrorForClient(source)
   const hasSanitizedMessage =
@@ -582,7 +675,7 @@ const handleResponses = async (req, res) => {
     }
 
     // 使用调度器选择账户
-    ;({ accessToken, accountId, accountType, proxy, account } = await getOpenAIAuthToken(
+    ; ({ accessToken, accountId, accountType, proxy, account } = await getOpenAIAuthToken(
       apiKeyData,
       sessionId,
       schedulerModel
@@ -813,8 +906,8 @@ const handleResponses = async (req, res) => {
           typeof rawErrorResponse === 'string' && rawErrorResponse.trim()
             ? rawErrorResponse.trim()
             : rawErrorResponse.error &&
-                typeof rawErrorResponse.error.message === 'string' &&
-                rawErrorResponse.error.message.trim()
+              typeof rawErrorResponse.error.message === 'string' &&
+              rawErrorResponse.error.message.trim()
               ? rawErrorResponse.error.message.trim()
               : typeof rawErrorResponse.message === 'string' && rawErrorResponse.message.trim()
                 ? rawErrorResponse.message.trim()
@@ -1055,17 +1148,31 @@ const handleResponses = async (req, res) => {
         // 先解析，检测过载错误
         const events = sseParser.feed(chunk.toString())
         let overloaded = false
+        let invalidImageEvent = null
         for (const event of events) {
           if (event.type === 'data' && event.data) {
             processSSEEvent(event.data)
             if (event.data?.error?.code === 'server_is_overloaded') {
               overloaded = true
             }
+            if (isOpenAIInvalidImageInputError(event.data)) {
+              invalidImageEvent = event.data
+            }
           }
         }
 
         if (!res.destroyed) {
-          if (overloaded) {
+          if (invalidImageEvent) {
+            const friendly = buildOpenAIInvalidImageStreamEvent(invalidImageEvent)
+            logger.warn(`⚠️ OpenAI invalid image input raw chunk for account ${accountId}:`, {
+              raw: chunk.toString()
+            })
+            res.write(`data: ${JSON.stringify(friendly)}\n\n`)
+            streamEnded = true
+            res.end()
+            upstream.data.destroy?.()
+            return
+          } else if (overloaded) {
             const friendly = {
               type: 'error',
               sequence_number: 0,
@@ -1095,7 +1202,7 @@ const handleResponses = async (req, res) => {
             res.write(`data: ${JSON.stringify(friendly)}\n\n`)
             streamEnded = true
             res.end()
-            upstream.data.destroy()
+            upstream.data.destroy?.()
             return
           } else {
             res.write(chunk)
@@ -1198,10 +1305,10 @@ const handleResponses = async (req, res) => {
           ? {}
           : completedResponse || completedOutputItems.length
             ? {
-                response: completedResponse
-                  ? { ...completedResponse, output: completedOutputItems }
-                  : { output: completedOutputItems }
-              }
+              response: completedResponse
+                ? { ...completedResponse, output: completedOutputItems }
+                : { output: completedOutputItems }
+            }
             : streamErrors.length
               ? { streamErrors }
               : {}

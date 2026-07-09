@@ -813,6 +813,47 @@ describe('openai stream overload interception', () => {
     expect(unifiedOpenAIScheduler.markAccountRateLimited).not.toHaveBeenCalled()
   })
 
+  test('replaces invalid image stream chunks with friendly message', async () => {
+    const invalidImageChunk =
+      'data: {"type":"error","error":{"message":"The image data you provided does not represent a valid image. Please check your input and try again with one of the supported image formats: [\\"image/jpeg\\", \\"image/png\\", \\"image/gif\\", \\"image/webp\\"].","type":"invalid_request_error","param":"input","code":"invalid_value"},"sequence_number":2}\n\n'
+
+    const { res, written } = await runStreamRequest({}, [invalidImageChunk])
+
+    expect(written.length).toBe(1)
+    const parsed = JSON.parse(written[0].replace(/^data: /, '').trim())
+    expect(parsed.error.message).toContain('当前会话中有无效图片')
+    expect(parsed.error.message).toContain('请开启新会话')
+    expect(parsed.error.type).toBe('invalid_request_error')
+    expect(parsed.error.param).toBe('input')
+    expect(parsed.error.code).toBe('invalid_value')
+    expect(unifiedOpenAIScheduler.markAccountRateLimited).not.toHaveBeenCalled()
+    expect(res.end).toHaveBeenCalled()
+  })
+
+  test('replaces invalid image 400 handshake errors with friendly message', async () => {
+    const errorBody = JSON.stringify({
+      message:
+        "The image data you provided does not represent a valid image. Please check your input and try again with one of the supported image formats: ['image/jpeg', 'image/png', 'image/gif', 'image/webp'].",
+      type: 'invalid_request_error',
+      param: 'input',
+      code: 'invalid_value'
+    })
+
+    const { res, written } = await runStreamRequest({}, [errorBody], { status: 400 })
+
+    expect(written).toEqual([])
+    expect(res.status).toHaveBeenCalledWith(400)
+    expect(res.payload).toEqual({
+      error: {
+        message:
+          '当前会话中有无效图片。请开启新会话，重新上传 JPEG、PNG、GIF 或 WebP 格式的有效图片后再发送；继续重试当前会话通常仍会失败。',
+        type: 'invalid_request_error',
+        param: 'input',
+        code: 'invalid_value'
+      }
+    })
+  })
+
   test('logs upstream 400 detail payloads for stream requests', async () => {
     const errorBody = JSON.stringify({
       detail: "The 'gpt-5.4' model is not supported when using Codex with a ChatGPT account."
