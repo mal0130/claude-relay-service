@@ -31,8 +31,10 @@ function extractCacheCreationTokens(usageData) {
 
   const details = usageData.input_tokens_details || usageData.prompt_tokens_details || {}
   const candidates = [
+    details.cache_write_tokens,
     details.cache_creation_input_tokens,
     details.cache_creation_tokens,
+    usageData.cache_write_tokens,
     usageData.cache_creation_input_tokens,
     usageData.cache_creation_tokens
   ]
