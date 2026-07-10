@@ -14,10 +14,41 @@ const userMessageQueueService = require('../userMessageQueueService')
 const { isStreamWritable } = require('../../utils/streamHelper')
 const { filterForClaude } = require('../../utils/headerFilter')
 const webhookService = require('../webhookService')
+const {
+  normalizeClaudeSamplingForModel,
+  normalizeClaudeThinkingForModel
+} = require('../../utils/modelHelper')
 
 class ClaudeConsoleRelayService {
   constructor() {
     this.defaultUserAgent = 'claude-cli/2.0.52 (external, cli)'
+  }
+
+  _normalizeThinkingForConsoleRequest(body, context = {}) {
+    const samplingNormalization = normalizeClaudeSamplingForModel(body)
+    if (samplingNormalization.changed) {
+      logger.info('🌡️ Normalized Claude Console sampling config', {
+        model: body.model,
+        removedFields: samplingNormalization.removedFields,
+        stream: context.stream === true,
+        phase: context.phase || 'prepare'
+      })
+    }
+
+    const thinkingNormalization = normalizeClaudeThinkingForModel(body, {
+      migrateDeprecatedManualThinking: false
+    })
+    if (thinkingNormalization.changed) {
+      logger.info('🧠 Normalized Claude Console thinking config', {
+        model: body.model,
+        reason: thinkingNormalization.reason,
+        thinkingType: body.thinking?.type,
+        effort: body.output_config?.effort || null,
+        stream: context.stream === true,
+        phase: context.phase || 'prepare'
+      })
+    }
+    return body
   }
 
   // 🚀 转发请求到Claude Console API
@@ -163,6 +194,10 @@ class ClaudeConsoleRelayService {
         ...requestBody,
         model: mappedModel
       }
+      this._normalizeThinkingForConsoleRequest(modifiedRequestBody, {
+        stream: false,
+        phase: 'relay'
+      })
 
       // 模型兼容性检查已经在调度器中完成，这里不需要再检查
 
@@ -260,6 +295,11 @@ class ClaudeConsoleRelayService {
       } else {
         logger.debug('[DEBUG] No beta header to add')
       }
+
+      this._normalizeThinkingForConsoleRequest(requestConfig.data, {
+        stream: false,
+        phase: 'send'
+      })
 
       // 发送请求
       logger.debug(
@@ -667,6 +707,10 @@ class ClaudeConsoleRelayService {
         ...requestBody,
         model: mappedModel
       }
+      this._normalizeThinkingForConsoleRequest(modifiedRequestBody, {
+        stream: true,
+        phase: 'relay'
+      })
 
       // 模型兼容性检查已经在调度器中完成，这里不需要再检查
 
@@ -793,12 +837,16 @@ class ClaudeConsoleRelayService {
         clientHeaders?.['user-agent'] ||
         clientHeaders?.['User-Agent'] ||
         this.defaultUserAgent
+      const requestBody = this._normalizeThinkingForConsoleRequest(body, {
+        stream: true,
+        phase: 'send'
+      })
 
       // 准备请求配置
       const requestConfig = {
         method: 'POST',
         url: apiEndpoint,
-        data: body,
+        data: requestBody,
         headers: {
           'Content-Type': 'application/json',
           'anthropic-version': '2023-06-01',

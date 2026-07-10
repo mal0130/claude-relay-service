@@ -19,6 +19,10 @@ const { isStreamWritable } = require('../../utils/streamHelper')
 const upstreamErrorHelper = require('../../utils/upstreamErrorHelper')
 const metadataUserIdHelper = require('../../utils/metadataUserIdHelper')
 const {
+  normalizeClaudeSamplingForModel,
+  normalizeClaudeThinkingForModel
+} = require('../../utils/modelHelper')
+const {
   getHttpsAgentForStream,
   getHttpsAgentForNonStream,
   getPricingData
@@ -1202,6 +1206,26 @@ class ClaudeRelayService {
       delete processedBody.top_p
     }
 
+    const samplingNormalization = normalizeClaudeSamplingForModel(processedBody)
+    if (samplingNormalization.changed) {
+      logger.info('🌡️ Normalized Claude sampling config', {
+        model: processedBody.model,
+        removedFields: samplingNormalization.removedFields
+      })
+    }
+
+    const thinkingNormalization = normalizeClaudeThinkingForModel(processedBody, {
+      migrateDeprecatedManualThinking: false
+    })
+    if (thinkingNormalization.changed) {
+      logger.info('🧠 Normalized Claude thinking config', {
+        model: processedBody.model,
+        reason: thinkingNormalization.reason,
+        thinkingType: processedBody.thinking?.type,
+        effort: processedBody.output_config?.effort || null
+      })
+    }
+
     // 处理统一的客户端标识
     if (account && account.useUnifiedClientId === 'true' && account.unifiedClientId) {
       this._replaceClientId(processedBody, account.unifiedClientId)
@@ -1521,6 +1545,28 @@ class ClaudeRelayService {
 
     requestPayload = extensionResult.body
     finalHeaders = extensionResult.headers
+
+    const finalSamplingNormalization = normalizeClaudeSamplingForModel(requestPayload)
+    if (finalSamplingNormalization.changed) {
+      logger.info('🌡️ Normalized Claude sampling config before upstream send', {
+        model: requestPayload.model,
+        removedFields: finalSamplingNormalization.removedFields,
+        stream: isStream
+      })
+    }
+
+    const finalThinkingNormalization = normalizeClaudeThinkingForModel(requestPayload, {
+      migrateDeprecatedManualThinking: false
+    })
+    if (finalThinkingNormalization.changed) {
+      logger.info('🧠 Normalized Claude thinking config before upstream send', {
+        model: requestPayload.model,
+        reason: finalThinkingNormalization.reason,
+        thinkingType: requestPayload.thinking?.type,
+        effort: requestPayload.output_config?.effort || null,
+        stream: isStream
+      })
+    }
 
     let toolNameMap = null
     if (!isRealClaudeCode) {

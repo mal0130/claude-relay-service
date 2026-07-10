@@ -4,6 +4,13 @@
  */
 
 const logger = require('../utils/logger')
+const {
+  isClaudeAdaptiveThinkingOnlyModel,
+  prefersClaudeAdaptiveThinking,
+  normalizeClaudeEffort,
+  normalizeClaudeSamplingForModel,
+  normalizeClaudeThinkingForModel
+} = require('../utils/modelHelper')
 
 class OpenAIToClaudeConverter {
   constructor() {
@@ -66,6 +73,8 @@ class OpenAIToClaudeConverter {
       }
     }
 
+    this._applyReasoningConfig(openaiRequest, claudeRequest)
+
     // OpenAI 特有的参数已在转换过程中被忽略
     // 包括: n, presence_penalty, frequency_penalty, logit_bias, user
 
@@ -77,6 +86,63 @@ class OpenAIToClaudeConverter {
     })
 
     return claudeRequest
+  }
+
+  _applyReasoningConfig(openaiRequest, claudeRequest) {
+    const reasoning =
+      openaiRequest.reasoning && typeof openaiRequest.reasoning === 'object'
+        ? openaiRequest.reasoning
+        : null
+
+    const effort =
+      normalizeClaudeEffort(reasoning?.effort) ||
+      normalizeClaudeEffort(openaiRequest.reasoning_effort) ||
+      normalizeClaudeEffort(openaiRequest.effort)
+
+    if (effort) {
+      claudeRequest.output_config = {
+        ...(claudeRequest.output_config || {}),
+        effort
+      }
+    }
+
+    if (
+      openaiRequest.thinking &&
+      typeof openaiRequest.thinking === 'object' &&
+      !Array.isArray(openaiRequest.thinking)
+    ) {
+      claudeRequest.thinking = { ...openaiRequest.thinking }
+    } else if (reasoning) {
+      const reasoningType =
+        typeof reasoning.type === 'string' ? reasoning.type.trim().toLowerCase() : ''
+      const budgetTokens = reasoning.budget_tokens ?? reasoning.budgetTokens
+
+      if (reasoningType === 'disabled') {
+        claudeRequest.thinking = { type: 'disabled' }
+      } else if (reasoningType === 'adaptive') {
+        claudeRequest.thinking = { type: 'adaptive' }
+        if (budgetTokens !== undefined) {
+          claudeRequest.thinking.budget_tokens = budgetTokens
+        }
+      } else if (reasoningType === 'enabled' || budgetTokens !== undefined) {
+        claudeRequest.thinking = { type: 'enabled' }
+        if (budgetTokens !== undefined) {
+          claudeRequest.thinking.budget_tokens = budgetTokens
+        }
+      }
+    }
+
+    if (
+      !claudeRequest.thinking &&
+      effort &&
+      (isClaudeAdaptiveThinkingOnlyModel(claudeRequest.model) ||
+        prefersClaudeAdaptiveThinking(claudeRequest.model))
+    ) {
+      claudeRequest.thinking = { type: 'adaptive' }
+    }
+
+    normalizeClaudeThinkingForModel(claudeRequest)
+    normalizeClaudeSamplingForModel(claudeRequest)
   }
 
   /**
