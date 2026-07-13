@@ -72,6 +72,34 @@ describe('errorSanitizer account-related interception', () => {
     })
   })
 
+  test('maps OpenAI server processing errors to model vendor capacity message', () => {
+    const message =
+      'The server had an error processing your request. Sorry about that! You can retry your request, or contact us through our help center at help.openai.com if you keep seeing this error.'
+
+    expect(isNoAvailableAccountsError(message)).toBe(true)
+    expect(getSafeMessage(message)).toBe(
+      '模型供应商（上游服务商）算力不足，请重试。若持续报错，建议临时切换其他模型继续任务。'
+    )
+    expect(mapToErrorCode({ error: { message }, status: 500 })).toMatchObject({
+      code: 'E017',
+      status: 503
+    })
+  })
+
+  test('maps alternate OpenAI processing errors to model vendor capacity message', () => {
+    const message =
+      'An error occurred while processing your request. You can retry your request, or contact us through our help center at help.openai.com if the error persists. Please include the request'
+
+    expect(isNoAvailableAccountsError(message)).toBe(true)
+    expect(getSafeMessage(message)).toBe(
+      '模型供应商（上游服务商）算力不足，请重试。若持续报错，建议临时切换其他模型继续任务。'
+    )
+    expect(mapToErrorCode(message)).toMatchObject({
+      code: 'E017',
+      status: 503
+    })
+  })
+
   test('detects upstream account quota exceeded responses for any reset window', () => {
     const response = {
       error: {

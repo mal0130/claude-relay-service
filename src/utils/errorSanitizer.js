@@ -7,14 +7,19 @@ const logger = require('./logger')
 
 const NO_AVAILABLE_ACCOUNTS_MESSAGE =
   '模型供应商（上游服务商）算力不足，请重试。若持续报错，建议临时切换其他模型继续任务。'
-const NO_AVAILABLE_ACCOUNTS_PATTERN = /No available(?:\s+[\w-]+)*\s+accounts\b/i
+const NO_AVAILABLE_ACCOUNTS_PATTERN =
+  /No available(?:\s+[\w-]+)*\s+accounts\b|The server had an error processing your request\.\s*Sorry about that!|An error occurred while processing your request\.\s*You can retry your request, or contact us through our help center at help\.openai\.com if the error persists\./i
 
 // 标准错误码定义
 const ERROR_CODES = {
   E001: { message: '模型供应商（上游服务商）算力不足，请重试。错误码：50301', status: 503 },
   E002: { message: '模型供应商（上游服务商）接口请求失败，请重试。错误码：50202', status: 502 },
   E003: { message: 'Authentication failed', status: 401 },
-  E004: { message: '模型供应商（上游服务商）算力不足，请重试。若持续报错，建议临时切换其他模型继续任务。错误码：42904', status: 429 },
+  E004: {
+    message:
+      '模型供应商（上游服务商）算力不足，请重试。若持续报错，建议临时切换其他模型继续任务。错误码：42904',
+    status: 429
+  },
   E005: { message: '客户端请求数据异常，请重试。若持续报错，请开启新会话。', status: 400 },
   E006: { message: '当前模型不可用，请切换其他模型。', status: 503 },
   E007: { message: '模型供应商（上游服务商）接口请求失败，请重试。错误码：50207', status: 502 },
@@ -24,9 +29,16 @@ const ERROR_CODES = {
   E011: { message: '模型供应商（上游服务商）算力不足，请重试。错误码：50311', status: 503 },
   E012: { message: '模型供应商（上游服务商）算力不足，请重试。错误码：52912', status: 529 },
   E013: { message: 'Invalid API key', status: 401 },
-  E014: { message: '模型供应商（上游服务商）算力不足，请重试。若持续报错，建议临时切换其他模型继续任务。错误码：42914', status: 429 },
+  E014: {
+    message:
+      '模型供应商（上游服务商）算力不足，请重试。若持续报错，建议临时切换其他模型继续任务。错误码：42914',
+    status: 429
+  },
   E015: { message: 'Internal server error', status: 500 },
-  E016: { message: '当前请求上下文过长，请切换支持较长上下文的模型后重试或开启新会话', status: 413 },
+  E016: {
+    message: '当前请求上下文过长，请切换支持较长上下文的模型后重试或开启新会话',
+    status: 413
+  },
   E017: { message: NO_AVAILABLE_ACCOUNTS_MESSAGE, status: 503 }
 }
 
