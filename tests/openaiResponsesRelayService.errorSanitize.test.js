@@ -149,7 +149,7 @@ describe('openaiResponsesRelayService error sanitizing', () => {
     expect(res.status).toHaveBeenCalledWith(400)
     expect(res.json).toHaveBeenCalledWith({
       error: {
-        message: 'Account temporarily unavailable'
+        message: '模型供应商（上游服务商）算力不足，请重试。错误码：50311'
       }
     })
     expect(webhookService.sendNotification).toHaveBeenCalledWith(
@@ -158,7 +158,7 @@ describe('openaiResponsesRelayService error sanitizing', () => {
         status: 400,
         response: {
           error: {
-            message: 'Account temporarily unavailable'
+            message: '模型供应商（上游服务商）算力不足，请重试。错误码：50311'
           }
         }
       })
@@ -184,7 +184,7 @@ describe('openaiResponsesRelayService error sanitizing', () => {
     expect(res.status).toHaveBeenCalledWith(400)
     expect(res.json).toHaveBeenCalledWith({
       error: {
-        message: 'Account temporarily unavailable',
+        message: '模型供应商（上游服务商）算力不足，请重试。错误码：50311',
         type: 'api_error',
         code: 'ERR_BAD_REQUEST'
       }
@@ -195,7 +195,7 @@ describe('openaiResponsesRelayService error sanitizing', () => {
         status: 400,
         response: {
           error: {
-            message: 'Account temporarily unavailable',
+            message: '模型供应商（上游服务商）算力不足，请重试。错误码：50311',
             type: 'api_error',
             code: 'ERR_BAD_REQUEST'
           }
@@ -221,7 +221,7 @@ describe('openaiResponsesRelayService error sanitizing', () => {
     expect(res.status).toHaveBeenCalledWith(400)
     expect(res.json).toHaveBeenCalledWith({
       error: {
-        message: 'Account temporarily unavailable'
+        message: '模型供应商（上游服务商）算力不足，请重试。错误码：50311'
       }
     })
   })

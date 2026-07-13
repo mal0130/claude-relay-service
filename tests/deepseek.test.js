@@ -1119,7 +1119,7 @@ describe('DeepSeekRelayService — helper methods', () => {
       expect(res.status).toHaveBeenCalledWith(402)
       expect(res.json).toHaveBeenCalledWith({
         error: {
-          message: 'Account temporarily unavailable',
+          message: '模型供应商（上游服务商）算力不足，请重试。错误码：50311',
           code: 'insufficient_balance'
         }
       })

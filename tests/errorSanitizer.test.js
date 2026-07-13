@@ -36,7 +36,7 @@ describe('errorSanitizer account-related interception', () => {
   test('maps ChatGPT account unsupported-model error to account temporarily unavailable', () => {
     const message = "The 'gpt-5.4' model is not supported when using Codex with a ChatGPT account."
 
-    expect(getSafeMessage(message)).toBe('Account temporarily unavailable')
+    expect(getSafeMessage(message)).toBe('模型供应商（上游服务商）算力不足，请重试。错误码：50311')
     expect(mapToErrorCode(message)).toMatchObject({
       code: 'E011',
       status: 503
@@ -45,17 +45,18 @@ describe('errorSanitizer account-related interception', () => {
 
   test('maps expired subscription style errors to account temporarily unavailable', () => {
     expect(getSafeMessage('subscription expired for this account')).toBe(
-      'Account temporarily unavailable'
+      '模型供应商（上游服务商）算力不足，请重试。错误码：50311'
     )
     expect(getSafeMessage('workspace expired, please renew')).toBe(
-      'Account temporarily unavailable'
+      '模型供应商（上游服务商）算力不足，请重试。错误码：50311'
     )
   })
 
   test('maps billing exhaustion style errors to account temporarily unavailable', () => {
-    expect(getSafeMessage('insufficient balance')).toBe('Account temporarily unavailable')
-    expect(getSafeMessage('FREE_QUOTA_EXHAUSTED')).toBe('Account temporarily unavailable')
-    expect(getSafeMessage('BILLING_ISOLATED')).toBe('Account temporarily unavailable')
+    const expected = '模型供应商（上游服务商）算力不足，请重试。错误码：50311'
+    expect(getSafeMessage('insufficient balance')).toBe(expected)
+    expect(getSafeMessage('FREE_QUOTA_EXHAUSTED')).toBe(expected)
+    expect(getSafeMessage('BILLING_ISOLATED')).toBe(expected)
   })
 
   test('maps no available accounts errors to model vendor capacity message', () => {
@@ -83,7 +84,9 @@ describe('errorSanitizer account-related interception', () => {
 
     expect(isAccountQuotaExceededError(429, response)).toBe(true)
     expect(extractAccountQuotaResetAt(response)).toBe('2026-06-28T16:00:00.000Z')
-    expect(getSafeMessage(response)).toBe('Quota exceeded')
+    expect(getSafeMessage(response)).toBe(
+      '模型供应商（上游服务商）算力不足，请重试。若持续报错，建议临时切换其他模型继续任务。错误码：42914'
+    )
     expect(
       isAccountQuotaExceededError(429, {
         error: {
@@ -169,14 +172,16 @@ describe('errorSanitizer account-related interception', () => {
   })
 
   test('keeps generic model errors mapped to model not available', () => {
-    expect(getSafeMessage('requested model not supported by upstream')).toBe('Model not available')
+    expect(getSafeMessage('requested model not supported by upstream')).toBe(
+      '当前模型不可用，请切换其他模型。'
+    )
   })
 
   test('maps envoy upstream reset errors to service temporarily unavailable', () => {
     const message =
       'Service Unavailable: upstream connect error or disconnect/reset before headers. reset reason: connection termination'
 
-    expect(getSafeMessage(message)).toBe('Service temporarily unavailable')
+    expect(getSafeMessage(message)).toBe('模型供应商（上游服务商）算力不足，请重试。错误码：50301')
     expect(mapToErrorCode(message)).toMatchObject({
       code: 'E001',
       status: 503
@@ -240,7 +245,7 @@ describe('upstreamErrorHelper sanitizeErrorForClient', () => {
       )
     ).toEqual({
       error: {
-        message: 'Account temporarily unavailable'
+        message: '模型供应商（上游服务商）算力不足，请重试。错误码：50311'
       }
     })
   })
@@ -255,7 +260,7 @@ describe('upstreamErrorHelper sanitizeErrorForClient', () => {
 
     expect(result).toEqual({
       error: {
-        message: 'Account temporarily unavailable'
+        message: '模型供应商（上游服务商）算力不足，请重试。错误码：50311'
       }
     })
   })
@@ -266,7 +271,7 @@ describe('upstreamErrorHelper sanitizeErrorForClient', () => {
     })
 
     expect(result).toEqual({
-      message: 'Account temporarily unavailable'
+      message: '模型供应商（上游服务商）算力不足，请重试。错误码：50311'
     })
   })
 
@@ -277,7 +282,7 @@ describe('upstreamErrorHelper sanitizeErrorForClient', () => {
 
     expect(result).toEqual({
       error: {
-        message: 'Account temporarily unavailable'
+        message: '模型供应商（上游服务商）算力不足，请重试。错误码：50311'
       }
     })
   })
@@ -285,7 +290,8 @@ describe('upstreamErrorHelper sanitizeErrorForClient', () => {
   test('sanitizes non-object errors by coercing to string', () => {
     expect(sanitizeErrorForClient(429)).toEqual({
       error: {
-        message: 'Rate limit exceeded'
+        message:
+          '模型供应商（上游服务商）算力不足，请重试。若持续报错，建议临时切换其他模型继续任务。错误码：42904'
       }
     })
   })
@@ -301,7 +307,7 @@ describe('upstreamErrorHelper sanitizeErrorForClient', () => {
       })
     ).toEqual({
       error: {
-        message: 'Account temporarily unavailable',
+        message: '模型供应商（上游服务商）算力不足，请重试。错误码：50311',
         code: '401008',
         type: 'insufficient_balance'
       }
@@ -317,7 +323,7 @@ describe('upstreamErrorHelper sanitizeErrorForClient', () => {
       })
     ).toEqual({
       error: {
-        message: 'Service temporarily unavailable'
+        message: '模型供应商（上游服务商）算力不足，请重试。错误码：50301'
       }
     })
   })
