@@ -1345,6 +1345,11 @@ const authenticateApiKey = async (req, res, next) => {
               }
             }
 
+            if (validation.error?.code === 'prefer_ai_fix_pack') {
+              keysToTry.splice(0, keysToTry.length, ...aiFixPacks, ...packages)
+              logger.api('🔄 prefer_ai_fix_pack: trying AI fix packs, then package keys')
+            }
+
             logger.api(`🔄 Total keys to try: ${keysToTry.length}`)
 
             // 逐个验证（复用限制检查逻辑）
