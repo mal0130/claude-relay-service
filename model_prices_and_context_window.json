@@ -1,14 +1,18 @@
 {
   "deepseek-chat": {
-    "cache_read_input_token_cost": 2.8e-8,
-    "input_cost_per_token": 2.8e-7,
+    "cache_read_input_token_cost": 2.8e-9,
+    "input_cost_per_token": 1.4e-7,
     "litellm_provider": "deepseek",
-    "max_input_tokens": 131072,
-    "max_output_tokens": 8192,
-    "max_tokens": 8192,
+    "max_input_tokens": 1048576,
+    "max_output_tokens": 393216,
+    "max_tokens": 393216,
     "mode": "chat",
-    "output_cost_per_token": 4.2e-7,
+    "output_cost_per_token": 2.8e-7,
     "source": "https://api-docs.deepseek.com/quick_start/pricing",
+    "source_zh": "https://api-docs.deepseek.com/zh-cn/quick_start/pricing",
+    "pricing_currency": "USD",
+    "pricing_source": "deepseek_official_docs",
+    "pricing_updated_at": "2026-07-14T22:26:55.128Z",
     "supported_endpoints": [
       "/v1/chat/completions"
     ],
@@ -16,31 +20,40 @@
     "supports_native_streaming": true,
     "supports_parallel_function_calling": true,
     "supports_prompt_caching": true,
+    "supports_reasoning": false,
     "supports_response_schema": true,
     "supports_system_messages": true,
-    "supports_tool_choice": true
+    "supports_tool_choice": true,
+    "compatibility_alias": true,
+    "model_alias_for": "deepseek-v4-flash"
   },
   "deepseek-reasoner": {
-    "cache_read_input_token_cost": 2.8e-8,
-    "input_cost_per_token": 2.8e-7,
+    "cache_read_input_token_cost": 2.8e-9,
+    "input_cost_per_token": 1.4e-7,
     "litellm_provider": "deepseek",
-    "max_input_tokens": 131072,
-    "max_output_tokens": 65536,
-    "max_tokens": 65536,
+    "max_input_tokens": 1048576,
+    "max_output_tokens": 393216,
+    "max_tokens": 393216,
     "mode": "chat",
-    "output_cost_per_token": 4.2e-7,
+    "output_cost_per_token": 2.8e-7,
     "source": "https://api-docs.deepseek.com/quick_start/pricing",
+    "source_zh": "https://api-docs.deepseek.com/zh-cn/quick_start/pricing",
+    "pricing_currency": "USD",
+    "pricing_source": "deepseek_official_docs",
+    "pricing_updated_at": "2026-07-14T22:26:55.128Z",
     "supported_endpoints": [
       "/v1/chat/completions"
     ],
-    "supports_function_calling": false,
+    "supports_function_calling": true,
     "supports_native_streaming": true,
-    "supports_parallel_function_calling": false,
+    "supports_parallel_function_calling": true,
     "supports_prompt_caching": true,
     "supports_reasoning": true,
     "supports_response_schema": true,
     "supports_system_messages": true,
-    "supports_tool_choice": false
+    "supports_tool_choice": true,
+    "compatibility_alias": true,
+    "model_alias_for": "deepseek-v4-flash"
   },
   "deepseek-v3-2-251201": {
     "input_cost_per_token": 0,
@@ -57,54 +70,56 @@
     "supports_tool_choice": true
   },
   "deepseek-v4-flash": {
-    "cache_creation_input_token_cost": 0,
     "cache_read_input_token_cost": 2.8e-9,
     "input_cost_per_token": 1.4e-7,
-    "input_cost_per_token_cache_hit": 2.8e-9,
     "litellm_provider": "deepseek",
-    "max_input_tokens": 1000000,
-    "max_output_tokens": 8192,
-    "max_tokens": 8192,
+    "max_input_tokens": 1048576,
+    "max_output_tokens": 393216,
+    "max_tokens": 393216,
     "mode": "chat",
     "output_cost_per_token": 2.8e-7,
     "source": "https://api-docs.deepseek.com/quick_start/pricing",
+    "source_zh": "https://api-docs.deepseek.com/zh-cn/quick_start/pricing",
+    "pricing_currency": "USD",
+    "pricing_source": "deepseek_official_docs",
+    "pricing_updated_at": "2026-07-14T22:26:55.128Z",
     "supported_endpoints": [
       "/v1/chat/completions"
     ],
-    "supports_assistant_prefill": true,
     "supports_function_calling": true,
     "supports_native_streaming": true,
     "supports_parallel_function_calling": true,
     "supports_prompt_caching": true,
+    "supports_reasoning": true,
     "supports_response_schema": true,
     "supports_system_messages": true,
-    "supports_tool_choice": true,
-    "supports_vision": false
+    "supports_tool_choice": true
   },
   "deepseek-v4-pro": {
-    "cache_creation_input_token_cost": 0,
     "cache_read_input_token_cost": 3.625e-9,
     "input_cost_per_token": 4.35e-7,
-    "input_cost_per_token_cache_hit": 3.625e-9,
     "litellm_provider": "deepseek",
-    "max_input_tokens": 1000000,
-    "max_output_tokens": 8192,
-    "max_tokens": 8192,
+    "max_input_tokens": 1048576,
+    "max_output_tokens": 393216,
+    "max_tokens": 393216,
     "mode": "chat",
     "output_cost_per_token": 8.7e-7,
     "source": "https://api-docs.deepseek.com/quick_start/pricing",
+    "source_zh": "https://api-docs.deepseek.com/zh-cn/quick_start/pricing",
+    "pricing_currency": "USD",
+    "pricing_source": "deepseek_official_docs",
+    "pricing_updated_at": "2026-07-14T22:26:55.128Z",
     "supported_endpoints": [
       "/v1/chat/completions"
     ],
-    "supports_assistant_prefill": true,
     "supports_function_calling": true,
     "supports_native_streaming": true,
     "supports_parallel_function_calling": true,
     "supports_prompt_caching": true,
+    "supports_reasoning": true,
     "supports_response_schema": true,
     "supports_system_messages": true,
-    "supports_tool_choice": true,
-    "supports_vision": false
+    "supports_tool_choice": true
   },
   "glm-5.1": {
     "input_cost_per_token": 8.571428571428571e-7,
@@ -118,7 +133,7 @@
     "source": "https://open.bigmodel.cn/pricing",
     "pricing_currency": "USD",
     "pricing_source": "glm_official_docs",
-    "pricing_updated_at": "2026-07-14T22:15:52.048Z",
+    "pricing_updated_at": "2026-07-14T22:26:57.692Z",
     "supported_endpoints": [
       "/v1/chat/completions"
     ],
@@ -161,7 +176,7 @@
     "source": "https://platform.kimi.ai/docs/pricing/chat-k25",
     "pricing_currency": "USD",
     "pricing_source": "kimi_official_docs",
-    "pricing_updated_at": "2026-07-14T22:16:02.494Z",
+    "pricing_updated_at": "2026-07-14T22:27:08.969Z",
     "supported_endpoints": [
       "/v1/chat/completions"
     ],
@@ -179,7 +194,7 @@
     "source": "https://platform.kimi.ai/docs/pricing/chat-k26",
     "pricing_currency": "USD",
     "pricing_source": "kimi_official_docs",
-    "pricing_updated_at": "2026-07-14T22:16:02.493Z",
+    "pricing_updated_at": "2026-07-14T22:27:08.968Z",
     "supported_endpoints": [
       "/v1/chat/completions"
     ],
@@ -1367,7 +1382,7 @@
     "source": "https://platform.kimi.ai/docs/pricing/chat-v1",
     "pricing_currency": "USD",
     "pricing_source": "kimi_official_docs",
-    "pricing_updated_at": "2026-07-14T22:16:02.494Z",
+    "pricing_updated_at": "2026-07-14T22:27:08.969Z",
     "supported_endpoints": [
       "/v1/chat/completions"
     ],
@@ -1385,7 +1400,7 @@
     "source": "https://platform.kimi.ai/docs/pricing/chat-v1",
     "pricing_currency": "USD",
     "pricing_source": "kimi_official_docs",
-    "pricing_updated_at": "2026-07-14T22:16:02.494Z",
+    "pricing_updated_at": "2026-07-14T22:27:08.969Z",
     "supported_endpoints": [
       "/v1/chat/completions"
     ],
@@ -1403,7 +1418,7 @@
     "source": "https://platform.kimi.ai/docs/pricing/chat-v1",
     "pricing_currency": "USD",
     "pricing_source": "kimi_official_docs",
-    "pricing_updated_at": "2026-07-14T22:16:02.494Z",
+    "pricing_updated_at": "2026-07-14T22:27:08.969Z",
     "supported_endpoints": [
       "/v1/chat/completions"
     ],
@@ -1421,7 +1436,7 @@
     "source": "https://platform.kimi.ai/docs/pricing/chat-v1",
     "pricing_currency": "USD",
     "pricing_source": "kimi_official_docs",
-    "pricing_updated_at": "2026-07-14T22:16:02.494Z",
+    "pricing_updated_at": "2026-07-14T22:27:08.969Z",
     "supported_endpoints": [
       "/v1/chat/completions"
     ],
@@ -1439,7 +1454,7 @@
     "source": "https://platform.kimi.ai/docs/pricing/chat-v1",
     "pricing_currency": "USD",
     "pricing_source": "kimi_official_docs",
-    "pricing_updated_at": "2026-07-14T22:16:02.494Z",
+    "pricing_updated_at": "2026-07-14T22:27:08.969Z",
     "supported_endpoints": [
       "/v1/chat/completions"
     ],
@@ -1457,7 +1472,7 @@
     "source": "https://platform.kimi.ai/docs/pricing/chat-v1",
     "pricing_currency": "USD",
     "pricing_source": "kimi_official_docs",
-    "pricing_updated_at": "2026-07-14T22:16:02.494Z",
+    "pricing_updated_at": "2026-07-14T22:27:08.969Z",
     "supported_endpoints": [
       "/v1/chat/completions"
     ],
