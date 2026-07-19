@@ -12,7 +12,7 @@
     "source_zh": "https://api-docs.deepseek.com/zh-cn/quick_start/pricing",
     "pricing_currency": "USD",
     "pricing_source": "deepseek_official_docs",
-    "pricing_updated_at": "2026-07-19T00:13:29.503Z",
+    "pricing_updated_at": "2026-07-19T01:07:24.677Z",
     "supported_endpoints": [
       "/v1/chat/completions"
     ],
@@ -40,7 +40,7 @@
     "source_zh": "https://api-docs.deepseek.com/zh-cn/quick_start/pricing",
     "pricing_currency": "USD",
     "pricing_source": "deepseek_official_docs",
-    "pricing_updated_at": "2026-07-19T00:13:29.503Z",
+    "pricing_updated_at": "2026-07-19T01:07:24.677Z",
     "supported_endpoints": [
       "/v1/chat/completions"
     ],
@@ -82,7 +82,7 @@
     "source_zh": "https://api-docs.deepseek.com/zh-cn/quick_start/pricing",
     "pricing_currency": "USD",
     "pricing_source": "deepseek_official_docs",
-    "pricing_updated_at": "2026-07-19T00:13:29.503Z",
+    "pricing_updated_at": "2026-07-19T01:07:24.677Z",
     "supported_endpoints": [
       "/v1/chat/completions"
     ],
@@ -108,7 +108,7 @@
     "source_zh": "https://api-docs.deepseek.com/zh-cn/quick_start/pricing",
     "pricing_currency": "USD",
     "pricing_source": "deepseek_official_docs",
-    "pricing_updated_at": "2026-07-19T00:13:29.503Z",
+    "pricing_updated_at": "2026-07-19T01:07:24.677Z",
     "supported_endpoints": [
       "/v1/chat/completions"
     ],
@@ -133,7 +133,7 @@
     "source": "https://open.bigmodel.cn/pricing",
     "pricing_currency": "USD",
     "pricing_source": "glm_official_docs",
-    "pricing_updated_at": "2026-07-19T00:13:31.139Z",
+    "pricing_updated_at": "2026-07-19T01:07:26.294Z",
     "supported_endpoints": [
       "/v1/chat/completions"
     ],
@@ -176,7 +176,7 @@
     "source": "https://platform.kimi.ai/docs/pricing/chat-k25",
     "pricing_currency": "USD",
     "pricing_source": "kimi_official_docs",
-    "pricing_updated_at": "2026-07-19T00:13:51.933Z",
+    "pricing_updated_at": "2026-07-19T01:07:51.382Z",
     "supported_endpoints": [
       "/v1/chat/completions"
     ],
@@ -194,7 +194,7 @@
     "source": "https://platform.kimi.ai/docs/pricing/chat-k26",
     "pricing_currency": "USD",
     "pricing_source": "kimi_official_docs",
-    "pricing_updated_at": "2026-07-19T00:13:51.932Z",
+    "pricing_updated_at": "2026-07-19T01:07:51.380Z",
     "supported_endpoints": [
       "/v1/chat/completions"
     ],
@@ -1382,7 +1382,7 @@
     "source": "https://platform.kimi.ai/docs/pricing/chat-v1",
     "pricing_currency": "USD",
     "pricing_source": "kimi_official_docs",
-    "pricing_updated_at": "2026-07-19T00:13:51.933Z",
+    "pricing_updated_at": "2026-07-19T01:07:51.382Z",
     "supported_endpoints": [
       "/v1/chat/completions"
     ],
@@ -1400,7 +1400,7 @@
     "source": "https://platform.kimi.ai/docs/pricing/chat-v1",
     "pricing_currency": "USD",
     "pricing_source": "kimi_official_docs",
-    "pricing_updated_at": "2026-07-19T00:13:51.933Z",
+    "pricing_updated_at": "2026-07-19T01:07:51.382Z",
     "supported_endpoints": [
       "/v1/chat/completions"
     ],
@@ -1418,7 +1418,7 @@
     "source": "https://platform.kimi.ai/docs/pricing/chat-v1",
     "pricing_currency": "USD",
     "pricing_source": "kimi_official_docs",
-    "pricing_updated_at": "2026-07-19T00:13:51.933Z",
+    "pricing_updated_at": "2026-07-19T01:07:51.382Z",
     "supported_endpoints": [
       "/v1/chat/completions"
     ],
@@ -1436,7 +1436,7 @@
     "source": "https://platform.kimi.ai/docs/pricing/chat-v1",
     "pricing_currency": "USD",
     "pricing_source": "kimi_official_docs",
-    "pricing_updated_at": "2026-07-19T00:13:51.933Z",
+    "pricing_updated_at": "2026-07-19T01:07:51.382Z",
     "supported_endpoints": [
       "/v1/chat/completions"
     ],
@@ -1454,7 +1454,7 @@
     "source": "https://platform.kimi.ai/docs/pricing/chat-v1",
     "pricing_currency": "USD",
     "pricing_source": "kimi_official_docs",
-    "pricing_updated_at": "2026-07-19T00:13:51.933Z",
+    "pricing_updated_at": "2026-07-19T01:07:51.382Z",
     "supported_endpoints": [
       "/v1/chat/completions"
     ],
@@ -1472,7 +1472,7 @@
     "source": "https://platform.kimi.ai/docs/pricing/chat-v1",
     "pricing_currency": "USD",
     "pricing_source": "kimi_official_docs",
-    "pricing_updated_at": "2026-07-19T00:13:51.933Z",
+    "pricing_updated_at": "2026-07-19T01:07:51.382Z",
     "supported_endpoints": [
       "/v1/chat/completions"
     ],
@@ -1554,6 +1554,7 @@
     "max_tokens": 32000,
     "mode": "chat",
     "output_cost_per_token": 0.000075,
+    "prompt_cache_min_tokens": 1024,
     "search_context_cost_per_query": {
       "search_context_size_high": 0.01,
       "search_context_size_low": 0.01,
@@ -1584,6 +1585,7 @@
     "mode": "chat",
     "output_cost_per_token": 0.000015,
     "output_cost_per_token_above_200k_tokens": 0.0000225,
+    "prompt_cache_min_tokens": 1024,
     "search_context_cost_per_query": {
       "search_context_size_high": 0.01,
       "search_context_size_low": 0.01,
@@ -1611,6 +1613,7 @@
     "max_tokens": 128000,
     "mode": "chat",
     "output_cost_per_token": 0.00005,
+    "prompt_cache_min_tokens": 512,
     "provider_specific_entry": {
       "fast": 6,
       "us": 1.1
@@ -1648,6 +1651,7 @@
     "max_tokens": 64000,
     "mode": "chat",
     "output_cost_per_token": 0.000005,
+    "prompt_cache_min_tokens": 4096,
     "supports_assistant_prefill": true,
     "supports_computer_use": true,
     "supports_function_calling": true,
@@ -1669,6 +1673,7 @@
     "max_tokens": 64000,
     "mode": "chat",
     "output_cost_per_token": 0.000005,
+    "prompt_cache_min_tokens": 4096,
     "supports_assistant_prefill": true,
     "supports_computer_use": true,
     "supports_function_calling": true,
@@ -1726,6 +1731,7 @@
     "max_tokens": 32000,
     "mode": "chat",
     "output_cost_per_token": 0.000075,
+    "prompt_cache_min_tokens": 1024,
     "search_context_cost_per_query": {
       "search_context_size_high": 0.01,
       "search_context_size_low": 0.01,
@@ -1754,6 +1760,7 @@
     "max_tokens": 32000,
     "mode": "chat",
     "output_cost_per_token": 0.000075,
+    "prompt_cache_min_tokens": 1024,
     "search_context_cost_per_query": {
       "search_context_size_high": 0.01,
       "search_context_size_low": 0.01,
@@ -1782,6 +1789,7 @@
     "max_tokens": 32000,
     "mode": "chat",
     "output_cost_per_token": 0.000075,
+    "prompt_cache_min_tokens": 1024,
     "search_context_cost_per_query": {
       "search_context_size_high": 0.01,
       "search_context_size_low": 0.01,
@@ -1808,6 +1816,7 @@
     "max_tokens": 64000,
     "mode": "chat",
     "output_cost_per_token": 0.000025,
+    "prompt_cache_min_tokens": 4096,
     "search_context_cost_per_query": {
       "search_context_size_high": 0.01,
       "search_context_size_low": 0.01,
@@ -1836,6 +1845,7 @@
     "max_tokens": 64000,
     "mode": "chat",
     "output_cost_per_token": 0.000025,
+    "prompt_cache_min_tokens": 4096,
     "search_context_cost_per_query": {
       "search_context_size_high": 0.01,
       "search_context_size_low": 0.01,
@@ -1864,6 +1874,7 @@
     "max_tokens": 128000,
     "mode": "chat",
     "output_cost_per_token": 0.000025,
+    "prompt_cache_min_tokens": 4096,
     "provider_specific_entry": {
       "fast": 6,
       "us": 1.1
@@ -1899,6 +1910,7 @@
     "max_tokens": 128000,
     "mode": "chat",
     "output_cost_per_token": 0.000025,
+    "prompt_cache_min_tokens": 4096,
     "provider_specific_entry": {
       "fast": 6,
       "us": 1.1
@@ -1934,6 +1946,7 @@
     "max_tokens": 128000,
     "mode": "chat",
     "output_cost_per_token": 0.000025,
+    "prompt_cache_min_tokens": 4096,
     "provider_specific_entry": {
       "fast": 6,
       "us": 1.1
@@ -1969,6 +1982,7 @@
     "max_tokens": 128000,
     "mode": "chat",
     "output_cost_per_token": 0.000025,
+    "prompt_cache_min_tokens": 2048,
     "provider_specific_entry": {
       "fast": 6,
       "us": 1.1
@@ -2006,6 +2020,7 @@
     "max_tokens": 128000,
     "mode": "chat",
     "output_cost_per_token": 0.000025,
+    "prompt_cache_min_tokens": 2048,
     "provider_specific_entry": {
       "fast": 6,
       "us": 1.1
@@ -2043,6 +2058,7 @@
     "max_tokens": 128000,
     "mode": "chat",
     "output_cost_per_token": 0.000025,
+    "prompt_cache_min_tokens": 2048,
     "provider_specific_entry": {
       "fast": 6,
       "us": 1.1
@@ -2085,6 +2101,7 @@
     "mode": "chat",
     "output_cost_per_token": 0.000015,
     "output_cost_per_token_above_200k_tokens": 0.0000225,
+    "prompt_cache_min_tokens": 1024,
     "search_context_cost_per_query": {
       "search_context_size_high": 0.01,
       "search_context_size_low": 0.01,
@@ -2116,6 +2133,7 @@
     "mode": "chat",
     "output_cost_per_token": 0.000015,
     "output_cost_per_token_above_200k_tokens": 0.0000225,
+    "prompt_cache_min_tokens": 1024,
     "search_context_cost_per_query": {
       "search_context_size_high": 0.01,
       "search_context_size_low": 0.01,
@@ -2148,6 +2166,7 @@
     "mode": "chat",
     "output_cost_per_token": 0.000015,
     "output_cost_per_token_above_200k_tokens": 0.0000225,
+    "prompt_cache_min_tokens": 1024,
     "search_context_cost_per_query": {
       "search_context_size_high": 0.01,
       "search_context_size_low": 0.01,
@@ -2181,6 +2200,7 @@
     "mode": "chat",
     "output_cost_per_token": 0.000015,
     "output_cost_per_token_above_200k_tokens": 0.0000225,
+    "prompt_cache_min_tokens": 1024,
     "supports_assistant_prefill": true,
     "supports_computer_use": true,
     "supports_function_calling": true,
@@ -2203,6 +2223,7 @@
     "max_tokens": 64000,
     "mode": "chat",
     "output_cost_per_token": 0.000015,
+    "prompt_cache_min_tokens": 1024,
     "search_context_cost_per_query": {
       "search_context_size_high": 0.01,
       "search_context_size_low": 0.01,
@@ -2234,6 +2255,7 @@
     "max_tokens": 128000,
     "mode": "chat",
     "output_cost_per_token": 0.00001,
+    "prompt_cache_min_tokens": 1024,
     "provider_specific_entry": {
       "us": 1.1
     },
